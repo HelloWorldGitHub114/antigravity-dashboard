@@ -35,7 +35,7 @@ Model colors are generated from the current host accent and actual background. A
 
 The new `usage-v1` directory is separate from `history-v1` (latest conversation statistics). It retains request time, model, Token counters and hashed request identities for historical accumulation, isolated by hashed account and conversation identifiers. It does not retain prompts, replies, account emails or credentials.
 
-For the IDE it lives in `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/usage-v1` under the IDE profile. Desktop history is not copied or mixed into IDE totals.
+For the IDE it lives in `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1` under the IDE profile (if migrating from an earlier upstream build under `you-should-know-me.antigrative-dashboard-ide`, see `ide/README.md` for manual data migration). Desktop history is not copied or mixed into IDE totals.
 
 Deleting `usage-v1` clears this ledger, but available local trajectories will be backfilled again while the plugin is enabled. Files are written atomically; incomplete fetches do not remove previously saved requests. Unreadable files are reported and preserved.
 

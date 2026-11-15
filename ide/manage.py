@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-IDENTITY = 'you-should-know-me.antigrative-dashboard-ide'
+IDENTITY = 'shzbz.antigrative-dashboard-ide'
 DEBUG_ARGS = ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1']
 
 

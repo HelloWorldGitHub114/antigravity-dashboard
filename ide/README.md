@@ -89,13 +89,15 @@ Only recent health records are treated as current. Disable
 `antigrativeDashboard.ide.enabled` or uninstall the VSIX to stop the integration.
 Updates keep the extension identity, language preference and saved statistics.
 
-Data lives under the IDE's `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/`:
+Data lives under the IDE's `User/globalStorage/shzbz.antigrative-dashboard-ide/`:
 
 | System | Default base directory |
 | --- | --- |
 | Windows | `%APPDATA%\Antigravity IDE` |
 | Linux | `${XDG_CONFIG_HOME:-~/.config}/Antigravity IDE` |
 | macOS | `~/Library/Application Support/Antigravity IDE` |
+
+> **Migrating from upstream `you-should-know-me.antigrative-dashboard-ide`:** Starting with the `shzbz` publisher VSIX, the extension ID and default storage directory changed from `you-should-know-me.antigrative-dashboard-ide` to `shzbz.antigrative-dashboard-ide`. To keep existing statistics and preferences, fully quit the IDE, copy `history-v1/`, `usage-v1/`, and `preferences.json` from `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/` into `User/globalStorage/shzbz.antigrative-dashboard-ide/`, and uninstall the old `you-should-know-me.antigrative-dashboard-ide` extension before relaunching.
 
 Only whitelisted numeric statistics and settings are persisted, not messages,
 titles or credentials. Each conversation has an updated aggregate snapshot;
@@ -128,5 +130,8 @@ use the default profile. It is distributed on GitHub, not an editor marketplace.
 普通启动方式未开启连接端口时，插件无法挂载。更新后继续使用带参数的快捷方式。
 
 窄栏显示三个图标，拉宽后显示数值；语言入口仍在上下文详情底部。
+数据保存在 `User/globalStorage/shzbz.antigrative-dashboard-ide/`。若从原上游
+`you-should-know-me.antigrative-dashboard-ide` 迁移，请先完整退出 IDE，将旧目录下的
+`history-v1/`、`usage-v1/` 与 `preferences.json` 手动复制到新目录，并卸载旧版扩展避免冲突。
 Windows IDE 2.5.5 已实机测试，Linux/macOS 的 IDE 登录界面尚待实机确认。
 VS Code、Visual Studio、JetBrains、Zed、Xcode 中的 Antigravity 扩展目前尚未适配。

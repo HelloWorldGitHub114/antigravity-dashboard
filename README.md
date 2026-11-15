@@ -16,6 +16,9 @@ Keep the summary visible. Hover for the details.
 
 </div>
 
+> [!NOTE]
+> **Independent Continuation Fork:** This repository is an independent continuation fork based on `v0.8.7` of the MIT-licensed open-source project `antigrative-dashboard` (`Copyright (c) 2026 AG Pulse contributors`; the original upstream repository has been deleted by its author). Releases from **v0.8.8 onward** are independently developed and maintained by this repository (`ShZbz/antigravity-dashboard`), with no affiliation with or endorsement from the original authors.
+
 **v0.10.1:** Fix live sidecar and Teamwork subagent capture (`invokeSubagentSpec`, transitive multi-level descendants, root `taskUsage` inheritance) and add simple/detailed model grouping with expandable per-variant rows in Token usage breakdown. [Release notes](CHANGELOG.md).
 
 **v0.9.0 – v0.10.0:** Add Cloud Remote Agent support with tiered tail loading and incremental slicing, hybrid Orchestrator identity and multi-model donut rings, opt-in structural call timeline trees (`modelTimelineEnabled`), multi-account isolation & viewing (`All Accounts`, `By Model` / `By User`, manual remote-project entries), 24-hour trend line charts, custom date ranges, single-bar drilldown, and hierarchical subagent context/status trees.
@@ -229,11 +232,14 @@ The first-use introduction explains history import, coverage and privacy. **Got 
 
 Available local conversations are imported on startup and checked every 60 seconds. New completed requests are recorded during normal polling, and remote/mobile sessions can also be logged manually. The local `usage-v1` ledger enforces per-account conversation ownership (`ownership-v1.json`) and deduplicates requests per account, keeping only time, model, Token counters and hashed identifiers; no prompts, replies or credentials. You can inspect individual accounts or switch to **All Accounts (Aggregated)**. Desktop and IDE have separate ledgers. Deleting a chat does not subtract usage already recorded. This is observed local usage, not a provider bill; missing/deleted historical data may leave gaps. Days/months use UTC+8 and weeks start Monday.
 
-Desktop: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/` (the host may override the data directory). IDE: `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/usage-v1/` under its profile. Stop the plugin before deleting its ledger; available conversations will be imported again when it restarts. `history-v1` remains the separate latest-per-conversation statistics store. [Accounting, cleanup and limitations](docs/USAGE.md).
+Desktop: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/` (the host may override the data directory). IDE: `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/` under its profile (see `ide/README.md` if migrating from `you-should-know-me.antigrative-dashboard-ide`). Stop the plugin before deleting its ledger; available conversations will be imported again when it restarts. `history-v1` remains the separate latest-per-conversation statistics store. [Accounting, cleanup and limitations](docs/USAGE.md).
 
 ## Compatibility
 
 Desktop verified on **Windows 11 / Antigravity App 2.21.1 and 2.22.0**, including real context readings and the combined hover card. A separate VSIX supports standalone Antigravity IDE 2.5.5 on Windows. Other editor extensions and DSH are unsupported. Linux/macOS have automated checks; full signed-in desktop/IDE GUI verification is still open. See COMPATIBILITY.md.
+
+> **Verification & Asset Attribution:** The `v0.8.0` preview illustrations above and the `v0.8.7` and earlier baseline verification records in [COMPATIBILITY.md](COMPATIBILITY.md) originate from the original upstream project (`AG Pulse contributors`). Features introduced in `v0.8.8+` (including Cloud Remote Agent support, multi-model rings, timeline trees, multi-account isolation, and Teamwork/model-grouping updates) are independently verified by the current maintainer (`ShZbz`).
+
 Repository presentation is inspired by [DSH Rail Music](https://github.com/YOU-SHOULD-KNOW-ME/dsh-rail-music); installation APIs differ. `dsh plugin add` cannot install this project.
 
 [Full compatibility and recovery details →](COMPATIBILITY.md)

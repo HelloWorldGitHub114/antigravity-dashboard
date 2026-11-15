@@ -113,3 +113,13 @@ class IdeTests(unittest.TestCase):
             calls = []
             manager.manage('uninstall', executable, run=lambda args, **kw: calls.append(args))
             self.assertEqual(calls[0][-2:], ['--uninstall-extension', manager.IDENTITY])
+
+    def test_ide_publisher_identity_is_consistent(self):
+        package = json.loads((ROOT / 'ide/package.json').read_text(encoding='utf-8'))
+        self.assertEqual(package['publisher'], 'shzbz')
+        expected_identity = f"{package['publisher']}.{package['name']}"
+        self.assertEqual(expected_identity, 'shzbz.antigrative-dashboard-ide')
+        self.assertEqual(manager.IDENTITY, expected_identity)
+        main_mjs = (ROOT / 'ide/main.mjs').read_text(encoding='utf-8')
+        self.assertIn(expected_identity, main_mjs)
+        self.assertNotIn('you-should-know-me', main_mjs)

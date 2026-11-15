@@ -91,6 +91,12 @@
 - Add duplicate plugin detection and guard in `manage.py` to prevent sibling backup folders (`antigravity-pulse-backup-*`) from hijacking the sidecar owner.
 - Bump version to 0.8.9 across desktop, IDE, and lifecycle packages.
 
+---
+
+## Upstream History (v0.8.7 and earlier — AG Pulse contributors)
+
+> Entries below (`v0.8.7 patch` and earlier) originate from the upstream MIT-licensed `antigrative-dashboard` project by **AG Pulse contributors**. The original upstream repository has been deleted by its author; links to upstream issues and pull requests below are retained for historical archive reference only. Releases from **v0.8.8+** (`0.8.9` and newer above) are independently maintained and updated in this continuation repository (`ShZbz/antigravity-dashboard`).
+
 ## 0.8.7 patch — 2026-10-15
 
 - Show measured download bytes and percentage in App updates. Use animated phase feedback for checking, verification, extraction, backup and installation; settle smoothly on completion and follow the host theme. A completed check does not animate backwards into a new download, and only the glyph rotates inside its stable icon surface.

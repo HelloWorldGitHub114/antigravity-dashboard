@@ -13,7 +13,7 @@ import {ideTargets} from './runtime.mjs';
 const root=join(dirname(fileURLToPath(import.meta.url)),'..');
 const profile=process.env.AG_PULSE_IDE_PROFILE;
 if(!profile)throw Error('IDE profile is required');
-const data=process.env.AG_PULSE_IDE_DATA||join(profile,'User','globalStorage','you-should-know-me.antigrative-dashboard-ide');
+const data=process.env.AG_PULSE_IDE_DATA||join(profile,'User','globalStorage','shzbz.antigrative-dashboard-ide');
 let debugPort=0;
 const client=new IdeClient({profile,debugPort:()=>debugPort});
 const store=new MetricsStore(client,{dataDir:data,owns:()=>ownership.isOwner(),history:new SessionHistory(join(data,'history-v1')),transcripts:new TranscriptReader({root:transcriptBrainRoot('ide')})});

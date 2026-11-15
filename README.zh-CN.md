@@ -16,6 +16,9 @@
 
 </div>
 
+> [!NOTE]
+> **独立接续维护声明（Independent Continuation Fork）：** 本仓库基于原 MIT 协议开源项目 `antigrative-dashboard`（`Copyright (c) 2026 AG Pulse contributors`，原上游仓库已被作者删除）的 `v0.8.7` 版本独立接续维护。**`v0.8.8` 及之后版本**由当前仓库（`ShZbz/antigravity-dashboard`）独立开发与维护，与原作者不存在从属、合作或背书关系。
+
 **v0.10.1 更新：** 修复实时 sidecar 与 Teamwork 子代理捕获（`invokeSubagentSpec`、多级子代理传递解析、根任务 `taskUsage` 继承），并在用量统计明细中新增「简易 / 详细」模型分组与可展开变体明细行。[更新说明](CHANGELOG.md)。
 
 **v0.9.0 – v0.10.0：** 新增云端 Remote Agent 会话支持（尾部窗口冷读与增量切片）、混合 Orchestrator 身份与多模型环形占比图、可选结构化调用时间线树（`modelTimelineEnabled`，默认关闭）、多账号严格隔离与切换查看（`全部账号`、`按模型 / 按用户` 维度、远程项目手动录入）、24 小时趋势折线图、自定义日期范围、单柱下钻以及多层子代理上下文占用环与状态树。
@@ -232,13 +235,16 @@ Antigravity 的 `inputTokens` 是未缓存输入。缓存率 = 缓存读取 ÷�
 
 启动时汇总当前账号可读取的本地历史对话，此后每 60 秒检查历史；新完成请求随正常轮询记录，也支持手动录入远程 / 移动端项目消耗。独立的 `usage-v1` 用量账本通过 `ownership-v1.json` 严格按账号隔离归属并去重，只保存时间、模型、Token 计数和哈希标识，不保存正文、回复或凭据；支持查看单账号或切换「全部账号汇总」。桌面与 IDE 账本独立。删除对话不会扣除已记录用量；这是本地已观察到的消耗，不是供应商账单，缺失或已删除的历史可能无法补齐。天、月按 UTC+8 划分，周一开始一周。
 
-桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`（宿主可覆盖数据目录）。IDE 路径：其用户目录下的 `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/usage-v1/`。清理前先停用插件；再次启用后，仍可读取的对话会重新导入。`history-v1` 继续单独保存每个对话最新的统计快照。[统计口径、清理和边界](docs/USAGE.md)。
+桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`（宿主可覆盖数据目录）。IDE 路径：其用户目录下的 `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`（从旧版 `you-should-know-me.antigrative-dashboard-ide` 迁移请参阅 `ide/README.md`）。清理前先停用插件；再次启用后，仍可读取的对话会重新导入。`history-v1` 继续单独保存每个对话最新的统计快照。[统计口径、清理和边界](docs/USAGE.md)。
 
 ## 兼容性
 
 当前实机验证：**Windows 11 / Antigravity App 2.21.1、2.22.0**；2.22.0 的真实上下文读取和合并悬浮卡已验收。Linux/macOS 的完整登录界面仍需用户实机验证，自动化覆盖范围见兼容性文档。
 
 独立 Antigravity IDE 2.5.5 提供单独 VSIX，Windows 已实机验证。其他编辑器扩展和 DSH 暂不支持。Linux/macOS 桌面版已适配原生路径、后台发现和 shell 安装器；IDE 有自动化覆盖，完整登录界面仍待实机验收，详见兼容性文档。
+
+> **验证与素材说明：** 上方沿用的 `v0.8.0` 示意图及 [COMPATIBILITY.md](COMPATIBILITY.md) 中 `v0.8.7` 及以前的基线验证描述均源自原上游项目（`AG Pulse contributors`）；`v0.8.8+` 新增特性（如云端 Remote Agent 支持、多模型占比环、调用时间线树、多账号隔离及 Teamwork／模型分组更新等）由当前维护者（`ShZbz`）独立验证。
+
 参考 DSH Rail Music 的项目组织与文档风格，但安装接口不同，不能使用 `dsh plugin add` 安装 Antigrative Dashboard。
 
 [完整边界与更新策略 →](COMPATIBILITY.md)

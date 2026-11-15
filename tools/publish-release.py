@@ -43,7 +43,7 @@ def checked_assets(root, tag):
         raise ValueError('IDE package checksum mismatch')
     with zipfile.ZipFile(ide) as archive:
         package = json.loads(archive.read('extension/package.json'))
-        if package['version'] != version or package['name'] != 'antigrative-dashboard-ide':
+        if package['version'] != version or package['name'] != 'antigrative-dashboard-ide' or package.get('publisher') != 'shzbz':
             raise ValueError('Packaged IDE identity/version differs')
         for name in ['extension/ide/extension.cjs', 'extension/ide/host.cjs', 'extension/ide/main.mjs',
                      'extension/ide/surface.cjs', 'extension/ide/manage.py', 'extension/compat/inline-widget.cjs',
