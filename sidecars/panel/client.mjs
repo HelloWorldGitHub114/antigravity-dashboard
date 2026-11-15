@@ -169,7 +169,7 @@ export class AntigravityClient {
           headers: { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'x-codeium-csrf-token': server.csrf, 'Content-Length': Buffer.byteLength(data) } }, res => {
           const projected=projection?new TrajectoryJson({ modelTimelineEnabled: timelineEnabled }):null;
           let text = '',bytes=0,failed=false;
-          const fail=error=>{if(failed)return;failed=true;req.destroy(error);};
+          const fail=error=>{if(failed)return;failed=true;req.destroy(error);reject(error);};
           res.setEncoding('utf8');
           res.on('error',error=>{if(!failed)reject(error);});
           res.on('data', chunk => {
@@ -192,9 +192,10 @@ export class AntigravityClient {
           });
         });
         req.on('error', reject);
-        req.setTimeout(12000, () => req.destroy(new Error('Antigravity 本地接口超时')));
+        const abortTimeout=()=>{const err=new Error('Antigravity 本地接口超时');req.destroy(err);reject(err);};
+        req.setTimeout(12000, abortTimeout);
         // Bound wall time as well as idle time for slow large streams.
-        const deadline=setTimeout(()=>req.destroy(new Error('Antigravity 本地接口超时')),30000);deadline.unref();
+        const deadline=setTimeout(abortTimeout,30000);deadline.unref();
         req.once('close',()=>clearTimeout(deadline));
         req.end(data);
       });
