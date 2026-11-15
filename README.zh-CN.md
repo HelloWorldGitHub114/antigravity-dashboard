@@ -7,7 +7,7 @@
 模型选择旁只显示生成速率、缓存和上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
 缩略信息常驻；鼠标悬停，才展开详细统计。
 
-[![Version 0.8.7](https://img.shields.io/badge/version-0.8.7-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.10.1](https://img.shields.io/badge/version-0.10.1-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -16,9 +16,9 @@
 
 </div>
 
-**v0.8.7 补丁：** 新增 App 更新进度条并优化用量页启动。安装包已刷新、版本号不变；已安装 v0.8.7 的用户请手动重装补丁包。
+**v0.10.1 更新：** 修复实时 sidecar 与 Teamwork 子代理捕获（`invokeSubagentSpec`、多级子代理传递解析、根任务 `taskUsage` 继承），并在用量统计明细中新增「简易 / 详细」模型分组与可展开变体明细行。[更新说明](CHANGELOG.md)。
 
-**v0.8.7 更新：** 补齐可读取的历史 Token 用量，支持完整分页、失败重试和进度恢复；修复长对话中用量窗口开关卡顿，并加入经过加固的 App 手动更新。保留年度热力图和现有图表。[更新说明](CHANGELOG.md)。
+**v0.9.0 – v0.10.0：** 新增云端 Remote Agent 会话支持（尾部窗口冷读与增量切片）、混合 Orchestrator 身份与多模型环形占比图、可选结构化调用时间线树（`modelTimelineEnabled`，默认关闭）、多账号严格隔离与切换查看（`全部账号`、`按模型 / 按用户` 维度、远程项目手动录入）、24 小时趋势折线图、自定义日期范围、单柱下钻以及多层子代理上下文占用环与状态树。
 
 ## 看看效果
 
@@ -65,8 +65,8 @@
 
 ## Antigravity IDE
 
-**v0.7.0** 新增反重力自己的独立 IDE 适配。下载发布页的
-`antigrative-dashboard-ide-0.8.7.vsix`，在 IDE 扩展页选择「从 VSIX 安装」。
+**v0.7.0+** 新增反重力自己的独立 IDE 适配。下载发布页的
+`antigrative-dashboard-ide-0.10.1.vsix`，在 IDE 扩展页选择「从 VSIX 安装」。
 仅安装 IDE 的用户也可以使用，无需先装桌面 App。
 
 完全退出 IDE 后，使用带
@@ -103,7 +103,7 @@ Linux / macOS 使用 `python3 manage.py install` 或 `sh install.sh`，启停和
 
 ```powershell
 git clone https://github.com/ShZbz/antigravity-dashboard.git
-cd antigrative-dashboard
+cd antigravity-dashboard
 python manage.py install
 ```
 
@@ -226,11 +226,11 @@ Antigravity 的 `inputTokens` 是未缓存输入。缓存率 = 缓存读取 ÷�
 
 ## 本地 Token 用量统计
 
-打开缓存 / 数据库图标，点击「查看用量统计」。入口以两列展示今日和本月用量；活动概览提供每日 / 每周贡献图，用量详情提供按模型区分的天、周、月柱状图。模型颜色跟随实际主题和强调色；K/M/B 摘要最多显示一位小数，表格与提示保留完整数值。
+打开缓存 / 数据库图标，点击「查看用量统计」。入口以两列展示今日和本月用量；活动概览提供每日 / 每周贡献图以及 24 小时交互式趋势折线图，用量详情提供按模型或按用户切换的天、周、月及自定义日期范围柱状图，支持单柱下钻与「简易 / 详细」模型分组。模型颜色跟随实际主题和强调色；K/M/B 摘要最多显示一位小数，表格与提示保留完整数值。
 
 首次使用提示说明历史导入、统计范围与隐私。点击「知道了」后保存完成状态，重启、换语言、换主题都不会重复弹出。直接关闭窗口则保留提示；保存失败可以重试。
 
-启动时汇总当前账号可读取的本地历史对话，此后每 60 秒检查历史；新完成请求随正常轮询记录。独立的 `usage-v1` 用量账本按账号去重，只保存时间、模型、Token 计数和哈希标识，不保存正文、回复或凭据。桌面与 IDE 账本独立。删除对话不会扣除已记录用量；这是本地已观察到的消耗，不是供应商账单，缺失或已删除的历史可能无法补齐。天、月按 UTC+8 划分，周一开始一周。
+启动时汇总当前账号可读取的本地历史对话，此后每 60 秒检查历史；新完成请求随正常轮询记录，也支持手动录入远程 / 移动端项目消耗。独立的 `usage-v1` 用量账本通过 `ownership-v1.json` 严格按账号隔离归属并去重，只保存时间、模型、Token 计数和哈希标识，不保存正文、回复或凭据；支持查看单账号或切换「全部账号汇总」。桌面与 IDE 账本独立。删除对话不会扣除已记录用量；这是本地已观察到的消耗，不是供应商账单，缺失或已删除的历史可能无法补齐。天、月按 UTC+8 划分，周一开始一周。
 
 桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`（宿主可覆盖数据目录）。IDE 路径：其用户目录下的 `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/usage-v1/`。清理前先停用插件；再次启用后，仍可读取的对话会重新导入。`history-v1` 继续单独保存每个对话最新的统计快照。[统计口径、清理和边界](docs/USAGE.md)。
 

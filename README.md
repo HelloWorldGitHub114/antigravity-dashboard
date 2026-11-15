@@ -7,7 +7,7 @@
 Token throughput, cache hits and context usage in the model selector row. Hover over context for five-hour and weekly quotas too.<br>
 Keep the summary visible. Hover for the details.
 
-[![Version 0.8.7](https://img.shields.io/badge/version-0.8.7-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.10.1](https://img.shields.io/badge/version-0.10.1-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -16,9 +16,9 @@ Keep the summary visible. Hover for the details.
 
 </div>
 
-**v0.8.7 patch:** Add measured App update progress and faster usage startup; refreshed packages keep the same version and require manual reinstall for existing v0.8.7 users.
+**v0.10.1:** Fix live sidecar and Teamwork subagent capture (`invokeSubagentSpec`, transitive multi-level descendants, root `taskUsage` inheritance) and add simple/detailed model grouping with expandable per-variant rows in Token usage breakdown. [Release notes](CHANGELOG.md).
 
-**v0.8.7:** Recover readable historical Token usage with complete pagination and retry checkpoints, remove long-chat usage-window stalls, and add hardened manual App updates. Annual heatmaps and current charts stay in place. [Release notes](CHANGELOG.md).
+**v0.9.0 – v0.10.0:** Add Cloud Remote Agent support with tiered tail loading and incremental slicing, hybrid Orchestrator identity and multi-model donut rings, opt-in structural call timeline trees (`modelTimelineEnabled`), multi-account isolation & viewing (`All Accounts`, `By Model` / `By User`, manual remote-project entries), 24-hour trend line charts, custom date ranges, single-bar drilldown, and hierarchical subagent context/status trees.
 
 ## Preview
 
@@ -69,8 +69,8 @@ Keep the summary visible. Hover for the details.
 
 ## Antigravity IDE
 
-**v0.7.0** adds a separate VSIX for Google's own standalone IDE. Download
-`antigrative-dashboard-ide-0.8.7.vsix` from the release and choose **Install from VSIX…**
+**v0.7.0+** includes a separate VSIX for Google's own standalone IDE. Download
+`antigrative-dashboard-ide-0.10.1.vsix` from the release and choose **Install from VSIX…**
 in the IDE's Extensions view. No desktop App installation is required.
 
 Fully quit the IDE, then start it with
@@ -223,11 +223,11 @@ Statistics use separate step and generator-metadata offset reads, with messages 
 
 ## Local Token usage
 
-Open the cache/database icon, then **View token usage**. Today and this month share a compact two-column entry. Activity shows daily/weekly contribution grids; Usage details shows model stacks by day, week or month. Chart colors follow your actual theme and accent; K/M/B summaries use at most one decimal, while tables/tooltips retain full counts.
+Open the cache/database icon, then **View token usage**. Today and this month share a compact two-column entry. Activity shows daily/weekly contribution grids and an interactive 24-hour trend line; Usage details shows model or per-user stacks by day, week, month, or custom date range with single-bar drilldown and Simple/Detailed model grouping. Chart colors follow your actual theme and accent; K/M/B summaries use at most one decimal, while tables/tooltips retain full counts.
 
 The first-use introduction explains history import, coverage and privacy. **Got it** saves completion across restarts, language changes and theme changes. Closing the window without acknowledgment keeps the tip for next time; a failed save can be retried.
 
-Available local conversations are imported on startup and checked every 60 seconds. New completed requests are recorded during normal polling. The local `usage-v1` ledger deduplicates requests per account and keeps only time, model, Token counters and hashed identifiers; no prompts, replies or credentials. Desktop and IDE have separate ledgers. Deleting a chat does not subtract usage already recorded. This is observed local usage, not a provider bill; missing/deleted historical data may leave gaps. Days/months use UTC+8 and weeks start Monday.
+Available local conversations are imported on startup and checked every 60 seconds. New completed requests are recorded during normal polling, and remote/mobile sessions can also be logged manually. The local `usage-v1` ledger enforces per-account conversation ownership (`ownership-v1.json`) and deduplicates requests per account, keeping only time, model, Token counters and hashed identifiers; no prompts, replies or credentials. You can inspect individual accounts or switch to **All Accounts (Aggregated)**. Desktop and IDE have separate ledgers. Deleting a chat does not subtract usage already recorded. This is observed local usage, not a provider bill; missing/deleted historical data may leave gaps. Days/months use UTC+8 and weeks start Monday.
 
 Desktop: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/` (the host may override the data directory). IDE: `User/globalStorage/you-should-know-me.antigrative-dashboard-ide/usage-v1/` under its profile. Stop the plugin before deleting its ledger; available conversations will be imported again when it restarts. `history-v1` remains the separate latest-per-conversation statistics store. [Accounting, cleanup and limitations](docs/USAGE.md).
 
