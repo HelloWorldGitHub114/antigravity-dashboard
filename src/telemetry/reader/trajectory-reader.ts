@@ -1,0 +1,277 @@
+import { readRemoteTrajectory, scheduleRemoteBackfill } from './remote-reader.ts';
+import { extractPlanModelFromSteps, normalizeRemoteSnapshot, settled, TOOL_STEP, unavailable } from './remote-snapshot.ts';
+
+export { normalizeRemoteSnapshot };
+import type {
+  ProjectedStep,
+  RawGeneratorMetadataLike,
+  RemoteReaderHost,
+  TrajectoryCacheEntry,
+  TrajectoryReaderClient,
+  TrajectoryResult,
+  TrajectorySummaryLike,
+} from './types.ts';
+
+export interface TrajectoryReaderOptions {
+  budgetBytes?: number;
+  idleRecheckMs?: number;
+  modelTimelineEnabled?: boolean;
+}
+
+export interface ReadTrajectoryOptions {
+  summary?: TrajectorySummaryLike;
+  force?: boolean;
+  isCurrent?: () => boolean;
+  modelTimelineEnabled?: boolean;
+}
+
+/**
+ * Bounded-memory incremental reader for local and remote Antigravity trajectories.
+ */
+export class TrajectoryReader implements RemoteReaderHost {
+  // Serialized statistics budget, not transcript/response size. Local resource
+  // experiments cover 1K/8K/32K records; 8 MiB bounds retained objects well below
+  // the 32K-record case (~100 MiB extra heap). See docs/LONG_CONVERSATIONS.md.
+  client: TrajectoryReaderClient;
+  budgetBytes: number;
+  idleRecheckMs: number;
+  modelTimelineEnabled: boolean;
+  entries = new Map<string, TrajectoryCacheEntry>();
+  epoch = 0;
+  endpoint: Record<string, unknown> | null = null;
+  summaries: Record<string, TrajectorySummaryLike> | null = null;
+  summaryAt = -Infinity;
+  summaryPending: Promise<void> | null = null;
+  cachedBytes = 0;
+  onTrajectory?: (id: string, data: TrajectoryResult) => void;
+
+  constructor(
+    client: TrajectoryReaderClient,
+    { budgetBytes = 8 * 1024 * 1024, idleRecheckMs = 10000, modelTimelineEnabled = client?.modelTimelineEnabled === true }: TrajectoryReaderOptions = {},
+  ) {
+    this.client = client;
+    this.budgetBytes = budgetBytes;
+    this.idleRecheckMs = idleRecheckMs;
+    this.modelTimelineEnabled = modelTimelineEnabled === true;
+  }
+
+  setModelTimelineEnabled(enabled: boolean): boolean {
+    this.modelTimelineEnabled = enabled === true;
+    return this.modelTimelineEnabled;
+  }
+
+  isTimelineEnabled(options?: { modelTimelineEnabled?: boolean }): boolean {
+    return (options?.modelTimelineEnabled ?? this.modelTimelineEnabled ?? this.client?.modelTimelineEnabled) === true;
+  }
+
+  callStepRpc<T = Record<string, unknown>>(method: string, body: Record<string, unknown>, wantTimeline: boolean): Promise<T> {
+    const clientTimeline = this.client?.modelTimelineEnabled === true;
+    if (wantTimeline !== clientTimeline) return this.client.call<T>(method, body, true, { modelTimelineEnabled: wantTimeline });
+    return this.client.call<T>(method, body);
+  }
+
+  reset(): void {
+    this.epoch++;
+    this.entries.clear();
+    this.summaries = null;
+    this.summaryAt = -Infinity;
+    this.summaryPending = null;
+    this.cachedBytes = 0;
+  }
+
+  seedSummaries(
+    summaries: Record<string, TrajectorySummaryLike> | null | undefined,
+    at = this.client.now(),
+    endpoint = this.client.server,
+  ): void {
+    if (!summaries || typeof summaries !== 'object') return;
+    if (endpoint) {
+      if (this.endpoint && ['pid', 'port', 'csrf'].some((k) => this.endpoint![k] !== endpoint[k])) return;
+      if (!this.endpoint) this.endpoint = endpoint;
+    }
+    this.summaries = summaries;
+    this.summaryAt = at;
+  }
+
+  trim(keep?: string): void {
+    for (const [key, e] of this.entries) {
+      if (this.cachedBytes <= this.budgetBytes) break;
+      if (key === keep || e.pending) continue;
+      this.cachedBytes -= e.bytes;
+      this.entries.delete(key);
+    }
+  }
+
+  async summary(id: string, provided?: TrajectorySummaryLike, force = false): Promise<TrajectorySummaryLike> {
+    if (provided) return provided;
+    if (force || !this.summaries || this.client.now() - this.summaryAt >= 1800) {
+      if (!this.summaryPending) {
+        const epoch = this.epoch;
+        const pending = this.client
+          .call<{ trajectorySummaries?: Record<string, TrajectorySummaryLike> }>('GetAllCascadeTrajectories')
+          .then((r) => {
+            if (epoch !== this.epoch) throw unavailable();
+            this.summaries = r.trajectorySummaries || {};
+            this.summaryAt = this.client.now();
+          })
+          .finally(() => {
+            if (this.summaryPending === pending) this.summaryPending = null;
+          });
+        this.summaryPending = pending;
+      }
+      await this.summaryPending;
+    }
+    const s = this.summaries?.[id];
+    if (!s) throw new Error('会话暂时没有可用统计');
+    return s;
+  }
+
+  async read(id: string, { summary: provided, force = false, isCurrent = () => true, modelTimelineEnabled }: ReadTrajectoryOptions = {}): Promise<TrajectoryResult> {
+    if (!isCurrent()) throw unavailable();
+    const wantTimeline = this.isTimelineEnabled({ modelTimelineEnabled });
+    const endpoint = await this.client.discover();
+    if (!this.endpoint) this.endpoint = endpoint;
+    else if (['pid', 'port', 'csrf'].some((k) => this.endpoint![k] !== endpoint[k])) {
+      this.reset();
+      this.endpoint = endpoint;
+    }
+    let entry = this.entries.get(id);
+    if (entry?.pending) return entry.pending;
+    if (!entry) {
+      entry = { data: null, bytes: 0, withTimeline: false };
+      this.entries.set(id, entry);
+    }
+    const epoch = this.epoch;
+    const current = (): boolean => epoch === this.epoch && this.entries.get(id) === entry && isCurrent();
+    const assertCurrent = (): void => { if (!current()) throw unavailable(); };
+    const activeEntry = entry;
+    activeEntry.pending = this.loadEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent).finally(() => {
+      activeEntry.pending = null;
+      if (!activeEntry.data && current()) this.entries.delete(id);
+      if (current()) this.trim(id);
+    });
+    return activeEntry.pending;
+  }
+
+  private async loadEntry(
+    id: string,
+    entry: TrajectoryCacheEntry,
+    provided: TrajectorySummaryLike | undefined,
+    force: boolean,
+    wantTimeline: boolean,
+    assertCurrent: () => void,
+  ): Promise<TrajectoryResult> {
+    let summary: TrajectorySummaryLike | null = null;
+    let isRemote = false;
+    const hasSnapshotFn = typeof this.client.readAgentStateSnapshot === 'function';
+    if (id.includes('/') && hasSnapshotFn) isRemote = true;
+    else {
+      try { summary = await this.summary(id, provided, force); assertCurrent(); }
+      catch (err) {
+        if ((err as Error)?.message === '会话暂时没有可用统计' && hasSnapshotFn) isRemote = true;
+        else throw err;
+      }
+    }
+    if (isRemote || (summary?.trajectoryMetadata?.remoteControlDetails && hasSnapshotFn)) {
+      try { return await this.readRemote(id, entry, force, assertCurrent, wantTimeline); }
+      catch (remoteErr) { if (isRemote) throw remoteErr; }
+    }
+    const resolvedSummary = summary!;
+    const count = resolvedSummary.stepCount === undefined ? null : Number(resolvedSummary.stepCount);
+    if (count !== null && (!Number.isSafeInteger(count) || count < 0)) throw new Error('会话统计分页数量无效');
+    const mark = JSON.stringify([count, resolvedSummary.lastModifiedTime, resolvedSummary.status, resolvedSummary.lastUserInputStepIndex]);
+    const old = entry.data;
+    const timelineModeMismatch = Boolean(old) && entry.withTimeline !== wantTimeline;
+    const same = Boolean(old) && !timelineModeMismatch && entry.mark === mark;
+    if (!force && same && old && settled(resolvedSummary.status) && resolvedSummary.lastModifiedTime && this.client.now() - (entry.verifiedAt ?? 0) < this.idleRecheckMs) {
+      this.entries.delete(id); this.entries.set(id, entry); return old;
+    }
+    const incremental = Boolean(
+      old && !force && !timelineModeMismatch && count !== null && count >= old.trajectory.steps.length &&
+      (count > old.trajectory.steps.length || !settled(entry.summary?.status) || same),
+    );
+    let stepOffset = 0, metadataOffset = 0;
+    if (incremental && old) {
+      const lastInput = old.trajectory.steps.findLastIndex((s) => /USER_INPUT/.test(String(s?.type || '')));
+      stepOffset = lastInput < 0 ? 0 : lastInput + 1;
+      const gs = old.trajectory.generatorMetadata;
+      if (gs.length && gs.every((g) => Array.isArray(g.stepIndices) && g.stepIndices.length && g.stepIndices.every((i) => typeof i === 'number' && Number.isInteger(i) && i >= 0))) {
+        metadataOffset = Math.max(0, gs.length - 1);
+        const associated = (gs.at(-1)?.stepIndices || []).filter(
+          (i): i is number => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < old.trajectory.steps.length && !/USER_INPUT/.test(String(old.trajectory.steps[i]?.type || '')),
+        );
+        stepOffset = associated.length ? Math.min(...associated) : old.trajectory.steps.length;
+      }
+      const pendingTool = old.trajectory.steps.findIndex(
+        (s) => s?.metadata && (s.metadata.startedAt || s.metadata.createdAt) && !s.metadata.completedAt && (TOOL_STEP.test(String(s.type || '')) || Boolean(s.metadata.toolCall)),
+      );
+      if (pendingTool >= 0) stepOffset = Math.min(stepOffset, pendingTool);
+      if (gs.some((g) => !Array.isArray(g.stepIndices) || !g.stepIndices.length)) metadataOffset = 0;
+    }
+    const steps: Array<ProjectedStep | undefined> = incremental && old ? old.trajectory.steps.slice(0, stepOffset) : [];
+    const generators: RawGeneratorMetadataLike[] = incremental && old ? old.trajectory.generatorMetadata.slice(0, metadataOffset) : [];
+    let planModel = incremental && old ? old.trajectory.planModel || null : null;
+    let bytes = steps.length || generators.length ? Buffer.byteLength(JSON.stringify({ steps, generatorMetadata: generators })) : 34;
+    const deadline = this.client.now() + 30000;
+    const append = <T>(target: T[], items: readonly T[]): void => {
+      for (const item of items) {
+        bytes += Buffer.byteLength(JSON.stringify(item)) + 1;
+        if (bytes > this.budgetBytes) throw new Error('会话统计数据超过内存预算');
+        target.push(item);
+      }
+    };
+    const check = (): void => { assertCurrent(); if (this.client.now() > deadline) throw new Error('会话统计分页读取超时'); };
+    try {
+      while (count === null || steps.length < count) {
+        check();
+        const page = await this.callStepRpc<{ steps?: ProjectedStep[]; planModel?: unknown }>('GetCascadeTrajectorySteps', { cascadeId: id, stepOffset: steps.length, trajectoryVerbosity: 3 }, wantTimeline);
+        check();
+        const items = page.steps || [];
+        if (!Array.isArray(items)) throw new Error('会话统计分页格式无效');
+        if (!items.length) { if (count === null) break; throw new Error('完整会话统计分页暂不可用'); }
+        const pagePlan = (typeof page.planModel === 'string' && page.planModel.trim() ? page.planModel.trim().slice(0, 256) : null) || extractPlanModelFromSteps(items);
+        if (pagePlan) planModel = pagePlan;
+        append(steps, items);
+      }
+      for (;;) {
+        check();
+        const page = await this.client.call<{ generatorMetadata?: RawGeneratorMetadataLike[]; generatorMetadatas?: RawGeneratorMetadataLike[] }>('GetCascadeTrajectoryGeneratorMetadata', { cascadeId: id, generatorMetadataOffset: generators.length, includeMessages: false });
+        check();
+        const items = page.generatorMetadata || page.generatorMetadatas || [];
+        if (!Array.isArray(items)) throw new Error('会话统计分页格式无效');
+        if (!items.length) break;
+        append(generators, items);
+      }
+    } catch (err) {
+      const e = err as { message?: string; status?: number } | null;
+      if (e?.message === '后台已重新连接，请等待刷新') throw err;
+      if (hasSnapshotFn && ((e?.status !== undefined && [404, 501].includes(e.status)) || /not found|unimplemented|cloudproxy|完整会话统计分页暂不可用/i.test(e?.message || ''))) {
+        try { return await this.readRemote(id, entry, force, assertCurrent, wantTimeline); } catch {}
+      }
+      throw err;
+    }
+    if (generators.some((g) => (g.stepIndices || []).some((i) => typeof i === 'number' && Number.isInteger(i) && i >= steps.length))) {
+      if (settled(resolvedSummary.status)) throw new Error('会话仍在更新，请等待下一次刷新');
+    }
+    const value: TrajectoryResult = {
+      trajectory: { cascadeId: id, ...(planModel ? { planModel } : {}), steps, generatorMetadata: generators },
+      numTotalSteps: steps.length,
+      numTotalGeneratorMetadata: generators.length,
+      status: resolvedSummary.status,
+    };
+    assertCurrent();
+    this.cachedBytes -= entry.bytes; entry.bytes = bytes; this.cachedBytes += bytes;
+    entry.data = value; entry.summary = resolvedSummary; entry.mark = mark; entry.withTimeline = wantTimeline;
+    entry.rev = (entry.rev || 0) + 1; entry.verifiedAt = this.client.now();
+    this.entries.delete(id); this.entries.set(id, entry); this.trim(id);
+    return value;
+  }
+
+  readRemote(id: string, entry: TrajectoryCacheEntry, force: boolean, assertCurrent: () => void, wantTimeline = this.isTimelineEnabled()): Promise<TrajectoryResult> {
+    return readRemoteTrajectory(this, id, entry, force, assertCurrent, wantTimeline);
+  }
+
+  scheduleRemoteBackfill(id: string, entry: TrajectoryCacheEntry): void {
+    scheduleRemoteBackfill(this, id, entry);
+  }
+}

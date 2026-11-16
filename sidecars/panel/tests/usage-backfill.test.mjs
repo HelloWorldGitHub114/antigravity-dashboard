@@ -131,3 +131,59 @@ test('a first transient history failure retains cached totals and is distinguish
  clock+=30001;await usage.sync();snapshot=await usage.snapshot();assert.equal(snapshot.confirmedMissingConversations,1);
  fail=false;await usage.sync(true);snapshot=await usage.snapshot();assert.equal(snapshot.totalTokens,40);assert.equal(snapshot.confirmedMissingConversations,0);assert.equal(snapshot.retryingConversations,0);
 });
+
+test('runSync persists backfill state at most once per slice instead of once per conversation',async t=>{
+ const {ledger}=await setup(t);
+ let saveCalls=0;
+ const origSave=ledger.saveBackfillState.bind(ledger);
+ ledger.saveBackfillState=(...args)=>{saveCalls++;return origSave(...args);};
+ const ids=[
+  '11111111-1111-1111-1111-111111111111',
+  '22222222-2222-2222-2222-222222222222',
+  '33333333-3333-3333-3333-333333333333',
+  '44444444-4444-4444-4444-444444444444',
+  '55555555-5555-5555-5555-555555555555'
+ ];
+ const store=baseStore();
+ store.client.trajectory=async cid=>{
+  if(cid===ids[2])throw Error('transient error');
+  return raw();
+ };
+ const usage=tracker(t,store,ledger,{discoverLocal:disk(ids,'sig-1'),sliceMs:10000});
+ await usage.sync();
+ assert.equal(saveCalls,1,'5 conversations in one slice must trigger only 1 saveBackfillState call');
+ const journal=await ledger.backfillState(account,'app');
+ assert.equal(journal[key(ids[0])].state,'complete');
+ assert.equal(journal[key(ids[1])].state,'complete');
+ assert.equal(journal[key(ids[2])].state,'retry');
+ assert.equal(journal[key(ids[3])].state,'complete');
+ assert.equal(journal[key(ids[4])].state,'complete');
+
+ // When nothing is dirty on subsequent sync (before retry backoff expires), saveBackfillState is not called.
+ saveCalls=0;
+ await usage.sync();
+ assert.equal(saveCalls,0);
+
+ // Across multiple slices (sliceMs: 0), saveBackfillState is called once per slice (linear, not O(N^2)).
+ saveCalls=0;
+ const multiSlice=tracker(t,baseStore(),ledger,{discoverLocal:disk(ids.slice(0,3),'sig-2'),sliceMs:0,continueDelay:5});
+ await multiSlice.sync();
+ while(multiSlice.continuation||multiSlice.pending)await delay(5);
+ assert.equal(saveCalls,3,'3 slices must persist at most 3 times total');
+
+ // Early !current() abort mid-slice still flushes completed progress from that slice once.
+ saveCalls=0;
+ const midAbortStore=baseStore();
+ let seenCount=0;
+ midAbortStore.client.trajectory=async()=>{
+  seenCount++;
+  if(seenCount===3){midAbortStore.identity=otherAccount;midAbortStore.epoch++;}
+  return raw();
+ };
+ const abortUsage=tracker(t,midAbortStore,ledger,{discoverLocal:disk(ids.slice(0,4),'sig-3'),sliceMs:10000});
+ await abortUsage.sync();
+ assert.equal(saveCalls,1,'Aborting on !current() after prior dirty conversations flushes checkpoint once');
+ const flushed=await ledger.backfillState(account,'app');
+ assert.equal(flushed[key(ids[0])].signature.length,64);
+ assert.equal(flushed[key(ids[1])].signature.length,64);
+});

@@ -135,4 +135,76 @@ class LifecycleTests(unittest.TestCase):
         with zipfile.ZipFile(output) as bundle:
             self.assertEqual(set(bundle.namelist()), {'antigrative-dashboard/plugin.json', 'antigrative-dashboard/sidecars/panel/main.mjs'})
 
+    def test_symmetric_pro_and_vertex_lifecycle(self):
+        vp = manager.vertex_paths()
+        vp['plugin'].parent.mkdir(parents=True)
+        vp['data'].mkdir(parents=True)
+        manager.atomic_json(vp['config'], {'other': {'keep': 2}, 'plugins': {'other-vertex': {'enabled': True}}})
+
+        manager.install(panel_only=True)
+        self.assertTrue((self.plugin / 'sidecars' / 'panel' / 'main.mjs').is_file())
+        self.assertTrue((vp['plugin'] / 'sidecars' / 'panel' / 'main.mjs').is_file())
+        self.assertTrue(manager.json_read(self.config)['plugins']['antigravity-pulse']['enabled'])
+        self.assertTrue(manager.json_read(vp['config'])['plugins']['antigravity-pulse']['enabled'])
+        self.assertTrue(manager.json_read(vp['settings'])['enabled'])
+
+        both_on = manager.status()
+        self.assertTrue(both_on['installed'])
+        self.assertTrue(both_on['enabled'])
+        self.assertTrue(both_on['vertex']['installed'])
+        self.assertTrue(both_on['vertex']['enabled'])
+        self.assertEqual(both_on['vertex']['pluginDirectory'], str(vp['plugin']))
+        self.assertEqual(both_on['vertex']['integrationMode'], 'runtime')
+
+        manager.set_enabled(False)
+        self.assertFalse(manager.json_read(self.config)['plugins']['antigravity-pulse']['enabled'])
+        self.assertFalse(manager.json_read(self.settings)['enabled'])
+        self.assertFalse(manager.json_read(vp['config'])['plugins']['antigravity-pulse']['enabled'])
+        self.assertFalse(manager.json_read(vp['settings'])['enabled'])
+        self.assertFalse(manager.status()['vertex']['enabled'])
+
+        manager.set_enabled(True)
+        self.assertTrue(manager.json_read(self.config)['plugins']['antigravity-pulse']['enabled'])
+        self.assertTrue(manager.json_read(self.settings)['enabled'])
+        self.assertTrue(manager.json_read(vp['config'])['plugins']['antigravity-pulse']['enabled'])
+        self.assertTrue(manager.json_read(vp['settings'])['enabled'])
+        vertex_only_status = manager.status(instance='vertex')
+        self.assertTrue(vertex_only_status['installed'])
+        self.assertTrue(vertex_only_status['enabled'])
+        self.assertEqual(vertex_only_status['pluginDirectory'], str(vp['plugin']))
+        self.assertTrue(vertex_only_status['vertex']['enabled'])
+
+        manager.uninstall()
+        self.assertFalse(self.plugin.exists())
+        self.assertFalse(vp['plugin'].exists())
+        self.assertFalse(manager.json_read(self.settings)['enabled'])
+        self.assertFalse(manager.json_read(vp['settings'])['enabled'])
+        self.assertFalse(manager.json_read(vp['config'])['plugins']['antigravity-pulse']['enabled'])
+        self.assertEqual(manager.json_read(vp['config'])['other'], {'keep': 2})
+        self.assertTrue(manager.json_read(vp['config'])['plugins']['other-vertex']['enabled'])
+
+    def test_instance_targeted_lifecycle_and_local_accounts_deploy(self):
+        source = self.home / 'fixture-source'
+        for sub in ('assets', 'compat', 'sidecars/panel'):
+            (source / sub).mkdir(parents=True)
+        (source / 'compat' / 'update-lock.py').write_text((ROOT / 'compat' / 'update-lock.py').read_text(encoding='utf-8'), encoding='utf-8')
+        (source / 'sidecars' / 'panel' / 'main.mjs').write_text('// panel')
+        manager.atomic_json(source / 'plugin.json', {'name': 'antigravity-pulse', 'version': '0.10.1'})
+        manager.atomic_json(source / '.data' / 'usage-accounts.local.json', {'hash1': {'email': 'a@example.test', 'primary': True}})
+
+        vp = manager.vertex_paths()
+        vp['plugin'].parent.mkdir(parents=True)
+        with patch.multiple(manager, SOURCE=source):
+            manager.install(panel_only=True)
+            self.assertEqual(manager.json_read(self.plugin / '.data' / 'usage-accounts.local.json')['hash1']['email'], 'a@example.test')
+            self.assertEqual(manager.json_read(vp['plugin'] / '.data' / 'usage-accounts.local.json')['hash1']['email'], 'a@example.test')
+
+        manager.set_enabled(False, instance='vertex')
+        self.assertTrue(manager.json_read(self.config)['plugins']['antigravity-pulse']['enabled'])
+        self.assertFalse(manager.json_read(vp['config'])['plugins']['antigravity-pulse']['enabled'])
+
+        manager.uninstall(instance='vertex')
+        self.assertTrue(self.plugin.exists())
+        self.assertFalse(vp['plugin'].exists())
+
 if __name__ == '__main__': unittest.main()

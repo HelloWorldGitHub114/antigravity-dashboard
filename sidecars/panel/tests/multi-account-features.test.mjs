@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { UsageLedger, DesktopUsage } from '../usage.mjs';
+import { UsageLedger, DesktopUsage, loadKnownAccounts } from '../usage.mjs';
 import { MetricsStore } from '../store.mjs';
 
 const scope = s => createHash('sha256').update(s).digest('hex');
 const primaryAccount = scope('primary@example.test');
 const secondaryAccount = scope('secondary@example.test');
+const fixtureKnownAccounts = {
+  [primaryAccount]: { email: 'primary@example.test', name: 'primary@example.test', primary: true },
+  [secondaryAccount]: { email: 'secondary@example.test', name: 'secondary@example.test', primary: false }
+};
 const id1 = '11111111-1111-1111-1111-111111111111';
 const id2 = '22222222-2222-2222-2222-222222222222';
 const idShared = '33333333-3333-3333-3333-333333333333';
@@ -36,14 +40,12 @@ const raw = (options = {}) => ({
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ag-multi-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  return new UsageLedger(dir);
+  return new UsageLedger(dir, { knownAccounts: fixtureKnownAccounts });
 }
 
 test('accounts-v1.json persists accounts metadata and getAccounts displays real emails and all option', async t => {
   const ledger = await fixture(t);
   const testScope = scope('custom-test@example.com');
-  await ledger.registerAccount(primaryAccount, { email: 'primary@example.test', name: 'primary@example.test', primary: true });
-  await ledger.registerAccount(secondaryAccount, { email: 'secondary@example.test', name: 'secondary@example.test', primary: false });
   await ledger.registerAccount(testScope, { email: 'custom-test@example.com', name: 'Custom User' });
 
   const content = JSON.parse(await readFile(ledger.accountsFile(), 'utf8'));
@@ -195,7 +197,7 @@ test('runSync filters listed by ownership and exclusive files, and registerOwner
     }
   });
 
-  const ledger = new UsageLedger(dir);
+  const ledger = new UsageLedger(dir, { knownAccounts: {} });
   const fetchedUnderS = [];
   const store = {
     identity: scopeP,
@@ -264,7 +266,7 @@ test('DesktopUsage.ingest isolates stale opens and splits live cross-account con
   const convId = '44444444-4444-4444-8444-444444444444';
   const fixedNow = Date.UTC(2026, 10, 14, 7, 0, 0);
 
-  const ledger = new UsageLedger(dir);
+  const ledger = new UsageLedger(dir, { knownAccounts: {} });
   const store = { identity: scopeP, epoch: 1, listConversations: async () => [], client: { trajectory: async () => ({}) } };
   const usage = new DesktopUsage(store, ledger, { discover: async () => ({ conversations: [] }) });
   usage.now = () => fixedNow;
@@ -350,7 +352,7 @@ test('UsageLedger.summary resolves duplicates via ownership and accountsMeta pri
     }
   });
 
-  const ledger = new UsageLedger(dir);
+  const ledger = new UsageLedger(dir, { knownAccounts: {} });
   await ledger.ingest(alpha, ownedConv, makeRec('r-owned', 1000));
   await ledger.ingest(beta, ownedConv, makeRec('r-owned', 1000));
   await ledger.registerOwnership(ownedConv, beta, { overwrite: true });
@@ -363,5 +365,42 @@ test('UsageLedger.summary resolves duplicates via ownership and accountsMeta pri
   assert.equal(all.legacyTokens, 300);
   assert.equal((await ledger.summary(beta, Date.UTC(2026, 10, 14))).totalTokens, 1000);
   assert.equal((await ledger.summary(alpha, Date.UTC(2026, 10, 14))).totalTokens, 300);
+});
+
+test('loadKnownAccounts loads valid entries from a temp JSON file and returns {} on missing or invalid files', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ag-known-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  assert.deepEqual(loadKnownAccounts(join(dir, 'missing.json')), {});
+
+  const invalidJson = join(dir, 'invalid.json');
+  await writeFile(invalidJson, '{not valid json', 'utf8');
+  assert.deepEqual(loadKnownAccounts(invalidJson), {});
+
+  const arrayJson = join(dir, 'array.json');
+  await writeFile(arrayJson, '[]', 'utf8');
+  assert.deepEqual(loadKnownAccounts(arrayJson), {});
+
+  const topLevel = join(dir, 'top-level.json');
+  await writeFile(topLevel, JSON.stringify({
+    [primaryAccount]: { email: 'primary@example.test', name: 'primary@example.test', primary: true },
+    'not-a-sha256': { email: 'bad-key@example.test' },
+    [secondaryAccount]: ['not-an-object']
+  }), 'utf8');
+  assert.deepEqual(loadKnownAccounts(topLevel), {
+    [primaryAccount]: { email: 'primary@example.test', name: 'primary@example.test', primary: true }
+  });
+
+  const wrapped = join(dir, 'wrapped.json');
+  await writeFile(wrapped, JSON.stringify({
+    schema: 1,
+    accounts: {
+      [secondaryAccount]: { email: 'secondary@example.test', primary: false },
+      bad: { email: 'ignored@example.test' }
+    }
+  }), 'utf8');
+  assert.deepEqual(loadKnownAccounts(wrapped), {
+    [secondaryAccount]: { email: 'secondary@example.test', primary: false }
+  });
 });
 

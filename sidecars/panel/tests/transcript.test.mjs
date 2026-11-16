@@ -143,4 +143,152 @@ test('saved numeric estimates survive restart; zero-step undo replaces them even
  const after=(await history.load(scope,id)).metrics;assert.equal(after.transcriptStats.totalTokens,0);assert.equal(after.tokens.outputTokens,100);
  const record=await (await import('node:fs/promises')).readFile(history.file(scope,id),'utf8');assert.equal(record.includes('content'),false);
 });
+test('single request() continuously advances multi-slice reads to EOF via setImmediate while yielding to event loop',async t=>{
+ const {reader,file}=await fixture(t,{bytesPerPass:65536,passMs:1000});
+ const rows=[row(0,'USER_INPUT','x'.repeat(1024*1024))];
+ await writeFile(file,jsonl(rows));
+ let beats=0;const timer=setInterval(()=>beats++,0);t.after(()=>clearInterval(timer));
+ reader.request(scope,id,raw(rows));
+ await reader.idle();
+ const first=reader.peek(scope,id);
+ assert.equal(first.complete,false);
+ assert.equal(reader.entries.get(scope+':'+id).state.offset,65536);
+ await reader.drain();
+ const done=reader.peek(scope,id);
+ assert.equal(done.status,'ready');
+ assert.equal(done.complete,true);
+ assert.equal(done.totalTokens,262144);
+ assert.ok(beats>0);
+ assert.equal(reader.nextImmediate,null);
+ assert.equal(reader.running,null);
+});
+test('passMs slice boundary continuously drives single request() to EOF',async t=>{
+ const {reader,file}=await fixture(t,{bytesPerPass:2*1024*1024,passMs:1});
+ const rows=Array.from({length:40},(_,i)=>row(i,'USER_INPUT','x'.repeat(32768)));
+ await writeFile(file,jsonl(rows));
+ reader.request(scope,id,raw(rows));
+ await reader.drain();
+ const stats=reader.peek(scope,id);
+ assert.equal(stats.status,'ready');
+ assert.equal(stats.complete,true);
+ assert.equal(stats.matchedSteps,40);
+ assert.equal(stats.totalTokens,40*8192);
+});
+test('reset() and LRU eviction cancel in-flight and scheduled continuous reads cleanly',async t=>{
+ const {reader,file}=await fixture(t,{maxEntries:2,bytesPerPass:65536,passMs:1000});
+ const big=[row(0,'USER_INPUT','x'.repeat(512*1024))];
+ await writeFile(file,jsonl(big));
+ reader.request(scope,id,raw(big));
+ await reader.idle();
+ assert.equal(reader.entries.get(scope+':'+id).state.offset,65536);
+ assert.ok(reader.nextImmediate!==null);
+ reader.reset();
+ await reader.drain();
+ assert.equal(reader.entries.size,0);
+ assert.equal(reader.nextImmediate,null);
+ assert.equal(reader.running,null);
+ assert.equal(reader.peek(scope,id).status,'unavailable');
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(reader.entries.size,0);
+
+ // Immediate reset() while initial pass is still in flight
+ reader.request(scope,id,raw(big));
+ reader.reset();
+ await reader.drain();
+ assert.equal(reader.entries.size,0);
+ assert.equal(reader.peek(scope,id).status,'unavailable');
+
+ // LRU eviction mid-stream
+ reader.request(scope,id,raw(big));
+ await reader.idle();
+ reader.request(other,id,raw(big.slice(0,0)));
+ reader.request('c'.repeat(64),id,raw(big.slice(0,0)));
+ await reader.drain();
+ assert.equal(reader.entries.size,2);
+ assert.equal(reader.peek(scope,id).status,'unavailable');
+ assert.equal(reader.peek(other,id).status,'ready');
+ assert.equal(reader.peek(other,id).totalTokens,0);
+});
+test('file appends and new request() arriving mid-stream re-trigger and reach EOF',async t=>{
+ const {reader,file}=await fixture(t,{bytesPerPass:65536,passMs:1000});
+ const firstRow=row(0,'USER_INPUT','x'.repeat(256*1024));
+ const secondRow=row(1,'PLANNER_RESPONSE','abcdefgh');
+ await writeFile(file,jsonl([firstRow]));
+ reader.request(scope,id,raw([firstRow]));
+ await reader.idle();
+ assert.equal(reader.peek(scope,id).complete,false);
+ await appendFile(file,jsonl([secondRow]));
+ reader.request(scope,id,raw([firstRow,secondRow]));
+ await reader.drain();
+ let stats=reader.peek(scope,id);
+ assert.equal(stats.status,'ready');
+ assert.equal(stats.complete,true);
+ assert.equal(stats.matchedSteps,2);
+ assert.equal(stats.userTokens,65536);
+ assert.equal(stats.assistantTokens,2);
+
+ // Concurrent request() + append while an active multi-slice pass is in flight
+ reader.reset();
+ const thirdRow=row(2,'SYSTEM_MESSAGE','abcd');
+ await writeFile(file,jsonl([firstRow,secondRow]));
+ reader.request(scope,id,raw([firstRow,secondRow]));
+ assert.ok(reader.running!==null);
+ let hookDone;
+ const hookPromise=new Promise(r=>{hookDone=r;});
+ const hook=setImmediate(async()=>{
+  try{
+   await appendFile(file,jsonl([thirdRow]));
+   reader.request(scope,id,raw([firstRow,secondRow,thirdRow]));
+  }finally{hookDone();}
+ });
+ t.after(()=>clearImmediate(hook));
+ await hookPromise;
+ await reader.drain();
+ stats=reader.peek(scope,id);
+ assert.equal(stats.status,'ready');
+ assert.equal(stats.complete,true);
+ assert.equal(stats.matchedSteps,3);
+ assert.equal(stats.systemTokens,1);
+
+ // File rewrite between continuous slices restarts via anchor verification
+ const rewritten=[row(0,'USER_INPUT','abcdefgh')];
+ await writeFile(file,jsonl([firstRow]));
+ reader.reset();
+ reader.request(scope,id,raw([firstRow]));
+ await reader.idle();
+ assert.equal(reader.entries.get(scope+':'+id).state.offset,65536);
+ await writeFile(file,jsonl(rewritten));
+ await utimes(file,new Date(),new Date(Date.now()+1000));
+ reader.request(scope,id,raw(rewritten));
+ await reader.drain();
+ stats=reader.peek(scope,id);
+ assert.equal(stats.status,'ready');
+ assert.equal(stats.totalTokens,2);
+});
+test('multiple entries continue fairly to EOF and row-limit stops continuation',async t=>{
+ const {root,reader,file}=await fixture(t,{bytesPerPass:65536,passMs:1000,maxRows:2});
+ const id2='22222222-2222-2222-2222-222222222222';
+ const dir2=join(root,id2,'.system_generated','logs');await mkdir(dir2,{recursive:true});
+ const rowsA=[row(0,'USER_INPUT','x'.repeat(256*1024)),row(1,'GENERIC','abcd')];
+ const rowsB=[row(0,'USER_INPUT','y'.repeat(192*1024))];
+ await writeFile(file,jsonl(rowsA));
+ await writeFile(join(dir2,'transcript_full.jsonl'),jsonl(rowsB));
+ reader.request(scope,id,raw(rowsA));
+ reader.request(other,id2,raw(rowsB));
+ await reader.drain();
+ assert.equal(reader.peek(scope,id).status,'ready');
+ assert.equal(reader.peek(scope,id).totalTokens,65537);
+ assert.equal(reader.peek(other,id2).status,'ready');
+ assert.equal(reader.peek(other,id2).totalTokens,49152);
+
+ // File exceeding maxRows stops continuation cleanly at row-limit
+ const overflow=[row(0,'USER_INPUT','x'.repeat(128*1024)),row(1,'GENERIC','abcd'),row(2,'GENERIC','abcd')];
+ await writeFile(file,jsonl(overflow));
+ reader.request(scope,id,raw(overflow.slice(0,2)));
+ await reader.drain();
+ const limited=reader.peek(scope,id);
+ assert.equal(limited.reason,'row-limit');
+ assert.equal(limited.complete,false);
+ assert.equal(reader.nextImmediate,null);
+});
 function emptyStats(){return safeTranscriptStats({status:'ready',complete:true,userTokens:0,assistantTokens:0,toolTokens:0,systemTokens:0,matchedSteps:0,compactionMarkers:0,imageSteps:0});}

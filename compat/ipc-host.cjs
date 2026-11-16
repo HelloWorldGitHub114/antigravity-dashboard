@@ -79,13 +79,14 @@ module.exports = function installAgPulseIpc(electron, authorities) {
     try {
       const origin=new URL(event.senderFrame?.url||event.sender.getURL());
       if(!['127.0.0.1','localhost','[::1]'].includes(origin.hostname)||!['http:','https:'].includes(origin.protocol))throw new Error('Invalid preference origin');
-      if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>key!=='language'))throw new Error('Invalid preference input');
+      if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['language','languageGuideDismissed','usageGuideDismissed','modelTimelineEnabled'].includes(key)))throw new Error('Invalid preference input');
+      if(Object.hasOwn(input,'modelTimelineEnabled')&&typeof input.modelTimelineEnabled!=='boolean')throw new Error('Invalid timeline preference');
       if(!preferenceStore){
         const file=path.join(os.homedir(),'.gemini','config','plugins','antigravity-pulse','compat','preferences.mjs');
         preferenceStore=import(require('node:url').pathToFileURL(file).href).then(({PreferencesStore})=>new PreferencesStore());
       }
       const store=await preferenceStore;
-      return Object.hasOwn(input,'language')?await store.set(input):await store.get();
+      return Object.keys(input).length?await store.set(input):await store.get();
     }catch{preferenceStore=null;return {error:'Language preference could not be saved or read'};}
   });
   electron.ipcMain.on('ag-pulse:diagnostic',(event,state={})=>{

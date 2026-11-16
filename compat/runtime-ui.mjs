@@ -28,12 +28,34 @@ export function validatedInput(value) {
 
 function jsonGet(port, path) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const abort = error => {
+      finish(error);
+      if (!req.destroyed) req.destroy(error);
+    };
     const req = request({ hostname: '127.0.0.1', port, path, method: 'GET' }, res => {
       let body = ''; res.setEncoding('utf8');
-      res.on('data', chunk => { body += chunk; if (body.length > 1048576) req.destroy(new Error('Discovery response too large')); });
-      res.on('end', () => { try { if (res.statusCode !== 200) throw new Error('Renderer discovery unavailable'); resolve(JSON.parse(body)); } catch (error) { reject(error); } });
+      res.on('error', error => finish(error));
+      res.on('data', chunk => {
+        if (settled) return;
+        body += chunk;
+        if (body.length > 1048576) abort(new Error('Discovery response too large'));
+      });
+      res.on('end', () => {
+        if (settled) return;
+        try { if (res.statusCode !== 200) throw new Error('Renderer discovery unavailable'); finish(null, JSON.parse(body)); }
+        catch (error) { finish(error); }
+      });
     });
-    req.on('error', reject); req.setTimeout(2000, () => req.destroy(new Error('Renderer discovery timeout'))); req.end();
+    req.on('error', error => finish(error));
+    req.setTimeout(2000, () => abort(new Error('Renderer discovery timeout')));
+    req.end();
   });
 }
 

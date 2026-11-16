@@ -1,7 +1,9 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -123,3 +125,51 @@ class IdeTests(unittest.TestCase):
         main_mjs = (ROOT / 'ide/main.mjs').read_text(encoding='utf-8')
         self.assertIn(expected_identity, main_mjs)
         self.assertNotIn('you-should-know-me', main_mjs)
+
+    def test_unpacked_vsix_smoke_imports_all_runtime_entrypoints(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = packager.build(Path(temporary) / 'ide.vsix')
+            unpacked = Path(temporary) / 'unpacked'
+            with zipfile.ZipFile(output) as archive:
+                archive.extractall(unpacked)
+            ext_dir = unpacked / 'extension'
+            smoke_file = ext_dir / '_smoke_imports.mjs'
+            smoke_file.write_text(
+                "import { createRequire } from 'node:module';\n"
+                "import Module from 'node:module';\n"
+                "const origLoad = Module._load;\n"
+                "Module._load = function(request, parent, isMain) {\n"
+                "  if (request === 'vscode') return {};\n"
+                "  return origLoad.apply(this, arguments);\n"
+                "};\n"
+                "const require = createRequire(import.meta.url);\n"
+                "await import('./sidecars/panel/store.mjs');\n"
+                "await import('./sidecars/panel/usage.mjs');\n"
+                "await import('./ide/client.mjs');\n"
+                "await import('./ide/runtime.mjs');\n"
+                "process.argv.push('--exe', process.execPath);\n"
+                "await import('./ide/launch.mjs');\n"
+                "require('./ide/extension.cjs');\n",
+                encoding='utf-8',
+            )
+            imported = subprocess.run(
+                ['node', str(smoke_file)],
+                cwd=ext_dir,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr or imported.stdout)
+
+            env = dict(os.environ)
+            env['AG_PULSE_IDE_PROFILE'] = ''
+            main_run = subprocess.run(
+                ['node', 'ide/main.mjs'],
+                cwd=ext_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(main_run.returncode, 0)
+            combined = (main_run.stderr or '') + (main_run.stdout or '')
+            self.assertNotIn('ERR_MODULE_NOT_FOUND', combined)
+            self.assertIn('IDE profile is required', combined)

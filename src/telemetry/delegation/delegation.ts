@@ -1,0 +1,196 @@
+// Verified host relationship fields only. Never infer delegation from titles,
+// prompts, tool-result text, workspace paths or an ordinary conversation fork.
+export const conversationId =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+
+export interface DelegatedHint {
+  role: string | null;
+  parentId: string | null;
+  depth: number | null;
+}
+
+export const normalizeConversationId = (value: unknown): string | null =>
+  typeof value === 'string' && conversationId.test(value) ? value.toLowerCase() : null;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+export function delegatedIds(id: unknown, raw: unknown, summaries: unknown = {}): string[] {
+  const parent = normalizeConversationId(id);
+  if (!parent) return [];
+  const ids = new Set<string>();
+  const add = (value: unknown): boolean => {
+    const child = normalizeConversationId(value);
+    if (child && child !== parent) {
+      const had = ids.has(child);
+      ids.add(child);
+      return !had;
+    }
+    return false;
+  };
+
+  const rawObj = isRecord(raw) ? raw : null;
+  const traj = rawObj && isRecord(rawObj.trajectory) ? rawObj.trajectory : null;
+  const steps = traj?.steps ?? rawObj?.steps;
+  if (Array.isArray(steps)) {
+    for (const step of steps) {
+      if (!isRecord(step)) continue;
+      const invocation = step.invokeSubagent;
+      if (isRecord(invocation)) {
+        add(invocation.conversationId);
+        if (Array.isArray(invocation.subagents)) {
+          for (const sub of invocation.subagents) {
+            if (isRecord(sub)) add(sub.conversationId);
+          }
+        }
+        if (Array.isArray(invocation.results)) {
+          for (const result of invocation.results) {
+            if (isRecord(result)) add(result.conversationId);
+          }
+        }
+      }
+      const sendMessage = step.sendMessage;
+      if (isRecord(sendMessage)) {
+        add(sendMessage.conversationId);
+      }
+    }
+  }
+
+  if (isRecord(summaries)) {
+    const entries = Object.entries(summaries);
+    for (const [child, summary] of entries) {
+      const metadata = isRecord(summary) && isRecord(summary.trajectoryMetadata) ? summary.trajectoryMetadata : null;
+      const p = normalizeConversationId(metadata?.parentConversationId);
+      const r = normalizeConversationId(metadata?.rootConversationId);
+      if (p === parent || r === parent) add(child);
+    }
+    let added = true;
+    while (added) {
+      added = false;
+      for (const [child, summary] of entries) {
+        const metadata = isRecord(summary) && isRecord(summary.trajectoryMetadata) ? summary.trajectoryMetadata : null;
+        const p = normalizeConversationId(metadata?.parentConversationId);
+        const r = normalizeConversationId(metadata?.rootConversationId);
+        if ((p && ids.has(p)) || (r && ids.has(r))) {
+          if (add(child)) added = true;
+        }
+      }
+    }
+  }
+
+  return [...ids];
+}
+
+export function delegatedHints(
+  id: unknown,
+  raw: unknown,
+  summaries: unknown = {},
+  parentDepth = 0,
+): Map<string, DelegatedHint> {
+  const parent = normalizeConversationId(id);
+  const hints = new Map<string, DelegatedHint>();
+  if (!parent) return hints;
+  const baseDepth = Number.isInteger(parentDepth) && parentDepth >= 0 ? parentDepth : 0;
+
+  const merge = (
+    childRaw: unknown,
+    {
+      role = null,
+      parentId = null,
+      depth = null,
+    }: { role?: string | null; parentId?: string | null; depth?: number | null } = {},
+  ): void => {
+    const child = normalizeConversationId(childRaw);
+    if (!child || child === parent) return;
+    const prev = hints.get(child) || { role: null, parentId: null, depth: null };
+    const nextRole = typeof role === 'string' && role.trim() ? role.trim() : null;
+    const nextParent = normalizeConversationId(parentId);
+    const nextDepth = typeof depth === 'number' && Number.isInteger(depth) && depth >= 0 ? depth : null;
+    hints.set(child, {
+      role: nextRole || prev.role || null,
+      parentId: nextParent || prev.parentId || null,
+      depth: nextDepth ?? prev.depth ?? null,
+    });
+  };
+
+  const rawObj = isRecord(raw) ? raw : null;
+  const traj = rawObj && isRecord(rawObj.trajectory) ? rawObj.trajectory : null;
+  const steps = traj?.steps ?? rawObj?.steps;
+  if (Array.isArray(steps)) {
+    for (const step of steps) {
+      if (!isRecord(step)) continue;
+      const inv = step.invokeSubagent;
+      if (isRecord(inv)) {
+        const subs = Array.isArray(inv.subagents) ? inv.subagents : [];
+        const results = Array.isArray(inv.results) ? inv.results : [];
+        const singleCid = normalizeConversationId(inv.conversationId);
+        const maxLen = Math.max(subs.length, results.length);
+        for (let i = 0; i < maxLen; i++) {
+          const sub = isRecord(subs[i]) ? subs[i] : null;
+          const res = isRecord(results[i]) ? results[i] : null;
+          const cid =
+            normalizeConversationId(res?.conversationId) ||
+            normalizeConversationId(sub?.conversationId) ||
+            (maxLen === 1 ? singleCid : null);
+          if (!cid) continue;
+          const role =
+            (typeof sub?.role === 'string' ? sub.role : '') ||
+            (typeof sub?.typeName === 'string' ? sub.typeName : '');
+          merge(cid, { role: role.trim() || null, parentId: parent, depth: baseDepth + 1 });
+        }
+        if (singleCid && !hints.has(singleCid)) {
+          merge(singleCid, { parentId: parent, depth: baseDepth + 1 });
+        }
+      }
+      const send = step.sendMessage;
+      if (isRecord(send)) {
+        const sendCid = normalizeConversationId(send.conversationId);
+        if (sendCid) merge(sendCid, { parentId: parent, depth: baseDepth + 1 });
+      }
+    }
+  }
+
+  if (isRecord(summaries)) {
+    const descendants = new Set(delegatedIds(parent, raw, summaries));
+    for (const [child, summary] of Object.entries(summaries)) {
+      const cid = normalizeConversationId(child);
+      if (!cid || !descendants.has(cid)) continue;
+      const meta = isRecord(summary) && isRecord(summary.trajectoryMetadata) ? summary.trajectoryMetadata : null;
+      const spec = meta && isRecord(meta.subagentSpec) ? meta.subagentSpec : null;
+      const rawRole =
+        (typeof spec?.role === 'string' ? spec.role : '') ||
+        (typeof spec?.typeName === 'string' ? spec.typeName : '') ||
+        (typeof meta?.subagentRole === 'string' ? meta.subagentRole : '');
+      const parentId =
+        normalizeConversationId(meta?.parentConversationId) ||
+        (normalizeConversationId(meta?.rootConversationId) === parent ? parent : null);
+      const rawDepth =
+        typeof meta?.nestingDepth === 'number' && Number.isInteger(meta.nestingDepth)
+          ? meta.nestingDepth
+          : typeof meta?.subagentDepth === 'number' && Number.isInteger(meta.subagentDepth)
+            ? meta.subagentDepth
+            : null;
+      merge(cid, { role: rawRole.trim() || null, parentId, depth: rawDepth });
+    }
+  }
+
+  const resolveDepth = (cid: string, seen = new Set<string>()): number | null => {
+    const entry = hints.get(cid);
+    if (!entry) return null;
+    if (entry.depth !== null && Number.isInteger(entry.depth) && entry.depth >= 0) return entry.depth;
+    if (!entry.parentId || seen.has(cid)) return null;
+    if (entry.parentId === parent) return baseDepth + 1;
+    seen.add(cid);
+    const pd = resolveDepth(entry.parentId, seen);
+    return pd !== null && Number.isInteger(pd) ? pd + 1 : null;
+  };
+
+  for (const [cid, entry] of hints) {
+    if (entry.depth === null) {
+      const computed = resolveDepth(cid);
+      if (computed !== null) entry.depth = computed;
+    }
+  }
+
+  return hints;
+}

@@ -11,9 +11,9 @@ import { MetricsStore } from '../store.mjs';
 import { buildModelTimeline, countTimelineNodes, MAX_TIMELINE_BYTES, MAX_TIMELINE_NODES } from '../timeline.mjs';
 import { TimelineStore } from '../timeline-store.mjs';
 
-const mainId = '11111111-1111-4111-8111-111111111111';
-const childSwarmId = '22222222-2222-4222-8222-222222222222';
-const childDirectId = '33333333-3333-4333-8333-333333333333';
+const mainId = '63aac389-63ad-45ae-9773-fb61e76d2b1c';
+const childSwarmId = '25d01b1a-d124-4f03-b3d9-b23ec6261973';
+const childDirectId = 'fd32ba00-9e9d-4b7a-949c-3e0bfc473b81';
 const scopeHash = createHash('sha256').update('orch@example.test').digest('hex');
 
 function makeOrchestratorFixture() {

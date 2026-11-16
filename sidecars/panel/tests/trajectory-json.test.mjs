@@ -90,3 +90,68 @@ test('modelTimelineEnabled gate keeps zero extra step fields when false and stri
  assert.deepEqual(onOut.trajectory.steps[3].systemMessage,{eventType:'plan_mode_handoff'});
  assert.deepEqual(onOut.trajectory.steps[4].taskBoundary,{Mode:'EXECUTION'});
 });
+
+test('StreamAgentStateUpdates update schema projects remote stats, captures planModel, and gates timeline fields',()=>{
+ const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
+ const rawUpdate={update:{
+  conversationId:remoteId,
+  status:'CASCADE_RUN_STATUS_IDLE',
+  contextWindowUsage:{estimatedTokensUsed:4200,maxContextTokens:1048576,extraSecret:'SECRET_CTX'},
+  mainTrajectoryUpdate:{
+   stepsUpdate:{steps:[
+    {i:0,type:'CORTEX_STEP_TYPE_USER_INPUT',status:'CORTEX_STEP_STATUS_DONE',metadata:{createdAt:'2026-11-14T06:38:52Z'},
+     userInput:{text:'SECRET REMOTE PROMPT',userConfig:{plannerConfig:{planModel:'MODEL_PLACEHOLDER_M668'}}}},
+    {i:1,type:'CORTEX_STEP_TYPE_PLANNER_RESPONSE',status:'CORTEX_STEP_STATUS_DONE',
+     metadata:{createdAt:'2026-11-14T06:39:00Z',viewableAt:'2026-11-14T06:39:01Z',finishedGeneratingAt:'2026-11-14T06:39:03Z',
+      generatorModel:'MODEL_GOOGLE_GEMINI_INTERNAL_BYOM',modelApiContentId:'cid-1',
+      modelUsage:{inputTokens:'1200',cacheReadTokens:'30000',outputTokens:'180',responseOutputTokens:'110',thinkingOutputTokens:'70'},
+      modelInfo:{modelName:'gemini-3.8-flash-high',maxTokens:1000000,modelFeatures:{supportedMimeTypes:{'image/png':true}}},
+      requestedModel:{model:'gemini-3.8-flash-high',secret:'SECRET'},
+      sourceTrajectoryStepInfo:{stepIndex:1,extra:'SECRET'}},
+     plannerResponse:{response:'SECRET REMOTE REPLY',thinking:'SECRET THINKING',
+      toolCalls:[{name:'read_file',status:'DONE',argumentsJson:'{"path":"C:/secret.env"}'}]}},
+    {i:2,type:'CORTEX_STEP_TYPE_RUN_COMMAND',status:'CORTEX_STEP_STATUS_DONE',
+     metadata:{startedAt:'2026-11-14T06:39:04Z',completedAt:'2026-11-14T06:39:05Z',toolCallOutputTokens:64,
+      toolCall:{name:'run_command',argumentsJson:'SECRET'},modelInfo:{modelFeatures:{secret:true}}},
+     runCommand:{output:'SECRET COMMAND OUTPUT'}},
+    {i:3,type:'CORTEX_STEP_TYPE_SYSTEM_MESSAGE',status:'CORTEX_STEP_STATUS_DONE',
+     systemMessage:{eventType:'plan_mode_handoff',message:'SECRET HANDOFF'}},
+   ]},
+   generatorMetadatasUpdate:{generatorMetadatas:[
+    {i:0,stepIndices:[1],plannerConfig:{modelName:'gemini-3.8-flash-high',secret:'SECRET'}},
+   ]},
+  },
+ }};
+ const offOut=project(JSON.stringify(rawUpdate),128);
+ const offStr=JSON.stringify(offOut);
+ assert.equal(offStr.includes('SECRET'),false);
+ assert.equal(offStr.includes('supportedMimeTypes'),false);
+ assert.equal(offOut.update.conversationId,remoteId);
+ assert.equal(offOut.update.planModel,'MODEL_PLACEHOLDER_M668');
+ assert.deepEqual(offOut.update.contextWindowUsage,{estimatedTokensUsed:4200,maxContextTokens:1048576});
+ const offSteps=offOut.update.mainTrajectoryUpdate.stepsUpdate.steps;
+ assert.equal(offSteps.length,4);
+ assert.equal(offSteps[0].userInput,undefined);
+ assert.equal(offSteps[1].status,undefined);
+ assert.equal(offSteps[1].metadata.modelUsage.inputTokens,'1200');
+ assert.equal(offSteps[1].metadata.modelInfo.maxTokens,1000000);
+ assert.equal(offSteps[1].metadata.sourceTrajectoryStepInfo.stepIndex,1);
+ assert.deepEqual(offSteps[1].plannerResponse,{response:'1',toolCalls:[{}]});
+ assert.equal(offSteps[2].metadata.toolCall,true);
+ assert.equal(offSteps[2].metadata.toolCallOutputTokens,64);
+ assert.equal(offSteps[2].metadata.modelInfo,undefined);
+ assert.equal(offSteps[3].systemMessage,undefined);
+ assert.deepEqual(offOut.update.mainTrajectoryUpdate.generatorMetadatasUpdate.generatorMetadatas[0].plannerConfig,{modelName:'gemini-3.8-flash-high'});
+
+ const on=new TrajectoryJson({modelTimelineEnabled:true});
+ on.write(JSON.stringify(rawUpdate));
+ const onOut=on.end();
+ const onStr=JSON.stringify(onOut);
+ assert.equal(onStr.includes('SECRET'),false);
+ const onSteps=onOut.update.mainTrajectoryUpdate.stepsUpdate.steps;
+ assert.equal(onSteps[0].userInput.userConfig.plannerConfig.planModel,'MODEL_PLACEHOLDER_M668');
+ assert.equal(onSteps[1].status,'CORTEX_STEP_STATUS_DONE');
+ assert.deepEqual(onSteps[1].plannerResponse.toolCalls,[{name:'read_file',status:'DONE'}]);
+ assert.deepEqual(onSteps[2].metadata.toolCall,{name:'run_command'});
+ assert.deepEqual(onSteps[3].systemMessage,{eventType:'plan_mode_handoff'});
+});

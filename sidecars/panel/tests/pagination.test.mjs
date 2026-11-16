@@ -159,7 +159,7 @@ test('cloudproxy unimplemented error on legacy steps RPC falls back to snapshot'
 });
 test('cloud remote agent step-level modelUsage normalizes TPS, cache hit, context occupancy and usage ledger',async()=>{
  const {client}=fixture();
- const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-4000-8000-000000000001';
+ const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
  client.readAgentStateSnapshot=async(cid)=>{
   assert.equal(cid,remoteId);
   return {

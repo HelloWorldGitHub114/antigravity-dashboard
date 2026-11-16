@@ -1,0 +1,25 @@
+export {
+  platformPaths,
+  instancePaths,
+  allInstancePaths,
+  appAsarCandidates,
+  resolveAppAsar,
+  agentExecutables,
+  installedAgentExecutable,
+  type PlatformName,
+  type InstanceKind,
+  type PlatformPathOptions,
+  type AgentExecutableOptions,
+  type PlatformPaths,
+  type InstancePaths,
+} from './paths.ts';
+export {
+  validateLanguage,
+  PreferencesStore,
+  type PreferencesStoreOptions,
+} from './preferences-store.ts';
+export {
+  SidecarOwner,
+  type SidecarOwnerRecord,
+  type SidecarOwnerOptions,
+} from './sidecar-owner.ts';

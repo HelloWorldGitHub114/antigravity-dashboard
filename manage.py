@@ -19,7 +19,6 @@ _paths = _paths_module.platform_paths()
 HOME = _paths['home']
 LOCAL = _paths['local']
 PLUGIN = HOME / '.gemini' / 'config' / 'plugins' / 'antigravity-pulse'
-VERTEX_PLUGIN = Path.home() / '.antigravity-vertex' / 'home' / '.gemini' / 'config' / 'plugins' / 'antigravity-pulse'
 CONFIG = HOME / '.gemini' / 'config' / 'config.json'
 SETTINGS = _paths['settings']
 APP = _paths['app']
@@ -62,10 +61,26 @@ def atomic_json(file, value):
         except OSError:
             pass
 
-def own_plugin():
-    if PLUGIN.is_symlink() or (PLUGIN.exists() and PLUGIN.resolve().parent != (HOME / '.gemini' / 'config' / 'plugins').resolve()):
+def vertex_paths():
+    v_home = HOME / '.antigravity-vertex' / 'home'
+    v_plugin = v_home / '.gemini' / 'config' / 'plugins' / 'antigravity-pulse'
+    v_config = v_home / '.gemini' / 'config' / 'config.json'
+    v_data = v_home / '.gemini' / 'antigravity' / 'sidecar_data' / 'antigravity-pulse' / 'panel' / 'data'
+    return {
+        'home': v_home,
+        'plugin': v_plugin,
+        'config': v_config,
+        'data': v_data,
+        'settings': v_data / 'settings.json',
+        'health': v_data / 'integration-state.json',
+    }
+
+def own_plugin(plugin_dir=None, home_dir=None):
+    plugin = PLUGIN if plugin_dir is None else plugin_dir
+    home = HOME if home_dir is None else home_dir
+    if plugin.is_symlink() or (plugin.exists() and plugin.resolve().parent != (home / '.gemini' / 'config' / 'plugins').resolve()):
         raise RuntimeError('Plugin destination must be a regular directory inside the customization root.')
-    if PLUGIN.exists() and json_read(PLUGIN / 'plugin.json').get('name') != 'antigravity-pulse':
+    if plugin.exists() and json_read(plugin / 'plugin.json').get('name') != 'antigravity-pulse':
         raise RuntimeError('Destination is not an Antigrative Dashboard installation; refusing to overwrite it.')
 
 def guard_duplicate_plugins(plugin_dir, config_file):
@@ -118,17 +133,38 @@ def original_for_current(current):
             return original
     return None
 
-def set_enabled(enabled):
-    own_plugin()
-    if not (PLUGIN / 'plugin.json').exists():
+def _validate_instance(instance):
+    if instance not in ('all', 'pro', 'vertex'):
+        raise ValueError(f'Invalid instance: {instance}')
+
+def _update_instance_enabled(enabled, plugin_dir, home_dir, config_file, settings_file, settings_dir=None):
+    own_plugin(plugin_dir, home_dir)
+    if not (plugin_dir / 'plugin.json').exists():
         raise RuntimeError('Install Antigrative Dashboard before changing its state.')
-    config = json_read(CONFIG)
+    config = json_read(config_file)
     entry = config.setdefault('plugins', {}).setdefault('antigravity-pulse', {})
     entry['enabled'] = bool(enabled)
-    atomic_json(CONFIG, config)
-    settings = json_read(SETTINGS)
-    settings['enabled'] = bool(enabled)
-    atomic_json(SETTINGS, settings)
+    atomic_json(config_file, config)
+    if settings_dir is None or settings_dir.exists() or settings_file.exists():
+        settings = json_read(settings_file)
+        settings['enabled'] = bool(enabled)
+        atomic_json(settings_file, settings)
+
+def _remove_plugin_dir(plugin_dir, home_dir):
+    resolved = plugin_dir.resolve()
+    expected_parent = (home_dir / '.gemini' / 'config' / 'plugins').resolve()
+    if plugin_dir.is_symlink() or resolved.parent != expected_parent or resolved.name != 'antigravity-pulse':
+        raise RuntimeError('Plugin target is outside the expected directory; refusing to delete it.')
+    shutil.rmtree(resolved)
+
+def set_enabled(enabled, instance='all'):
+    _validate_instance(instance)
+    if instance in ('all', 'pro'):
+        _update_instance_enabled(enabled, PLUGIN, HOME, CONFIG, SETTINGS)
+    if instance in ('all', 'vertex'):
+        vp = vertex_paths()
+        if (vp['plugin'] / 'plugin.json').exists() or instance == 'vertex':
+            _update_instance_enabled(enabled, vp['plugin'], vp['home'], vp['config'], vp['settings'], vp['data'])
     print('Antigrative Dashboard enabled.' if enabled else 'Antigrative Dashboard disabled; the toolbar hides on its next poll.')
 
 def remove_verified_legacy_adapter():
@@ -147,6 +183,7 @@ def remove_verified_legacy_adapter():
 
 @lifecycle_operation
 def install(panel_only=False, legacy_loader=False, instance='all'):
+    _validate_instance(instance)
     if instance in ('all', 'pro'):
         own_plugin()
         config = json_read(CONFIG)
@@ -163,16 +200,18 @@ def install(panel_only=False, legacy_loader=False, instance='all'):
         elif not panel_only:
             remove_verified_legacy_adapter()
 
-    vertex_home = HOME / '.antigravity-vertex' / 'home'
-    vertex_plugin = vertex_home / '.gemini' / 'config' / 'plugins' / 'antigravity-pulse'
-    install_vertex = instance in ('all', 'vertex') and (vertex_plugin.parent.exists() or instance == 'vertex')
+    vp = vertex_paths()
+    install_vertex = instance in ('all', 'vertex') and (vp['plugin'].parent.exists() or instance == 'vertex')
+    if install_vertex:
+        own_plugin(vp['plugin'], vp['home'])
 
     destinations = []
     if instance in ('all', 'pro'):
         destinations.append(PLUGIN)
     if install_vertex:
-        destinations.append(vertex_plugin)
+        destinations.append(vp['plugin'])
 
+    local_accounts = SOURCE / '.data' / 'usage-accounts.local.json'
     for dest in destinations:
         dest.mkdir(parents=True, exist_ok=True)
         for name in RUNTIME_FILES:
@@ -184,6 +223,11 @@ def install(panel_only=False, legacy_loader=False, instance='all'):
                                 ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.log', '.data', 'node_modules', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'))
             else:
                 shutil.copy2(source, target)
+        if local_accounts.is_file():
+            target_accounts = dest / '.data' / 'usage-accounts.local.json'
+            if local_accounts.resolve() != target_accounts.resolve():
+                target_accounts.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(local_accounts, target_accounts)
         print(f'Installed runtime files to: {dest}')
 
     if instance in ('all', 'pro'):
@@ -197,67 +241,88 @@ def install(panel_only=False, legacy_loader=False, instance='all'):
         if os.environ.get('AG_PULSE_PROFILE'):
             settings['profile'] = str(_paths['profile'])
         atomic_json(SETTINGS, settings)
-        set_enabled(True)
+        _update_instance_enabled(True, PLUGIN, HOME, CONFIG, SETTINGS)
         guard_duplicate_plugins(PLUGIN, CONFIG)
         print('Installed to Pro instance:', PLUGIN)
 
     if install_vertex:
-        vertex_config_file = vertex_home / '.gemini' / 'config' / 'config.json'
-        if vertex_config_file.parent.exists():
-            v_conf = json_read(vertex_config_file)
+        if vp['config'].parent.exists():
+            v_conf = json_read(vp['config'])
             v_entry = v_conf.setdefault('plugins', {}).setdefault('antigravity-pulse', {})
             v_entry['enabled'] = True
-            atomic_json(vertex_config_file, v_conf)
-            guard_duplicate_plugins(vertex_plugin, vertex_config_file)
-        vertex_data_dir = vertex_home / '.gemini' / 'antigravity' / 'sidecar_data' / 'antigravity-pulse' / 'panel' / 'data'
-        if vertex_data_dir.exists():
-            v_settings_file = vertex_data_dir / 'settings.json'
-            v_settings = json_read(v_settings_file)
+            atomic_json(vp['config'], v_conf)
+            guard_duplicate_plugins(vp['plugin'], vp['config'])
+        if vp['data'].exists() or vp['settings'].exists():
+            v_settings = json_read(vp['settings'])
             v_settings.update({'inline': not panel_only, 'mode': 'runtime', 'enabled': True})
-            atomic_json(v_settings_file, v_settings)
-        print('Installed to Vertex instance:', vertex_plugin)
+            atomic_json(vp['settings'], v_settings)
+        print('Installed to Vertex instance:', vp['plugin'])
 
     print('Fully quit and reopen Antigravity to start the plugin runtime. App updates no longer overwrite the inline adapter.')
 
 @lifecycle_operation
-def uninstall():
-    own_plugin()
-    # Restore before deleting the runtime. An unknown archive is never overwritten.
-    if APP.exists():
-        module = adapter()
-        current = APP.read_bytes()
-        original = original_for_current(current)
-        if original is not None:
-            APP.write_bytes(original)
-            if APP.read_bytes() != original:
-                raise RuntimeError('Restored application verification failed.')
-            print('Original Antigravity archive restored.')
-        elif b'// AG_PULSE_INLINE_V1' in current:
-            header, base = module.archive(current)
-            entry = header['files']['dist']['files']['preload.js']
-            preload = current[base + int(entry['offset']):base + int(entry['offset']) + entry['size']]
-            if module.MARKER.encode() in preload:
-                raise RuntimeError('Application changed since patching. Inspect the backup before uninstalling.')
-    if PLUGIN.exists():
-        set_enabled(False)
-        resolved = PLUGIN.resolve()
-        expected_parent = (HOME / '.gemini' / 'config' / 'plugins').resolve()
-        if PLUGIN.is_symlink() or resolved.parent != expected_parent or resolved.name != 'antigravity-pulse':
-            raise RuntimeError('Plugin target is outside the expected directory; refusing to delete it.')
-        shutil.rmtree(resolved)
-    else:
-        atomic_json(SETTINGS, {'enabled': False})
+def uninstall(instance='all'):
+    _validate_instance(instance)
+    if instance in ('all', 'pro'):
+        own_plugin()
+        # Restore before deleting the runtime. An unknown archive is never overwritten.
+        if APP.exists():
+            module = adapter()
+            current = APP.read_bytes()
+            original = original_for_current(current)
+            if original is not None:
+                APP.write_bytes(original)
+                if APP.read_bytes() != original:
+                    raise RuntimeError('Restored application verification failed.')
+                print('Original Antigravity archive restored.')
+            elif b'// AG_PULSE_INLINE_V1' in current:
+                header, base = module.archive(current)
+                entry = header['files']['dist']['files']['preload.js']
+                preload = current[base + int(entry['offset']):base + int(entry['offset']) + entry['size']]
+                if module.MARKER.encode() in preload:
+                    raise RuntimeError('Application changed since patching. Inspect the backup before uninstalling.')
+        if PLUGIN.exists():
+            _update_instance_enabled(False, PLUGIN, HOME, CONFIG, SETTINGS)
+            _remove_plugin_dir(PLUGIN, HOME)
+        else:
+            atomic_json(SETTINGS, {'enabled': False})
+    if instance in ('all', 'vertex'):
+        vp = vertex_paths()
+        own_plugin(vp['plugin'], vp['home'])
+        if vp['plugin'].exists():
+            _update_instance_enabled(False, vp['plugin'], vp['home'], vp['config'], vp['settings'], vp['data'])
+            _remove_plugin_dir(vp['plugin'], vp['home'])
+        elif vp['settings'].exists():
+            atomic_json(vp['settings'], {'enabled': False})
     print('Antigrative Dashboard removed. Backups and diagnostic logs are retained for recovery.')
     print('Fully quit and reopen Antigravity to unload the UI adapter.')
 
-def status():
-    installed = (PLUGIN / 'plugin.json').is_file()
-    enabled = installed and json_read(CONFIG).get('plugins', {}).get('antigravity-pulse', {}).get('enabled', True)
-    health_file = HOME / '.gemini' / 'antigravity' / 'sidecar_data' / 'antigravity-pulse' / 'panel' / 'data' / 'integration-state.json'
-    print(json.dumps({'installed': installed, 'enabled': bool(enabled), 'pluginDirectory': str(PLUGIN),
-                      'integrationMode': json_read(SETTINGS).get('mode', 'legacy'),
-                      'inlineIntegration': json_read(health_file, None),
-                      'toolbarAdapterRecoverable': APP.exists() and original_for_current(APP.read_bytes()) is not None}, indent=2))
+def status(instance='all'):
+    _validate_instance(instance)
+    pro_installed = (PLUGIN / 'plugin.json').is_file()
+    pro_enabled = pro_installed and json_read(CONFIG).get('plugins', {}).get('antigravity-pulse', {}).get('enabled', True)
+    pro_health_file = HOME / '.gemini' / 'antigravity' / 'sidecar_data' / 'antigravity-pulse' / 'panel' / 'data' / 'integration-state.json'
+    pro_payload = {
+        'installed': pro_installed,
+        'enabled': bool(pro_enabled),
+        'pluginDirectory': str(PLUGIN),
+        'integrationMode': json_read(SETTINGS).get('mode', 'legacy'),
+        'inlineIntegration': json_read(pro_health_file, None),
+        'toolbarAdapterRecoverable': APP.exists() and original_for_current(APP.read_bytes()) is not None,
+    }
+    vp = vertex_paths()
+    v_installed = (vp['plugin'] / 'plugin.json').is_file()
+    v_enabled = v_installed and json_read(vp['config']).get('plugins', {}).get('antigravity-pulse', {}).get('enabled', True)
+    v_payload = {
+        'installed': v_installed,
+        'enabled': bool(v_enabled),
+        'pluginDirectory': str(vp['plugin']),
+        'integrationMode': json_read(vp['settings']).get('mode', 'runtime' if v_installed else 'legacy'),
+        'inlineIntegration': json_read(vp['health'], None),
+    }
+    payload = {**(v_payload if instance == 'vertex' else pro_payload), 'vertex': v_payload}
+    print(json.dumps(payload, indent=2))
+    return payload
 
 def package(output=None):
     version = json_read(SOURCE / 'plugin.json')['version']
@@ -289,7 +354,8 @@ def main():
     group.add_argument('--legacy-loader', action='store_true', help='Opt in to the old, version-specific app.asar adapter')
     p.add_argument('--instance', choices=('all', 'pro', 'vertex'), default='all', help='Target instance for installation (default: all)')
     p.add_argument('--app-path', type=Path, help='Path to the desktop app resources/app.asar for a custom installation')
-    for action in ('enable', 'disable', 'status', 'uninstall'): sub.add_parser(action)
+    for action in ('enable', 'disable', 'status', 'uninstall'):
+        sub.add_parser(action).add_argument('--instance', choices=('all', 'pro', 'vertex'), default='all', help='Target instance (default: all)')
     p = sub.add_parser('install-cli', help='Install the official CLI statusLine adapter independently of desktop')
     p.add_argument('--node', help='Node.js 20+ executable (defaults to PATH)')
     p.add_argument('--language', choices=('en', 'zh-CN'), help='Override shared desktop language choice')
@@ -308,10 +374,10 @@ def main():
             else: cli.status(HOME)
             return 0
         if args.action == 'install': install(args.panel_only, args.legacy_loader, args.instance)
-        elif args.action == 'enable': set_enabled(True)
-        elif args.action == 'disable': set_enabled(False)
-        elif args.action == 'uninstall': uninstall()
-        elif args.action == 'status': status()
+        elif args.action == 'enable': set_enabled(True, args.instance)
+        elif args.action == 'disable': set_enabled(False, args.instance)
+        elif args.action == 'uninstall': uninstall(args.instance)
+        elif args.action == 'status': status(args.instance)
         elif args.action == 'package': package(args.output)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f'Antigrative Dashboard: {error}', file=sys.stderr)

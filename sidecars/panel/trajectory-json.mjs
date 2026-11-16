@@ -1,174 +1,479 @@
-// Incremental JSON projection for trajectory RPCs. Large prompts, tool results,
-// images and executor payloads are validated and skipped, never buffered.
-import { normalizeConversationId } from './delegation.mjs';
-const scalar='scalar',nonempty='nonempty',presence='presence',calls='calls',guid='guid';
-const usage=Object.fromEntries(['inputTokens','outputTokens','responseOutputTokens','thinkingOutputTokens','cacheReadTokens','cacheWriteTokens','apiProvider','responseId','messageId','model'].map(k=>[k,scalar]));
-const duration={seconds:scalar,nanos:scalar};
-const baseGenerators={'*':{stepIndices:{'*':scalar},chatModel:{usage,model:scalar,modelDisplayName:scalar,responseModel:scalar,
- streamingDuration:duration,timeToFirstToken:duration,retryInfos:{'*':{usage}},
- chatStartMetadata:{createdAt:scalar,contextWindowMetadata:{estimatedTokensUsed:scalar,maxContextTokens:scalar}}}}};
-const timelineGenerators={'*':{...baseGenerators['*'],plannerConfig:{planModel:scalar,plannerModel:scalar}}};
-const invokeSubagentSpec={conversationId:guid,role:scalar,typeName:scalar};
-const invokeSubagent={conversationId:guid,subagents:{'*':invokeSubagentSpec},results:{'*':{conversationId:guid}}};
-const userInputMeta={userConfig:{plannerConfig:{planModel:scalar}}};
-const baseSteps={'*':{type:scalar,metadata:{createdAt:scalar,startedAt:scalar,completedAt:scalar,toolCall:presence},
- plannerResponse:{response:nonempty,toolCalls:calls},invokeSubagent,userInput:userInputMeta}};
-const systemMessageMeta={eventType:scalar};
-const taskBoundaryMeta={mode:scalar,Mode:scalar};
-const timelineToolCalls={'*':{name:scalar,status:scalar}};
-const timelineSteps={'*':{i:scalar,type:scalar,status:scalar,
- metadata:{createdAt:scalar,startedAt:scalar,completedAt:scalar,toolCall:{name:scalar},generatorModel:scalar},
- plannerResponse:{response:nonempty,toolCalls:timelineToolCalls},invokeSubagent,userInput:userInputMeta,
- systemMessage:systemMessageMeta,taskBoundary:taskBoundaryMeta,exitPlanMode:presence,enterPlanMode:presence}};
-const subagentSpec={role:scalar,typeName:scalar,inherit:scalar,modelTier:scalar};
-const summaryMeta={parentConversationId:guid,rootConversationId:guid,nestingDepth:scalar,subagentSpec};
-const summaryEntry={summary:scalar,stepCount:scalar,lastModifiedTime:scalar,status:scalar,lastUserInputStepIndex:scalar,
- hasActiveChildren:scalar,hasRunningSubagents:scalar,notFullyIdle:scalar,trajectoryMetadata:summaryMeta};
-const trajectorySummaries={'*':summaryEntry};
-const trajectoryBase={cascadeId:scalar,trajectoryId:scalar,planModel:scalar,steps:baseSteps,generatorMetadata:baseGenerators};
-const trajectoryTimeline={cascadeId:scalar,trajectoryId:scalar,planModel:scalar,steps:timelineSteps,generatorMetadata:timelineTimelineGeneratorsSafe()};
-function timelineTimelineGeneratorsSafe(){return timelineGenerators;}
-const schema={trajectory:trajectoryBase,steps:baseSteps,
- generatorMetadata:baseGenerators,generatorMetadatas:baseGenerators,planModel:scalar,status:scalar,numTotalSteps:scalar,numTotalGeneratorMetadata:scalar,trajectorySummaries};
-const timelineSchema={trajectory:trajectoryTimeline,steps:timelineSteps,
- generatorMetadata:timelineGenerators,generatorMetadatas:timelineGenerators,planModel:scalar,status:scalar,numTotalSteps:scalar,numTotalGeneratorMetadata:scalar,trajectorySummaries};
-const dropEmptyNodes=new Set([subagentSpec,invokeSubagentSpec,userInputMeta,systemMessageMeta,taskBoundaryMeta]);
-const DROP=Symbol('discard');
-export class TrajectoryJson {
- constructor({maxRetainedBytes=8*1024*1024,projection=null,modelTimelineEnabled=false}={}){
-  this.maxRetainedBytes=maxRetainedBytes;
-  this.modelTimelineEnabled=modelTimelineEnabled===true;
-  this.projection=projection||(this.modelTimelineEnabled?timelineSchema:schema);
- }
- stack=[];token=null;result=undefined;done=false;retained=0;capturedPlanModel=null;
- fail(){throw new Error('Antigravity 接口返回了无法解析的数据');}
- charge(n){if((this.retained+=n)>this.maxRetainedBytes)throw new Error('会话统计数据超过采集上限');}
- node(){
-  const f=this.stack.at(-1);if(!f)return this.projection;
-  if(!f.node||typeof f.node!=='object')return undefined;
-  if(f.array)return Object.hasOwn(f.node,'*')?f.node['*']:undefined;
-  if(f.key&&Object.hasOwn(f.node,f.key))return f.node[f.key];
-  if(f.node===trajectorySummaries&&Object.hasOwn(f.node,'*'))return f.node['*'];
-  return undefined;
- }
- valueAllowed(){const f=this.stack.at(-1);return f?['value','valueOrEnd'].includes(f.expect):!this.done;}
- finishValue(value){
-  const f=this.stack.at(-1);
-  if(!f){
-   if(this.done)this.fail();
-   if(this.capturedPlanModel&&value&&typeof value==='object'&&!Object.hasOwn(value,'trajectory')&&Object.hasOwn(value,'steps')&&!value.planModel){
-    value.planModel=this.capturedPlanModel;
-   }
-   this.result=value;this.done=true;return;
-  }
-  if(!['value','valueOrEnd'].includes(f.expect))this.fail();
-  if(value!==DROP&&f.out&&(f.array||f.key!==null)){this.charge(32);if(f.array)f.out.push(value);else Object.defineProperty(f.out,f.key,{value,writable:true,enumerable:true,configurable:true});}
-  f.count++;f.expect='commaOrEnd';f.key=null;
- }
- punctuation(c){
-  const f=this.stack.at(-1);
-  if(c==='{'||c==='['){
-   if(!this.valueAllowed()||this.stack.length>=64)this.fail();
-   const array=c==='[';
-   const node=(f&&!f.array&&!f.key)?undefined:this.node();
-   const isObjNode=typeof node==='object';
-   const out=isObjNode?(array?(Object.hasOwn(node,'*')&&node!==trajectorySummaries?[]:null):{}):null;
-   if(out)this.charge(64);
-   this.stack.push({node,array,out,count:0,key:null,expect:array?'valueOrEnd':'keyOrEnd'});return;
-  }
-  if(c==='}'||c===']'){
-   if(!f||f.array!==(c===']')||!['commaOrEnd',f.array?'valueOrEnd':'keyOrEnd'].includes(f.expect))this.fail();
-   this.stack.pop();
-   const val=f.node===presence?true:f.node===calls?(f.count?[{}]:[]):f.out||DROP;
-   let finalVal=val;
-   if(f.node===userInputMeta&&val&&typeof val==='object'){
-    const pm=val.userConfig?.plannerConfig?.planModel;
-    if(typeof pm==='string'&&pm.trim())this.capturedPlanModel=pm.trim().slice(0,256);
-    if(!this.modelTimelineEnabled)finalVal=DROP;
-    else if(!pm)finalVal=DROP;
-   } else if((f.node===trajectoryBase||f.node===trajectoryTimeline)&&val&&typeof val==='object'&&this.capturedPlanModel&&!val.planModel){
-    val.planModel=this.capturedPlanModel;
-   } else if(dropEmptyNodes.has(f.node)&&val&&typeof val==='object'&&!Object.keys(val).length){
-    finalVal=DROP;
-   }
-   this.finishValue(finalVal);return;
-  }
-  if(c===':'){if(!f||f.array||f.expect!=='colon')this.fail();f.expect='value';return;}
-  if(c===','){if(!f||f.expect!=='commaOrEnd')this.fail();f.expect=f.array?'value':'key';return;}
-  this.fail();
- }
- startString(){
-  const f=this.stack.at(-1),key=f&&!f.array&&['key','keyOrEnd'].includes(f.expect);
-  if(!key&&!this.valueAllowed())this.fail();
-  const node=key?null:this.node();
-  this.token={kind:'string',key,node,buffer:'',overflow:false,escape:0,hex:'',any:false,ascii:0,other:0};
- }
- stringPart(text){
-  const t=this.token;if(t.node===nonempty&&/\S/u.test(text)||t.node===presence&&text.length)t.any=true;
-  if(t.node==='textEstimate'){
-   const other=(text.match(/[^\x00-\x7f]/g)||[]).length;t.ascii+=text.length-other;t.other+=other;
-   if(t.buffer.length<256)t.buffer+=text.slice(0,256-t.buffer.length);
-  }
-  if(t.node===guid){
-   if(t.overflow)return;t.buffer+=text;
-   if(t.buffer.length>64){t.buffer='';t.overflow=true;}
-   return;
-  }
-  if(t.key||t.node===scalar||t.node===duration){
-   if(t.overflow)return;t.buffer+=text;
-   if(t.buffer.length>(t.key?1024:16384)){if(!t.key)throw new Error('会话统计字段超过采集上限');t.buffer='';t.overflow=true;}
-  }
- }
- endString(){
-  const t=this.token;this.token=null;
-  if(t.key){
-   const f=this.stack.at(-1);
-   if(f.node===trajectorySummaries){
-    const norm=normalizeConversationId(t.buffer);
-    f.key=norm;f.expect='colon';return;
-   }
-   f.key=t.overflow?null:t.buffer;f.expect='colon';return;
-  }
-  let value=DROP;
-  if(t.node===guid){
-   const norm=normalizeConversationId(t.buffer);
-   value=norm!==null?norm:DROP;
-  }
-  else if(t.node===nonempty)value=t.any?'1':'';
-  else if(t.node==='textEstimate')value={tokens:Math.ceil(t.ascii/4+t.other/1.5),prefix:t.buffer};
-  else if(t.node===presence)value=t.any;
-  else if(t.node===scalar||t.node===duration){value=t.buffer;this.charge(value.length*2);}
-  this.finishValue(value);
- }
- literalEnd(){
-  const t=this.token;this.token=null;
-  if(!/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(t.buffer))this.fail();
-  const value=JSON.parse(t.buffer);this.finishValue(t.node&&t.node!==guid?value:DROP);
- }
- write(text){
-  let i=0;
-  while(i<text.length){
-   const t=this.token;
-   if(t?.kind==='string'){
-    if(t.escape===1){
-     const c=text[i++];if(c==='u'){t.escape=2;t.hex='';continue;}
-     const decoded={'"':'"','\\':'\\','/':'/','b':'\b','f':'\f','n':'\n','r':'\r','t':'\t'}[c];
-     if(decoded===undefined)this.fail();this.stringPart(decoded);t.escape=0;continue;
+// Generated by tools/build.mjs from src/. Do not edit directly.
+
+// src/telemetry/projector/trajectory-json.ts
+import { normalizeConversationId } from "./delegation.mjs";
+
+// src/telemetry/projector/schema.ts
+var scalar = "scalar";
+var nonempty = "nonempty";
+var presence = "presence";
+var calls = "calls";
+var guid = "guid";
+var usage = Object.fromEntries(
+  [
+    "inputTokens",
+    "outputTokens",
+    "responseOutputTokens",
+    "thinkingOutputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "apiProvider",
+    "responseId",
+    "messageId",
+    "model"
+  ].map((k) => [k, scalar])
+);
+var duration = { seconds: scalar, nanos: scalar };
+var baseGeneratorItem = {
+  stepIndices: { "*": scalar },
+  chatModel: {
+    usage,
+    model: scalar,
+    modelDisplayName: scalar,
+    responseModel: scalar,
+    streamingDuration: duration,
+    timeToFirstToken: duration,
+    retryInfos: { "*": { usage } },
+    chatStartMetadata: {
+      createdAt: scalar,
+      contextWindowMetadata: { estimatedTokensUsed: scalar, maxContextTokens: scalar }
     }
-    if(t.escape===2){const c=text[i++];if(!/[0-9a-f]/i.test(c))this.fail();t.hex+=c;if(t.hex.length===4){this.stringPart(String.fromCharCode(parseInt(t.hex,16)));t.escape=0;}continue;}
-    const special=/["\\\x00-\x1f]/g;special.lastIndex=i;const hit=special.exec(text),end=hit?hit.index:text.length;
-    this.stringPart(text.slice(i,end));i=end;if(!hit)continue;
-    const c=text[i++];if(c==='"')this.endString();else if(c==='\\')t.escape=1;else this.fail();continue;
-   }
-   if(t?.kind==='literal'){
-    const start=i;while(i<text.length&&/[a-zA-Z0-9+\-.]/.test(text[i]))i++;
-    t.buffer+=text.slice(start,i);if(t.buffer.length>1024)this.fail();if(i<text.length)this.literalEnd();continue;
-   }
-   const c=text[i++];if(/[ \r\n\t]/.test(c))continue;
-   if(c==='"'){this.startString();continue;}
-   if('{}[]:,'.includes(c)){this.punctuation(c);continue;}
-   if(!this.valueAllowed()||!/[tfn\d-]/.test(c))this.fail();this.token={kind:'literal',node:this.node(),buffer:c};
   }
- }
- end(){if(this.token?.kind==='literal')this.literalEnd();if(this.token||this.stack.length||!this.done||!this.result||typeof this.result!=='object')this.fail();return this.result;}
-}
+};
+var baseGenerators = { "*": baseGeneratorItem };
+var timelineGenerators = {
+  "*": { ...baseGeneratorItem, plannerConfig: { planModel: scalar, plannerModel: scalar } }
+};
+var invokeSubagentSpec = { conversationId: guid, role: scalar, typeName: scalar };
+var invokeSubagent = {
+  conversationId: guid,
+  subagents: { "*": invokeSubagentSpec },
+  results: { "*": { conversationId: guid } }
+};
+var userInputMeta = { userConfig: { plannerConfig: { planModel: scalar } } };
+var baseSteps = {
+  "*": {
+    type: scalar,
+    metadata: { createdAt: scalar, startedAt: scalar, completedAt: scalar, toolCall: presence },
+    plannerResponse: { response: nonempty, toolCalls: calls },
+    invokeSubagent,
+    userInput: userInputMeta
+  }
+};
+var systemMessageMeta = { eventType: scalar };
+var taskBoundaryMeta = { mode: scalar, Mode: scalar };
+var timelineToolCalls = { "*": { name: scalar, status: scalar } };
+var timelineSteps = {
+  "*": {
+    i: scalar,
+    type: scalar,
+    status: scalar,
+    metadata: { createdAt: scalar, startedAt: scalar, completedAt: scalar, toolCall: { name: scalar }, generatorModel: scalar },
+    plannerResponse: { response: nonempty, toolCalls: timelineToolCalls },
+    invokeSubagent,
+    userInput: userInputMeta,
+    systemMessage: systemMessageMeta,
+    taskBoundary: taskBoundaryMeta,
+    exitPlanMode: presence,
+    enterPlanMode: presence
+  }
+};
+var subagentSpec = { role: scalar, typeName: scalar, inherit: scalar, modelTier: scalar };
+var summaryMeta = {
+  parentConversationId: guid,
+  rootConversationId: guid,
+  nestingDepth: scalar,
+  subagentSpec
+};
+var summaryEntry = {
+  summary: scalar,
+  stepCount: scalar,
+  lastModifiedTime: scalar,
+  status: scalar,
+  lastUserInputStepIndex: scalar,
+  hasActiveChildren: scalar,
+  hasRunningSubagents: scalar,
+  notFullyIdle: scalar,
+  trajectoryMetadata: summaryMeta
+};
+var trajectorySummaries = { "*": summaryEntry };
+var trajectoryBase = {
+  cascadeId: scalar,
+  trajectoryId: scalar,
+  planModel: scalar,
+  steps: baseSteps,
+  generatorMetadata: baseGenerators
+};
+var trajectoryTimeline = {
+  cascadeId: scalar,
+  trajectoryId: scalar,
+  planModel: scalar,
+  steps: timelineSteps,
+  generatorMetadata: timelineGenerators
+};
+var remoteModelInfo = {
+  modelName: scalar,
+  displayName: scalar,
+  maxTokens: scalar,
+  contextWindow: scalar,
+  maxInputTokens: scalar
+};
+var remoteRequestedModel = { model: scalar };
+var remoteStepSourceInfo = { stepIndex: scalar };
+var remotePlannerConfig = { planModel: scalar, plannerModel: scalar, modelName: scalar };
+var remoteGenerators = {
+  "*": { ...baseGeneratorItem, i: scalar, plannerConfig: remotePlannerConfig }
+};
+var remoteBaseMetadata = {
+  createdAt: scalar,
+  startedAt: scalar,
+  completedAt: scalar,
+  viewableAt: scalar,
+  finishedGeneratingAt: scalar,
+  toolCall: presence,
+  toolCallOutputTokens: scalar,
+  generatorModel: scalar,
+  modelApiContentId: scalar,
+  modelUsage: usage,
+  modelInfo: remoteModelInfo,
+  requestedModel: remoteRequestedModel,
+  sourceTrajectoryStepInfo: remoteStepSourceInfo
+};
+var remoteTimelineMetadata = { ...remoteBaseMetadata, toolCall: { name: scalar } };
+var remoteBaseStepItem = {
+  i: scalar,
+  type: scalar,
+  metadata: remoteBaseMetadata,
+  plannerResponse: { response: nonempty, toolCalls: calls },
+  invokeSubagent,
+  userInput: userInputMeta
+};
+var remoteBaseSteps = { "*": remoteBaseStepItem };
+var remoteTimelineSteps = {
+  "*": {
+    ...remoteBaseStepItem,
+    status: scalar,
+    metadata: remoteTimelineMetadata,
+    plannerResponse: { response: nonempty, toolCalls: timelineToolCalls },
+    systemMessage: systemMessageMeta,
+    taskBoundary: taskBoundaryMeta,
+    exitPlanMode: presence,
+    enterPlanMode: presence
+  }
+};
+var contextWindowUsage = { estimatedTokensUsed: scalar, maxContextTokens: scalar };
+var updateBase = {
+  conversationId: scalar,
+  status: scalar,
+  planModel: scalar,
+  contextWindowUsage,
+  mainTrajectoryUpdate: { stepsUpdate: { steps: remoteBaseSteps }, generatorMetadatasUpdate: { generatorMetadatas: remoteGenerators } },
+  trajectory: trajectoryBase,
+  steps: baseSteps,
+  generatorMetadata: baseGenerators,
+  generatorMetadatas: baseGenerators,
+  numTotalSteps: scalar,
+  numTotalGeneratorMetadata: scalar
+};
+var updateTimeline = {
+  conversationId: scalar,
+  status: scalar,
+  planModel: scalar,
+  contextWindowUsage,
+  mainTrajectoryUpdate: { stepsUpdate: { steps: remoteTimelineSteps }, generatorMetadatasUpdate: { generatorMetadatas: remoteGenerators } },
+  trajectory: trajectoryTimeline,
+  steps: timelineSteps,
+  generatorMetadata: timelineGenerators,
+  generatorMetadatas: timelineGenerators,
+  numTotalSteps: scalar,
+  numTotalGeneratorMetadata: scalar
+};
+var schema = {
+  trajectory: trajectoryBase,
+  steps: baseSteps,
+  generatorMetadata: baseGenerators,
+  generatorMetadatas: baseGenerators,
+  planModel: scalar,
+  status: scalar,
+  numTotalSteps: scalar,
+  numTotalGeneratorMetadata: scalar,
+  trajectorySummaries,
+  update: updateBase
+};
+var timelineSchema = {
+  trajectory: trajectoryTimeline,
+  steps: timelineSteps,
+  generatorMetadata: timelineGenerators,
+  generatorMetadatas: timelineGenerators,
+  planModel: scalar,
+  status: scalar,
+  numTotalSteps: scalar,
+  numTotalGeneratorMetadata: scalar,
+  trajectorySummaries,
+  update: updateTimeline
+};
+var dropEmptyNodes = /* @__PURE__ */ new Set([
+  subagentSpec,
+  invokeSubagentSpec,
+  userInputMeta,
+  systemMessageMeta,
+  taskBoundaryMeta,
+  remoteModelInfo,
+  remoteRequestedModel,
+  remoteStepSourceInfo,
+  remotePlannerConfig
+]);
+var durationNode = duration;
+
+// src/telemetry/projector/trajectory-json.ts
+var DROP = /* @__PURE__ */ Symbol("discard");
+var ESCAPE_DECODE = {
+  '"': '"',
+  "\\": "\\",
+  "/": "/",
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "	"
+};
+var PLAN_MODEL_NODES = /* @__PURE__ */ new Set([trajectoryBase, trajectoryTimeline, updateBase, updateTimeline]);
+var TrajectoryJson = class {
+  maxRetainedBytes;
+  modelTimelineEnabled;
+  projection;
+  stack = [];
+  token = null;
+  result = void 0;
+  done = false;
+  retained = 0;
+  capturedPlanModel = null;
+  constructor({ maxRetainedBytes = 8 * 1024 * 1024, projection = null, modelTimelineEnabled = false } = {}) {
+    this.maxRetainedBytes = maxRetainedBytes;
+    this.modelTimelineEnabled = modelTimelineEnabled === true;
+    this.projection = projection || (this.modelTimelineEnabled ? timelineSchema : schema);
+  }
+  fail() {
+    throw new Error("Antigravity \u63A5\u53E3\u8FD4\u56DE\u4E86\u65E0\u6CD5\u89E3\u6790\u7684\u6570\u636E");
+  }
+  charge(n) {
+    if ((this.retained += n) > this.maxRetainedBytes) throw new Error("\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650");
+  }
+  node() {
+    const f = this.stack.at(-1);
+    if (!f) return this.projection;
+    if (!f.node || typeof f.node !== "object") return void 0;
+    if (f.array) return Object.hasOwn(f.node, "*") ? f.node["*"] : void 0;
+    if (f.key && Object.hasOwn(f.node, f.key)) return f.node[f.key];
+    if (f.node === trajectorySummaries && Object.hasOwn(f.node, "*")) return f.node["*"];
+    return void 0;
+  }
+  valueAllowed() {
+    const f = this.stack.at(-1);
+    return f ? f.expect === "value" || f.expect === "valueOrEnd" : !this.done;
+  }
+  finishValue(value) {
+    const f = this.stack.at(-1);
+    if (!f) {
+      if (this.done) this.fail();
+      if (this.capturedPlanModel && value && typeof value === "object" && !Array.isArray(value) && !Object.hasOwn(value, "trajectory") && Object.hasOwn(value, "steps") && !value.planModel) {
+        value.planModel = this.capturedPlanModel;
+      }
+      this.result = value;
+      this.done = true;
+      return;
+    }
+    if (f.expect !== "value" && f.expect !== "valueOrEnd") this.fail();
+    if (value !== DROP && f.out && (f.array || f.key !== null)) {
+      this.charge(32);
+      if (Array.isArray(f.out)) f.out.push(value);
+      else if (f.key !== null) Object.defineProperty(f.out, f.key, { value, writable: true, enumerable: true, configurable: true });
+    }
+    f.count++;
+    f.expect = "commaOrEnd";
+    f.key = null;
+  }
+  closeContainer(c) {
+    const f = this.stack.at(-1);
+    const expectedEnd = f?.array ? "valueOrEnd" : "keyOrEnd";
+    if (!f || f.array !== (c === "]") || f.expect !== "commaOrEnd" && f.expect !== expectedEnd) this.fail();
+    this.stack.pop();
+    const val = f.node === presence ? true : f.node === calls ? f.count ? [{}] : [] : f.out || DROP;
+    let finalVal = val;
+    if (f.node === userInputMeta && val && typeof val === "object" && !Array.isArray(val)) {
+      const pm = val.userConfig?.plannerConfig?.planModel;
+      if (typeof pm === "string" && pm.trim()) this.capturedPlanModel = pm.trim().slice(0, 256);
+      if (!this.modelTimelineEnabled || !pm) finalVal = DROP;
+    } else if (f.node !== void 0 && PLAN_MODEL_NODES.has(f.node) && val && typeof val === "object" && !Array.isArray(val) && this.capturedPlanModel && !val.planModel) {
+      val.planModel = this.capturedPlanModel;
+    } else if (f.node !== void 0 && dropEmptyNodes.has(f.node) && val && typeof val === "object" && !Object.keys(val).length) {
+      finalVal = DROP;
+    }
+    this.finishValue(finalVal);
+  }
+  punctuation(c) {
+    const f = this.stack.at(-1);
+    if (c === "{" || c === "[") {
+      if (!this.valueAllowed() || this.stack.length >= 64) this.fail();
+      const array = c === "[";
+      const node = f && !f.array && !f.key ? void 0 : this.node();
+      const isObjNode = node !== void 0 && typeof node === "object";
+      const out = isObjNode ? array ? Object.hasOwn(node, "*") && node !== trajectorySummaries ? [] : null : {} : null;
+      if (out) this.charge(64);
+      this.stack.push({ node, array, out, count: 0, key: null, expect: array ? "valueOrEnd" : "keyOrEnd" });
+      return;
+    }
+    if (c === "}" || c === "]") {
+      this.closeContainer(c);
+      return;
+    }
+    if (c === ":") {
+      if (!f || f.array || f.expect !== "colon") this.fail();
+      f.expect = "value";
+      return;
+    }
+    if (c === ",") {
+      if (!f || f.expect !== "commaOrEnd") this.fail();
+      f.expect = f.array ? "value" : "key";
+      return;
+    }
+    this.fail();
+  }
+  startString() {
+    const f = this.stack.at(-1);
+    const key = Boolean(f && !f.array && (f.expect === "key" || f.expect === "keyOrEnd"));
+    if (!key && !this.valueAllowed()) this.fail();
+    this.token = { kind: "string", key, node: key ? void 0 : this.node(), buffer: "", overflow: false, escape: 0, hex: "", any: false, ascii: 0, other: 0 };
+  }
+  stringPart(text) {
+    const t = this.token;
+    if (!t || t.kind !== "string") return;
+    if (t.node === nonempty && /\S/u.test(text) || t.node === presence && text.length > 0) t.any = true;
+    if (t.node === "textEstimate") {
+      const other = (text.match(/[^\x00-\x7f]/g) || []).length;
+      t.ascii += text.length - other;
+      t.other += other;
+      if (t.buffer.length < 256) t.buffer += text.slice(0, 256 - t.buffer.length);
+    }
+    if (t.node === guid) {
+      if (t.overflow) return;
+      t.buffer += text;
+      if (t.buffer.length > 64) {
+        t.buffer = "";
+        t.overflow = true;
+      }
+      return;
+    }
+    if (t.key || t.node === scalar || t.node === durationNode) {
+      if (t.overflow) return;
+      t.buffer += text;
+      if (t.buffer.length > (t.key ? 1024 : 16384)) {
+        if (!t.key) throw new Error("\u4F1A\u8BDD\u7EDF\u8BA1\u5B57\u6BB5\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650");
+        t.buffer = "";
+        t.overflow = true;
+      }
+    }
+  }
+  endString() {
+    const t = this.token;
+    this.token = null;
+    if (!t || t.kind !== "string") return;
+    if (t.key) {
+      const f = this.stack.at(-1);
+      f.key = f.node === trajectorySummaries ? normalizeConversationId(t.buffer) : t.overflow ? null : t.buffer;
+      f.expect = "colon";
+      return;
+    }
+    let value = DROP;
+    if (t.node === guid) {
+      const norm = normalizeConversationId(t.buffer);
+      value = norm !== null ? norm : DROP;
+    } else if (t.node === nonempty) value = t.any ? "1" : "";
+    else if (t.node === "textEstimate") value = { tokens: Math.ceil(t.ascii / 4 + t.other / 1.5), prefix: t.buffer };
+    else if (t.node === presence) value = t.any;
+    else if (t.node === scalar || t.node === durationNode) {
+      value = t.buffer;
+      this.charge(t.buffer.length * 2);
+    }
+    this.finishValue(value);
+  }
+  literalEnd() {
+    const t = this.token;
+    this.token = null;
+    if (!t || t.kind !== "literal") return;
+    if (!/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(t.buffer)) this.fail();
+    const value = JSON.parse(t.buffer);
+    this.finishValue(t.node && t.node !== guid ? value : DROP);
+  }
+  write(text) {
+    let i = 0;
+    while (i < text.length) {
+      const t = this.token;
+      if (t?.kind === "string") {
+        if (t.escape === 1) {
+          const c3 = text[i++];
+          if (c3 === "u") {
+            t.escape = 2;
+            t.hex = "";
+            continue;
+          }
+          const decoded = ESCAPE_DECODE[c3];
+          if (decoded === void 0) this.fail();
+          this.stringPart(decoded);
+          t.escape = 0;
+          continue;
+        }
+        if (t.escape === 2) {
+          const c3 = text[i++];
+          if (!/[0-9a-f]/i.test(c3)) this.fail();
+          t.hex += c3;
+          if (t.hex.length === 4) {
+            this.stringPart(String.fromCharCode(parseInt(t.hex, 16)));
+            t.escape = 0;
+          }
+          continue;
+        }
+        const special = /["\\\x00-\x1f]/g;
+        special.lastIndex = i;
+        const hit = special.exec(text);
+        const end = hit ? hit.index : text.length;
+        this.stringPart(text.slice(i, end));
+        i = end;
+        if (!hit) continue;
+        const c2 = text[i++];
+        if (c2 === '"') this.endString();
+        else if (c2 === "\\") t.escape = 1;
+        else this.fail();
+        continue;
+      }
+      if (t?.kind === "literal") {
+        const start = i;
+        while (i < text.length && /[a-zA-Z0-9+\-.]/.test(text[i])) i++;
+        t.buffer += text.slice(start, i);
+        if (t.buffer.length > 1024) this.fail();
+        if (i < text.length) this.literalEnd();
+        continue;
+      }
+      const c = text[i++];
+      if (/[ \r\n\t]/.test(c)) continue;
+      if (c === '"') {
+        this.startString();
+        continue;
+      }
+      if ("{}[]:,".includes(c)) {
+        this.punctuation(c);
+        continue;
+      }
+      if (!this.valueAllowed() || !/[tfn\d-]/.test(c)) this.fail();
+      this.token = { kind: "literal", node: this.node(), buffer: c };
+    }
+  }
+  end() {
+    if (this.token?.kind === "literal") this.literalEnd();
+    if (this.token || this.stack.length || !this.done || !this.result || typeof this.result !== "object") this.fail();
+    return this.result;
+  }
+};
+export {
+  TrajectoryJson
+};

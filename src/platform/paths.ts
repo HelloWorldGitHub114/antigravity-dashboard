@@ -1,0 +1,321 @@
+// User-owned paths and dual-instance (Pro + .antigravity-vertex) discovery.
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+
+export type PlatformName = 'win32' | 'darwin' | 'linux' | (string & {});
+export type InstanceKind = 'pro' | 'vertex';
+
+export interface PlatformPathOptions {
+  platform?: PlatformName;
+  home?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface AgentExecutableOptions extends PlatformPathOptions {
+  arch?: string;
+}
+
+export interface PlatformPaths {
+  home: string;
+  local: string;
+  config: string;
+  profile: string;
+  log: string;
+  logCandidates: string[];
+  settings: string;
+  backups: string;
+  appAsar: string;
+  pluginDir: string;
+  pluginConfig: string;
+  data: string;
+  isIsolatedVertex: boolean;
+}
+
+export interface InstancePaths extends PlatformPaths {
+  instance: InstanceKind;
+  instanceSettings: string;
+  health: string;
+  exists: boolean;
+}
+
+interface BaseDirs {
+  platform: PlatformName;
+  home: string;
+  env: Record<string, string | undefined>;
+  config: string;
+  local: string;
+  settings: string;
+}
+
+function expandHome(target: string, home: string): string {
+  if (target === '~') return home;
+  if (target.startsWith('~/') || target.startsWith('~\\')) {
+    return join(home, target.slice(2));
+  }
+  return target;
+}
+
+function isRegularFile(filePath: string): boolean {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function readJsonRecordSync(filePath: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function findExecutableInPath(name: string, pathEnv: string | undefined): string | null {
+  if (!pathEnv) return null;
+  for (const dir of pathEnv.split(':')) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    try {
+      const stats = statSync(candidate);
+      if (stats.isFile() && (stats.mode & 0o111) !== 0) {
+        return candidate;
+      }
+    } catch {
+      // Ignore inaccessible PATH entries.
+    }
+  }
+  return null;
+}
+
+function resolveBaseDirs(options: PlatformPathOptions = {}): BaseDirs {
+  const platform = options.platform ?? process.platform;
+  const home = options.home ?? homedir();
+  const env = options.env ?? process.env;
+  let config: string;
+  let local: string;
+  if (platform === 'win32') {
+    config = env.APPDATA || join(home, 'AppData', 'Roaming');
+    local = env.LOCALAPPDATA || join(home, 'AppData', 'Local');
+  } else if (platform === 'darwin') {
+    config = join(home, 'Library', 'Application Support');
+    local = config;
+  } else if (platform === 'linux') {
+    config = env.XDG_CONFIG_HOME || join(home, '.config');
+    local = env.XDG_DATA_HOME || join(home, '.local', 'share');
+  } else {
+    throw new Error('Supported platforms: Windows, Linux, macOS');
+  }
+  const settings = join(local, 'AntigravityPulse', 'settings.json');
+  return { platform, home, env, config, local, settings };
+}
+
+/**
+ * Return ordered candidate locations for the host desktop `app.asar` archive.
+ */
+export function appAsarCandidates(options: PlatformPathOptions = {}): string[] {
+  const { platform, home, env, local } = resolveBaseDirs(options);
+  if (env.AG_PULSE_APP_ASAR) {
+    return [expandHome(env.AG_PULSE_APP_ASAR, home)];
+  }
+  if (platform === 'win32') {
+    return [join(local, 'Programs', 'antigravity', 'resources', 'app.asar')];
+  }
+  if (platform === 'darwin') {
+    return [
+      '/Applications/Antigravity.app/Contents/Resources/app.asar',
+      join(home, 'Applications', 'Antigravity.app', 'Contents', 'Resources', 'app.asar'),
+    ];
+  }
+  const candidates = ['/opt/Antigravity', '/opt/antigravity', '/usr/share/antigravity'].map(
+    (root) => join(root, 'resources', 'app.asar'),
+  );
+  const executable = findExecutableInPath('antigravity', env.PATH);
+  if (executable) {
+    try {
+      const resolved = realpathSync(executable);
+      candidates.unshift(join(dirname(resolved), 'resources', 'app.asar'));
+    } catch {
+      // Fall back to static Linux install locations when symlink resolution fails.
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Resolve the installed desktop `app.asar` path, falling back to the primary candidate.
+ */
+export function resolveAppAsar(options: PlatformPathOptions = {}): string {
+  const candidates = appAsarCandidates(options);
+  return candidates.find(isRegularFile) ?? candidates[0];
+}
+
+/**
+ * Resolve user-owned host, plugin, log, settings, backup, and data directories.
+ */
+export function platformPaths(options: PlatformPathOptions = {}): PlatformPaths {
+  const { platform, home, env, config, local, settings } = resolveBaseDirs(options);
+  const saved = readJsonRecordSync(settings);
+  const siblingUserData = join(home, '..', 'user-data');
+  const isolatedProfile = existsSync(siblingUserData) ? siblingUserData : null;
+  const isIsolatedVertex =
+    isolatedProfile !== null ||
+    (basename(home) === 'home' && basename(dirname(home)) === '.antigravity-vertex');
+  const savedProfile = typeof saved.profile === 'string' ? saved.profile : null;
+  const profile = env.AG_PULSE_PROFILE || isolatedProfile || savedProfile || join(config, 'Antigravity');
+  const profileLog = join(profile, 'logs', 'language_server.log');
+  const log =
+    env.AG_PULSE_LOG ||
+    (platform === 'darwin'
+      ? join(home, 'Library', 'Logs', 'Antigravity', 'language_server.log')
+      : profileLog);
+  const logCandidates = env.AG_PULSE_LOG
+    ? [log]
+    : [
+        ...new Set([
+          log,
+          profileLog,
+          ...(platform === 'win32'
+            ? [join(home, '.gemini', 'antigravity', 'logs', 'language_server.log')]
+            : []),
+        ]),
+      ];
+
+  return {
+    home,
+    local,
+    config,
+    profile,
+    log,
+    logCandidates,
+    settings,
+    backups: join(local, 'AntigravityPulseBackups'),
+    appAsar: resolveAppAsar({ platform, home, env }),
+    pluginDir: join(home, '.gemini', 'config', 'plugins', 'antigravity-pulse'),
+    pluginConfig: join(home, '.gemini', 'config', 'config.json'),
+    data:
+      env.ANTIGRAVITY_EXECUTABLE_DATA_DIR ||
+      join(home, '.gemini', 'antigravity', 'sidecar_data', 'antigravity-pulse', 'panel', 'data'),
+    isIsolatedVertex,
+  };
+}
+
+/**
+ * Resolve Pro or isolated `.antigravity-vertex` instance paths from a base user home.
+ */
+export function instancePaths(
+  instance: InstanceKind,
+  options: PlatformPathOptions = {},
+): InstancePaths {
+  if (instance !== 'pro' && instance !== 'vertex') {
+    throw new Error(`Invalid instance: ${String(instance)}`);
+  }
+  const platform = options.platform ?? process.platform;
+  const baseHome = options.home ?? homedir();
+  const baseEnv = options.env ?? process.env;
+
+  if (instance === 'pro') {
+    const paths = platformPaths({ platform, home: baseHome, env: baseEnv });
+    return {
+      ...paths,
+      instance: 'pro',
+      instanceSettings: paths.settings,
+      health: join(paths.data, 'integration-state.json'),
+      exists: existsSync(paths.profile) || existsSync(paths.pluginDir),
+    };
+  }
+
+  const vertexRoot = join(baseHome, '.antigravity-vertex');
+  const vertexHome = join(vertexRoot, 'home');
+  const vertexProfile = join(vertexRoot, 'user-data');
+  const vertexData = join(
+    vertexHome,
+    '.gemini',
+    'antigravity',
+    'sidecar_data',
+    'antigravity-pulse',
+    'panel',
+    'data',
+  );
+  const vertexEnv: Record<string, string | undefined> = {
+    ...baseEnv,
+    HOME: vertexHome,
+    USERPROFILE: vertexHome,
+    AG_PULSE_PROFILE: vertexProfile,
+    ANTIGRAVITY_EXECUTABLE_DATA_DIR: vertexData,
+  };
+  const paths = platformPaths({ platform, home: vertexHome, env: vertexEnv });
+  return {
+    ...paths,
+    isIsolatedVertex: true,
+    instance: 'vertex',
+    instanceSettings: join(paths.data, 'settings.json'),
+    health: join(paths.data, 'integration-state.json'),
+    exists: existsSync(vertexProfile) || existsSync(paths.pluginDir),
+  };
+}
+
+/**
+ * Return resolved paths for both Pro and isolated `.antigravity-vertex` instances.
+ */
+export function allInstancePaths(options: PlatformPathOptions = {}): InstancePaths[] {
+  return [instancePaths('pro', options), instancePaths('vertex', options)];
+}
+
+/**
+ * Return ordered candidate paths for the bundled host `language_server` executable.
+ */
+export function agentExecutables(options: AgentExecutableOptions = {}): string[] {
+  const { platform, home, env, local, settings } = resolveBaseDirs(options);
+  const arch = options.arch ?? process.arch;
+  if (env.ANTIGRAVITY_AGENTAPI_EXE) {
+    return [env.ANTIGRAVITY_AGENTAPI_EXE];
+  }
+  const roots =
+    platform === 'win32'
+      ? [join(local, 'Programs', 'antigravity', 'resources')]
+      : platform === 'darwin'
+        ? [
+            '/Applications/Antigravity.app/Contents/Resources',
+            join(home, 'Applications', 'Antigravity.app', 'Contents', 'Resources'),
+          ]
+        : [
+            '/opt/Antigravity/resources',
+            '/opt/antigravity/resources',
+            '/usr/share/antigravity/resources',
+          ];
+  if (env.AG_PULSE_APP_RESOURCES) {
+    roots.unshift(env.AG_PULSE_APP_RESOURCES);
+  }
+  const saved = readJsonRecordSync(settings);
+  if (typeof saved.appResources === 'string') {
+    roots.unshift(saved.appResources);
+  }
+  const names =
+    platform === 'win32'
+      ? ['language_server.exe']
+      : [
+          'language_server',
+          `language_server_${platform === 'darwin' ? 'macos' : 'linux'}_${arch === 'arm64' ? 'arm' : 'x'}64`,
+          `language_server_${platform === 'darwin' ? 'macos' : 'linux'}`,
+        ];
+  return roots.flatMap((root) => names.map((name) => join(root, 'bin', name)));
+}
+
+/**
+ * Locate the first installed host `language_server` binary or throw a descriptive error.
+ */
+export function installedAgentExecutable(options?: AgentExecutableOptions): string {
+  const candidates = agentExecutables(options);
+  const file = candidates.find((candidate) => existsSync(candidate));
+  if (!file) {
+    throw new Error(
+      'Bundled language server not found; set ANTIGRAVITY_AGENTAPI_EXE to the installed host binary.',
+    );
+  }
+  return file;
+}
