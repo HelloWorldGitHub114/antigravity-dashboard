@@ -28,7 +28,6 @@ const AF_INET: u32 = 2;
 const AF_INET6: u32 = 23;
 #[cfg(windows)]
 const TCP_TABLE_OWNER_PID_LISTENER: u32 = 3;
-#[cfg(windows)]
 const MIB_TCP_STATE_LISTEN: u32 = 2;
 #[cfg(windows)]
 const NO_ERROR: u32 = 0;

@@ -788,7 +788,7 @@ async function inspectOtherAccountsHelper(storage, scope, id) {
 async function getAccountsHelper(storage, meta, activeScope = null) {
   const allScopes = await storage.scopeDirectories();
   const accounts = [];
-  accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });
+  accounts.push({ id: "all", name: "All Accounts (Aggregated)", email: "All Accounts (Aggregated)", active: activeScope === "all" });
   const scopes = new Set(allScopes);
   if (activeScope && HASH_RE.test(activeScope)) scopes.add(activeScope);
   for (const k of Object.keys(meta)) if (HASH_RE.test(k)) scopes.add(k);
