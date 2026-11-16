@@ -3,7 +3,7 @@
 
 // src/lifecycle/publish-release-cli.ts
 import { readFileSync as readFileSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname4 } from "node:path";
+import { basename as basename3, dirname as dirname4 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/platform/manifest.ts
@@ -100,7 +100,7 @@ var OPENSOURCE_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
 // src/lifecycle/packager.ts
 import { createHash } from "node:crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname3, join as join2, resolve as resolve2 } from "node:path";
+import { basename as basename2, dirname as dirname3, join as join2, resolve as resolve2 } from "node:path";
 
 // src/shared/zip.ts
 import { deflateRawSync, inflateRawSync } from "node:zlib";
@@ -211,7 +211,7 @@ import {
   realpathSync,
   statSync
 } from "node:fs";
-import { delimiter, dirname as dirname2, join, resolve } from "node:path";
+import { basename, delimiter, dirname as dirname2, join, resolve } from "node:path";
 
 // src/shared/atomic-fs.ts
 import {
@@ -290,7 +290,7 @@ function verifyChecksumFile(archivePath, checksumPath, label) {
   }
   const actual = sha256Hex(readFileSync3(archivePath));
   const parts = readFileSync3(checksumPath, "utf8").trim().split(/\s+/);
-  if (parts.length !== 2 || parts[0] !== actual || parts[1] !== basename(archivePath)) {
+  if (parts.length !== 2 || parts[0] !== actual || parts[1] !== basename2(archivePath)) {
     throw new Error(`${label} checksum mismatch`);
   }
 }
@@ -479,10 +479,10 @@ async function runPublishReleaseCli(argv = process.argv.slice(2)) {
     commit,
     notes,
     [
-      { path: assets.zip, name: basename2(assets.zip), contentType: "application/zip" },
-      { path: assets.zipChecksum, name: basename2(assets.zipChecksum), contentType: "text/plain; charset=utf-8" },
-      { path: assets.vsix, name: basename2(assets.vsix), contentType: "application/zip" },
-      { path: assets.vsixChecksum, name: basename2(assets.vsixChecksum), contentType: "text/plain; charset=utf-8" }
+      { path: assets.zip, name: basename3(assets.zip), contentType: "application/zip" },
+      { path: assets.zipChecksum, name: basename3(assets.zipChecksum), contentType: "text/plain; charset=utf-8" },
+      { path: assets.vsix, name: basename3(assets.vsix), contentType: "application/zip" },
+      { path: assets.vsixChecksum, name: basename3(assets.vsixChecksum), contentType: "text/plain; charset=utf-8" }
     ],
     repo
   );

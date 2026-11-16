@@ -13,6 +13,7 @@ import {
   mkdirSync as mkdirSync4,
   readdirSync as readdirSync3,
   readFileSync as readFileSync6,
+  realpathSync as realpathSync3,
   rmSync,
   statSync as statSync4
 } from "node:fs";
@@ -84,7 +85,7 @@ import {
   realpathSync as realpathSync2,
   statSync as statSync3
 } from "node:fs";
-import { delimiter, dirname as dirname4, join as join2, resolve } from "node:path";
+import { basename as basename2, delimiter, dirname as dirname4, join as join2, resolve } from "node:path";
 
 // src/shared/atomic-fs.ts
 import {

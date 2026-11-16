@@ -71,7 +71,7 @@ function verifyCliRoot(root: string): void {
 }
 
 function withCliLock<T>(base: string, fn: () => T): T {
-  if (isReparseOrSymlink(base)) {
+  if (isReparseOrSymlink(dirname(base)) || isReparseOrSymlink(base)) {
     throw new Error('CLI installation paths must not contain symlinks or junctions.');
   }
   mkdirSync(base, { recursive: true });

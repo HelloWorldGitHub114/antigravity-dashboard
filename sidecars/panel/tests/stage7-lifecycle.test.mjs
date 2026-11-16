@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -373,5 +374,98 @@ test('ui-runner ScopedBrowser isolates per-test contexts and all check-*.mjs par
 
   for (const name of readdirSync(join(ROOT, 'tools')).filter((f) => f.startsWith('check-') && f.endsWith('.mjs'))) {
     execFileSync(process.execPath, ['--check', join(ROOT, 'tools', name)], { stdio: 'ignore' });
+  }
+});
+
+test('runUiSuite launches one shared browser across concurrent workers and closes it cleanly', async () => {
+  const uiRunner = await import(pathToFileURL(join(ROOT, 'tools', 'ui-runner.mjs')).href);
+  let launchCount = 0;
+  let closeCount = 0;
+  let closedContexts = 0;
+
+  const makeTask = (name) => ({
+    file: `synthetic-${name}.mjs`,
+    args: [],
+    async run() {
+      const browser = await uiRunner.launchTestBrowser();
+      try {
+        const ctx = await browser.newContext();
+        await ctx.newPage();
+        await ctx.close();
+      } finally {
+        await browser.close();
+      }
+    },
+  });
+
+  await uiRunner.runUiSuite({
+    suite: 'ui',
+    concurrency: 4,
+    async launchBrowser() {
+      launchCount += 1;
+      await new Promise((r) => setTimeout(r, 25));
+      return {
+        async newContext() {
+          return {
+            async newPage() {
+              return { async close() {} };
+            },
+            async close() {
+              closedContexts += 1;
+            },
+          };
+        },
+        async close() {
+          closeCount += 1;
+        },
+      };
+    },
+    tasks: {
+      concurrent: ['a', 'b', 'c', 'd', 'e', 'f'].map(makeTask),
+      sequential: [makeTask('seq')],
+    },
+  });
+
+  assert.equal(launchCount, 1, 'Concurrent Wave 1 workers must share a single launched browser');
+  assert.equal(closeCount, 1, 'The single owned browser must be closed once after all waves');
+  assert.equal(closedContexts, 7);
+});
+
+test('ancestor symlinks like macOS /var do not trigger false symlink rejection while target symlinks still fail', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ag-stage7-ancestor-'));
+  const realParent = join(root, 'real-var');
+  const linkedParent = join(root, 'var');
+  const outside = join(root, 'outside');
+  mkdirSync(realParent, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  try {
+    symlinkSync(realParent, linkedParent, 'dir');
+  } catch (err) {
+    rmSync(root, { recursive: true, force: true });
+    if (err && err.code === 'EPERM') {
+      t.diagnostic('Symlink privilege unavailable on this Windows host');
+      return;
+    }
+    throw err;
+  }
+
+  try {
+    const home = join(linkedParent, 'folders', 'user-home');
+    mkdirSync(home, { recursive: true });
+    runNode('manage.mjs', ['--home', home, 'install-cli', '--node', process.execPath]);
+    runNode('manage.mjs', ['--home', home, 'uninstall-cli']);
+
+    runNode('manage.mjs', ['install', '--panel-only', '--home', home]);
+    runNode('manage.mjs', ['uninstall', '--home', home]);
+
+    const cliBase = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(cliBase, { recursive: true });
+    symlinkSync(outside, join(cliBase, 'antigrative-dashboard'), 'dir');
+    assert.throws(
+      () => runNode('manage.mjs', ['--home', home, 'install-cli', '--node', process.execPath]),
+      /symlinks or junctions/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from 'node:fs';
@@ -89,10 +90,15 @@ function resolveTargets(options: LifecycleEnvOptions): { pro: InstancePaths; ver
 }
 
 function ownPlugin(pluginDir: string, homeDir: string): void {
-  const pluginsRoot = resolve(join(homeDir, '.gemini', 'config', 'plugins'));
+  const geminiDir = join(homeDir, '.gemini');
+  const configDir = join(geminiDir, 'config');
+  const pluginsRoot = resolve(join(configDir, 'plugins'));
   if (
+    isReparseOrSymlink(geminiDir) ||
+    isReparseOrSymlink(configDir) ||
+    isReparseOrSymlink(pluginsRoot) ||
     isReparseOrSymlink(pluginDir) ||
-    (existsSync(pluginDir) && dirname(resolve(pluginDir)) !== pluginsRoot)
+    (existsSync(pluginDir) && dirname(realpathSync(pluginDir)) !== realpathSync(pluginsRoot))
   ) {
     throw new Error('Plugin destination must be a regular directory inside the customization root.');
   }
@@ -217,11 +223,17 @@ function updateInstanceEnabled(
 
 function removePluginDir(pluginDir: string, homeDir: string): void {
   const resolved = resolve(pluginDir);
-  const expectedParent = resolve(join(homeDir, '.gemini', 'config', 'plugins'));
+  const geminiDir = join(homeDir, '.gemini');
+  const configDir = join(geminiDir, 'config');
+  const expectedParent = resolve(join(configDir, 'plugins'));
   if (
+    isReparseOrSymlink(geminiDir) ||
+    isReparseOrSymlink(configDir) ||
+    isReparseOrSymlink(expectedParent) ||
     isReparseOrSymlink(pluginDir) ||
     dirname(resolved) !== expectedParent ||
-    resolved !== resolve(join(expectedParent, PLUGIN_NAME))
+    resolved !== resolve(join(expectedParent, PLUGIN_NAME)) ||
+    (existsSync(resolved) && dirname(realpathSync(resolved)) !== realpathSync(expectedParent))
   ) {
     throw new Error('Plugin target is outside the expected directory; refusing to delete it.');
   }

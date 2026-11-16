@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // src/lifecycle/packager.ts
 import { createHash } from "node:crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname3, join as join2, resolve as resolve2 } from "node:path";
+import { basename as basename2, dirname as dirname3, join as join2, resolve as resolve2 } from "node:path";
 
 // src/platform/manifest.ts
 var IDE_PUBLISHER = "shzbz";
@@ -209,7 +209,7 @@ import {
   realpathSync,
   statSync
 } from "node:fs";
-import { delimiter, dirname as dirname2, join, resolve } from "node:path";
+import { basename, delimiter, dirname as dirname2, join, resolve } from "node:path";
 
 // src/shared/atomic-fs.ts
 import {
@@ -310,7 +310,7 @@ function sha256Hex(bytes) {
 function writeSha256Sidecar(archivePath, bytes, ext) {
   const digest = sha256Hex(bytes);
   const checksumPath = archivePath.replace(/\.(zip|vsix)$/i, "") + ext;
-  writeFileSync2(checksumPath, `${digest}  ${basename(archivePath)}
+  writeFileSync2(checksumPath, `${digest}  ${basename2(archivePath)}
 `, "utf8");
   return { checksum: checksumPath, sha256: digest };
 }

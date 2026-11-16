@@ -8,7 +8,7 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { atomicWriteFileSync, readJsonSyncSafe } from '../shared/atomic-fs.ts';
 
 /**
@@ -18,8 +18,10 @@ export function isReparseOrSymlink(targetPath: string): boolean {
   try {
     const lstat = lstatSync(targetPath);
     if (lstat.isSymbolicLink()) return true;
-    const resolved = realpathSync(targetPath);
-    return resolved !== resolve(targetPath);
+    const abs = resolve(targetPath);
+    const parent = dirname(abs);
+    if (parent === abs) return false;
+    return realpathSync(abs) !== join(realpathSync(parent), basename(abs));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | null | undefined)?.code;
     return code !== 'ENOENT';

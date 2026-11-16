@@ -49,7 +49,9 @@ def paths(home):
 
 def regular(path):
     # Includes Windows junctions (is_symlink alone does not cover them).
-    if path.is_symlink() or (path.exists() and path.resolve() != path.absolute()):
+    if path.is_symlink() or (
+        path.exists() and path.parent != path and path.resolve() != path.parent.resolve() / path.name
+    ):
         raise RuntimeError('CLI installation paths must not contain symlinks or junctions.')
 
 

@@ -177,7 +177,7 @@ import {
   realpathSync,
   statSync
 } from "node:fs";
-import { delimiter, dirname as dirname2, join, resolve } from "node:path";
+import { basename, delimiter, dirname as dirname2, join, resolve } from "node:path";
 
 // src/shared/atomic-fs.ts
 import {
@@ -302,8 +302,10 @@ function isReparseOrSymlink(targetPath) {
   try {
     const lstat = lstatSync(targetPath);
     if (lstat.isSymbolicLink()) return true;
-    const resolved = realpathSync(targetPath);
-    return resolved !== resolve(targetPath);
+    const abs = resolve(targetPath);
+    const parent = dirname2(abs);
+    if (parent === abs) return false;
+    return realpathSync(abs) !== join(realpathSync(parent), basename(abs));
   } catch (error) {
     const code = error?.code;
     return code !== "ENOENT";
@@ -407,7 +409,7 @@ function verifyCliRoot(root) {
   assertRegularTree(root);
 }
 function withCliLock(base, fn) {
-  if (isReparseOrSymlink(base)) {
+  if (isReparseOrSymlink(dirname3(base)) || isReparseOrSymlink(base)) {
     throw new Error("CLI installation paths must not contain symlinks or junctions.");
   }
   mkdirSync3(base, { recursive: true });
@@ -611,6 +613,7 @@ import {
   mkdirSync as mkdirSync5,
   readdirSync as readdirSync3,
   readFileSync as readFileSync7,
+  realpathSync as realpathSync3,
   rmSync as rmSync2,
   statSync as statSync4
 } from "node:fs";
@@ -619,7 +622,7 @@ import { dirname as dirname6, join as join5, resolve as resolve3 } from "node:pa
 // src/platform/paths.ts
 import { existsSync as existsSync3, readFileSync as readFileSync4, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname as dirname4, join as join3 } from "node:path";
+import { basename as basename2, dirname as dirname4, join as join3 } from "node:path";
 function expandHome(target, home) {
   if (target === "~") return home;
   if (target.startsWith("~/") || target.startsWith("~\\")) {
@@ -714,7 +717,7 @@ function platformPaths(options = {}) {
   const saved = readJsonRecordSync(settings);
   const siblingUserData = join3(home, "..", "user-data");
   const isolatedProfile = existsSync3(siblingUserData) ? siblingUserData : null;
-  const isIsolatedVertex = isolatedProfile !== null || basename(home) === "home" && basename(dirname4(home)) === ".antigravity-vertex";
+  const isIsolatedVertex = isolatedProfile !== null || basename2(home) === "home" && basename2(dirname4(home)) === ".antigravity-vertex";
   const savedProfile = typeof saved.profile === "string" ? saved.profile : null;
   const profile = env.AG_PULSE_PROFILE || isolatedProfile || savedProfile || join3(config, "Antigravity");
   const profileLog = join3(profile, "logs", "language_server.log");
@@ -980,8 +983,10 @@ function resolveTargets(options) {
   return { pro, vertex };
 }
 function ownPlugin(pluginDir, homeDir) {
-  const pluginsRoot = resolve3(join5(homeDir, ".gemini", "config", "plugins"));
-  if (isReparseOrSymlink(pluginDir) || existsSync5(pluginDir) && dirname6(resolve3(pluginDir)) !== pluginsRoot) {
+  const geminiDir = join5(homeDir, ".gemini");
+  const configDir = join5(geminiDir, "config");
+  const pluginsRoot = resolve3(join5(configDir, "plugins"));
+  if (isReparseOrSymlink(geminiDir) || isReparseOrSymlink(configDir) || isReparseOrSymlink(pluginsRoot) || isReparseOrSymlink(pluginDir) || existsSync5(pluginDir) && dirname6(realpathSync3(pluginDir)) !== realpathSync3(pluginsRoot)) {
     throw new Error("Plugin destination must be a regular directory inside the customization root.");
   }
   if (existsSync5(pluginDir)) {
@@ -1089,8 +1094,10 @@ function updateInstanceEnabled(enabled, inst, checkSettingsDir = false) {
 }
 function removePluginDir(pluginDir, homeDir) {
   const resolved = resolve3(pluginDir);
-  const expectedParent = resolve3(join5(homeDir, ".gemini", "config", "plugins"));
-  if (isReparseOrSymlink(pluginDir) || dirname6(resolved) !== expectedParent || resolved !== resolve3(join5(expectedParent, PLUGIN_NAME))) {
+  const geminiDir = join5(homeDir, ".gemini");
+  const configDir = join5(geminiDir, "config");
+  const expectedParent = resolve3(join5(configDir, "plugins"));
+  if (isReparseOrSymlink(geminiDir) || isReparseOrSymlink(configDir) || isReparseOrSymlink(expectedParent) || isReparseOrSymlink(pluginDir) || dirname6(resolved) !== expectedParent || resolved !== resolve3(join5(expectedParent, PLUGIN_NAME)) || existsSync5(resolved) && dirname6(realpathSync3(resolved)) !== realpathSync3(expectedParent)) {
     throw new Error("Plugin target is outside the expected directory; refusing to delete it.");
   }
   rmSync2(resolved, { recursive: true, force: true });
@@ -1283,7 +1290,7 @@ function restorePreviewRecoverable(current, backupsDir) {
 // src/lifecycle/packager.ts
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync4, readFileSync as readFileSync8, statSync as statSync5, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname7, join as join6, resolve as resolve4 } from "node:path";
+import { basename as basename3, dirname as dirname7, join as join6, resolve as resolve4 } from "node:path";
 
 // src/shared/zip.ts
 import { deflateRawSync, inflateRawSync } from "node:zlib";
@@ -1434,7 +1441,7 @@ function sha256Hex2(bytes) {
 function writeSha256Sidecar(archivePath, bytes, ext) {
   const digest = sha256Hex2(bytes);
   const checksumPath = archivePath.replace(/\.(zip|vsix)$/i, "") + ext;
-  writeFileSync4(checksumPath, `${digest}  ${basename2(archivePath)}
+  writeFileSync4(checksumPath, `${digest}  ${basename3(archivePath)}
 `, "utf8");
   return { checksum: checksumPath, sha256: digest };
 }
