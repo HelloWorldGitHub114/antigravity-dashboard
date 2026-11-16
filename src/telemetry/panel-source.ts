@@ -7,35 +7,11 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const PANEL_IMPORTS = [
-  "import { percent, rate, count, elapsed, countdown, resetDate } from './format.mjs';",
-  "import { createI18n } from './i18n.js';",
-  "import { createTheme } from './theme.js';",
-] as const;
-
 /**
- * Assemble the classic self-contained `/app.js` script served to the sidecar panel webview.
+ * Read the prebuilt self-contained classic `/app.js` script served to the sidecar panel webview.
  */
 export function panelAppSource(): string {
-  const read = (name: string): string => readFileSync(join(HERE, name), 'utf8');
-  const factory = (name: 'i18n' | 'theme'): string => {
-    const source = read(`../../compat/${name}.cjs`);
-    const prefix = 'module.exports = ';
-    const index = source.indexOf(prefix);
-    if (index < 0) throw new Error(`Panel factory format changed: ${name}`);
-    return source.slice(index + prefix.length).trim().replace(/;$/, '');
-  };
-
-  let app = read('app.js');
-  for (const line of PANEL_IMPORTS) {
-    if (!app.includes(line)) throw new Error('Panel dependency list changed');
-    app = app.replace(line, '');
-  }
-  const format = read('format.mjs').replace(/^export function /gm, 'function ');
-  if (/^\s*(?:import|export)\b/m.test(app + format)) {
-    throw new Error('Unsupported panel module dependency');
-  }
-  return `(()=>{'use strict';\n${format}\nconst createI18n=(${factory('i18n')});\nconst createTheme=(${factory('theme')});\n${app}\n})();`;
+  return readFileSync(join(HERE, 'app.js'), 'utf8');
 }
 
 /**

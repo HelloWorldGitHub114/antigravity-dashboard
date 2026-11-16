@@ -8,9 +8,11 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {panelAppSource,panelPageSource} from '../sidecars/panel/panel-source.mjs';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const createTheme=createRequire(import.meta.url)('../compat/theme.cjs');
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
-const preview=process.argv.includes('--preview');
+export async function runCheck(args=process.argv.slice(2)) {
+const preview=args.includes('--preview');
 const html=panelPageSource();
 const code=panelAppSource(),requests=[],errors=[],results=[];
 const id='11111111-1111-1111-1111-111111111111';
@@ -91,8 +93,7 @@ const server=createServer(async(req,res)=>{
 });
 await new Promise(r=>server.listen(preview?17913:0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
 if(preview){console.log('Side panel preview: '+base);await new Promise(()=>{});}
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 try{
  for(const mode of ['deferred','early-classic','opaque-iframe']){
   scenario='default';prefs={language:'en',revision:1,modelTimelineEnabled:false};rate=38.7;
@@ -228,3 +229,5 @@ try{
  await mkdir(join(repo,'.data/issue11'),{recursive:true});await page.screenshot({path:join(repo,'.data/issue11/panel-regression.png')});
  console.log(JSON.stringify({checks:results,automaticRecovery:true,duplicateInitSafe:true,moduleRequests:0,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

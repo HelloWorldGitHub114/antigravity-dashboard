@@ -2,19 +2,20 @@
 // top-layer lifecycle failures when the host removes/replaces its composer.
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {dirname,join} from 'node:path';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
-const require=createRequire(import.meta.url);
-const factories=['i18n','theme','inline-widget'].map(name=>require(join(repo,'compat',`${name}.cjs`)).toString());
-const install=`window.__agPulseI18nFactory=${factories[0]};window.__agPulseThemeFactory=${factories[1]};(${factories[2]})();`;
+const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(name=>readFile(join(repo,'compat',`${name}`),'utf8')));
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const html=await readFile(join(repo,'sidecars','panel','toolbar-preview.html'),'utf8');
 const conversation='11111111-1111-1111-1111-111111111111';
 const preferences={language:'en',languageGuideDismissed:true,revision:1};
 const metrics={connection:'live',groups:[],speed:{conversationId:conversation,counts:{},cache:null,context:null}};
+export async function runCheck() {
 const server=createServer((req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(!['/fixture','/inline-widget.js','/api/preferences','/api/metrics'].includes(path)){res.writeHead(404);res.end();return;}
@@ -22,7 +23,6 @@ const server=createServer((req,res)=>{
   res.end(path==='/fixture'?html:path==='/inline-widget.js'?install:JSON.stringify(path==='/api/preferences'?preferences:metrics));
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
 let browser;
 const results=[],errors=[];
 const host=page=>page.locator('#ag-pulse-status-bar');
@@ -45,7 +45,7 @@ async function check(name,run,{realTimers=false}={}){
   }finally{await page.close();}
 }
 try{
-  browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+  browser=await launchTestBrowser();
   await check('cold hover waits exactly 250ms',async page=>{
     await chip(page,'speed').hover();assert.equal(await card(page,'speed').isVisible(),false);
     await page.clock.runFor(249);assert.equal(await card(page,'speed').isVisible(),false);
@@ -134,3 +134,5 @@ try{
   },{realTimers:true});
   console.log(JSON.stringify({cases:results,pageErrors:errors},null,2));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

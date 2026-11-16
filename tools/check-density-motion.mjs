@@ -4,10 +4,11 @@ import {readFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(f=>readFile(f==='inline-widget.cjs'&&process.env.AG_PULSE_MOTION_SOURCE?process.env.AG_PULSE_MOTION_SOURCE:join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const install=`window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});(${extract(sources[2])})();`;
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const id='11111111-1111-1111-1111-111111111111';
 const metrics={connection:'live',groups:[],speed:{conversationId:id,tps:152,latestTps:152,rounds:5,steps:8,counts:{responseOutput:3040,thinkingOutput:0},cache:{hitRate:.32,totalTokens:105800,measuredRequests:5},context:{usedFraction:.1,remainingFraction:.9,usedTokens:25600,maxTokens:256000,model:'Gemini 3.8 Flash'}}};
 const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>响应式控件过渡预览</title><style>
@@ -20,13 +21,13 @@ full.onclick=()=>{const w=document.getElementById('ag-pulse-status-bar');w.style
 icons.onclick=()=>{const w=document.getElementById('ag-pulse-status-bar');w.style.flex='0 0 80px';w.style.maxWidth='80px';document.querySelector('.composer').style.width='480px';width.value=480;document.getElementById('width-value').textContent='480 px';};
 width.oninput=()=>{document.querySelector('.composer').style.width=width.value+'px';const w=document.getElementById('ag-pulse-status-bar');w.style.flex='0 1 auto';w.style.maxWidth='100%';document.getElementById('width-value').textContent=width.value+' px';};
 </script></html>`;
-const preview=process.argv.includes('--preview');
+export async function runCheck(args=process.argv.slice(2)) {
+const preview=args.includes('--preview');
 const server=createServer((req,res)=>{res.writeHead(200,{'Content-Type':req.url==='/widget.js'?'text/javascript':'text/html;charset=utf-8'});res.end(req.url==='/widget.js'?install:html);});
 server.listen(preview?17908:0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 if(preview){console.log(`Motion preview: ${base}/`);await new Promise(()=>{});}
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[],results=[];
 const sample=()=>{
  const w=document.getElementById('ag-pulse-status-bar'),s=w.shadowRoot,stage=s.querySelector('.density-stage'),icon=stage?.querySelector('svg');
@@ -130,4 +131,6 @@ try{
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({cases:results,pageErrors:errors},null,2));
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();
 

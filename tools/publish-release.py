@@ -21,7 +21,7 @@ def checked_assets(root, tag):
         manifest = json.loads(archive.read(prefix + 'plugin.json'))
         if manifest['version'] != version:
             raise ValueError('Packaged version differs')
-        for required in ['ide/package.json', 'ide/manage.py', 'ide/package.py', 'ide/README.md']:
+        for required in ['ide/package.json', 'ide/manage.mjs', 'ide/manage.py', 'ide/package.mjs', 'ide/package.py', 'ide/README.md']:
             archive.getinfo(prefix + required)
         for required in ['compat/usage-ui.cjs', 'sidecars/panel/rate-quality.mjs', 'sidecars/panel/usage.mjs']:
             archive.getinfo(prefix + required)
@@ -32,7 +32,7 @@ def checked_assets(root, tag):
         for required in ['compat/update-ui.cjs', 'compat/update-worker.py', 'compat/update-lock.py',
                          'sidecars/panel/updater.mjs', 'sidecars/panel/local-conversations.mjs', 'docs/UPDATES.md']:
             archive.getinfo(prefix + required)
-        for required in ['install.sh', 'uninstall.sh', 'install.ps1', 'compat/runtime-ui.mjs', 'compat/theme.cjs', 'compat/host-theme.mjs', 'compat/preferences.mjs', 'compat/sidecar-owner.mjs', 'sidecars/panel/context.mjs', 'cli/statusline.mjs', 'cli/metrics.mjs', 'cli/render.mjs', 'cli/lifecycle.py', 'docs/CLI.md', 'docs/assets/cli-conversation.png', 'docs/assets/cli-conversation-zh.png']:
+        for required in ['install.sh', 'uninstall.sh', 'install.ps1', 'uninstall.ps1', 'manage.mjs', 'compat/runtime-ui.mjs', 'compat/theme.cjs', 'compat/host-theme.mjs', 'compat/preferences.mjs', 'compat/sidecar-owner.mjs', 'sidecars/panel/context.mjs', 'cli/statusline.mjs', 'cli/metrics.mjs', 'cli/render.mjs', 'cli/lifecycle.py', 'docs/CLI.md', 'docs/assets/cli-conversation.png', 'docs/assets/cli-conversation-zh.png']:
             archive.getinfo(prefix + required)
     ide_version = json.loads((root / 'ide/package.json').read_text(encoding='utf-8'))['version']
     if ide_version != version:
@@ -46,7 +46,7 @@ def checked_assets(root, tag):
         if package['version'] != version or package['name'] != 'antigrative-dashboard-ide' or package.get('publisher') != 'shzbz':
             raise ValueError('Packaged IDE identity/version differs')
         for name in ['extension/ide/extension.cjs', 'extension/ide/host.cjs', 'extension/ide/main.mjs',
-                     'extension/ide/surface.cjs', 'extension/ide/manage.py', 'extension/compat/inline-widget.cjs',
+                     'extension/ide/surface.cjs', 'extension/ide/manage.mjs', 'extension/ide/manage.py', 'extension/compat/inline-widget.cjs',
                      'extension/README.md', 'extension/LICENSE']:
             archive.getinfo(name)
         for name in ['compat/usage-ui.cjs', 'sidecars/panel/rate-quality.mjs', 'sidecars/panel/usage.mjs']:

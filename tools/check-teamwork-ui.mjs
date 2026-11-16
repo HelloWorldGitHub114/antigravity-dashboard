@@ -4,15 +4,17 @@ import {readFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const files=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs','usage-ui.cjs'].map(f=>readFile(join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const factories=`window.__agPulseI18nFactory=(${extract(files[0])});window.__agPulseThemeFactory=(${extract(files[1])});window.__agPulseUsageFactory=(${extract(files[3])});`;
-const install=`${factories}(${extract(files[2])})();`;
-const preview=process.argv.includes('--preview');
+const factories=bindWindowFactory('__agPulseI18nFactory',files[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',files[1],'theme')+bindWindowFactory('__agPulseUsageFactory',files[3],'usage-ui');
+const install=`${factories}${invokeCjsFactory(files[2],'inline-widget')}`;
+export async function runCheck(args=process.argv.slice(2)) {
+const preview=args.includes('--preview');
 const before=preview&&process.env.AG_PULSE_TEAMWORK_BEFORE?await readFile(process.env.AG_PULSE_TEAMWORK_BEFORE,'utf8'):null;
-const oldInstall=before?`${factories}(${extract(before)})();`:install;
+const oldInstall=before?`${factories}${invokeCjsFactory(before,'inline-widget-before')}`:install;
 const parent='11111111-1111-1111-1111-111111111111',child='22222222-2222-2222-2222-222222222222',other='33333333-3333-3333-3333-333333333333';
 const usage={accountKey:'teamwork-fixture',today:'2026-10-12',timeZone:'Asia/Shanghai',models:['Claude Sonnet'],days:[{date:'2026-10-12',models:{'Claude Sonnet':{uncached:400,cacheRead:600,cacheWrite:0,output:180,total:1180,requests:1}}}],todayTokens:1180,weekTokens:1180,monthTokens:1180,totalTokens:1180,requests:1,syncing:false};
 const sample=id=>({connection:'live',groups:[],usage,speed:trajectoryMetrics({trajectory:{cascadeId:id,generatorMetadata:[{chatModel:{modelDisplayName:'Claude Sonnet',chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:12000,maxContextTokens:100000}},usage:{inputTokens:400,cacheReadTokens:600,responseOutputTokens:id===child?180:100,outputTokens:id===child?180:100,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},streamingDuration:'2s'}}]}})});
@@ -36,8 +38,7 @@ const server=createServer((req,res)=>{
 });
 server.listen(preview?17912:0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
 if(preview){console.log('Teamwork fixture: http://127.0.0.1:17912/?lang=zh');await new Promise(()=>{});}
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[],results=[];
 try{
  for(const language of ['en','zh']){
@@ -108,3 +109,5 @@ try{
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({cases:results,pageErrors:errors},null,2));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

@@ -107,6 +107,8 @@ interface Buffer extends Uint8Array<ArrayBuffer> {
   includes(value: string | number | Uint8Array<ArrayBufferLike>, byteOffset?: number, encoding?: BufferEncoding): boolean;
   readUInt8(offset?: number): number;
   writeUInt8(value: number, offset?: number): number;
+  readUInt16LE(offset?: number): number;
+  writeUInt16LE(value: number, offset?: number): number;
   readUInt32BE(offset?: number): number;
   readUInt32LE(offset?: number): number;
   writeUInt32BE(value: number, offset?: number): number;
@@ -194,6 +196,10 @@ declare module 'node:fs' {
   export function unlinkSync(path: PathLike): void;
   export function rmSync(path: PathLike, options?: { force?: boolean; recursive?: boolean; maxRetries?: number; retryDelay?: number }): void;
   export function copyFileSync(src: PathLike, dest: PathLike, mode?: number): void;
+  export function cpSync(src: PathLike, dest: PathLike, options?: { recursive?: boolean; force?: boolean; filter?: (src: string, dest: string) => boolean }): void;
+  export function chmodSync(path: PathLike, mode: string | number): void;
+  export function symlinkSync(target: PathLike, path: PathLike, type?: 'dir' | 'file' | 'junction'): void;
+  export function readlinkSync(path: PathLike, options?: { encoding?: BufferEncoding | null } | BufferEncoding): string;
   export function realpathSync(path: PathLike, options?: { encoding?: BufferEncoding | null } | BufferEncoding): string;
   export function openSync(path: PathLike, flags: string | number, mode?: number): number;
   export function closeSync(fd: number): void;
@@ -235,6 +241,9 @@ declare module 'node:fs/promises' {
   export function unlink(path: PathLike): Promise<void>;
   export function rm(path: PathLike, options?: { force?: boolean; recursive?: boolean; maxRetries?: number; retryDelay?: number }): Promise<void>;
   export function copyFile(src: PathLike, dest: PathLike, mode?: number): Promise<void>;
+  export function cp(src: PathLike, dest: PathLike, options?: { recursive?: boolean; force?: boolean; filter?: (src: string, dest: string) => boolean }): Promise<void>;
+  export function chmod(path: PathLike, mode: string | number): Promise<void>;
+  export function symlink(target: PathLike, path: PathLike, type?: 'dir' | 'file' | 'junction'): Promise<void>;
   export interface Dir extends AsyncIterable<Dirent> {
     readonly path: string;
     read(): Promise<Dirent | null>;
@@ -493,6 +502,7 @@ declare module 'node:child_process' {
     cwd?: string | URL;
     env?: NodeJS.ProcessEnv;
     encoding?: BufferEncoding | 'buffer';
+    stdio?: unknown;
     timeout?: number;
     maxBuffer?: number;
     windowsHide?: boolean;
@@ -512,6 +522,7 @@ declare module 'node:child_process' {
   export function spawn(command: string, args?: readonly string[], options?: SpawnOptions): ChildProcess;
   export function spawnSync(command: string, args?: readonly string[], options?: SpawnOptions & { encoding?: BufferEncoding; input?: string | Uint8Array }): SpawnSyncReturns<string | Buffer>;
   export function execFile(file: string, args?: readonly string[], options?: ExecFileOptions, callback?: (error: NodeJS.ErrnoException | null, stdout: string | Buffer, stderr: string | Buffer) => void): ChildProcess;
+  export function execFileSync(file: string, args: readonly string[] | undefined, options: ExecFileOptions & { encoding: BufferEncoding; input?: string | Uint8Array }): string;
   export function execFileSync(file: string, args?: readonly string[], options?: ExecFileOptions & { input?: string | Uint8Array }): string | Buffer;
 }
 

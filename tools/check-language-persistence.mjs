@@ -7,13 +7,15 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 import {PreferencesStore} from '../compat/preferences.mjs';
+import {bindWindowFactory,invokeCjsFactory,makeEsmExportFromCjs} from '../compat/runtime-ui.mjs';
 import {panelAppSource} from '../sidecars/panel/panel-source.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 
 const root=join(dirname(fileURLToPath(import.meta.url)),'..');
 const read=path=>readFile(join(root,path),'utf8');
-const extract=source=>source.slice(source.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
 const [i18n,widget,theme]=await Promise.all(['compat/i18n.cjs','compat/inline-widget.cjs','compat/theme.cjs'].map(read));
 const themeCss=createRequire(import.meta.url)('../compat/theme.cjs')().css(':root');
+export async function runCheck() {
 const directory=await mkdtemp(join(tmpdir(),'pulse-language-ui-')),file=join(directory,'preferences.json');
 const id='11111111-1111-1111-1111-111111111111';
 async function serve() {
@@ -28,10 +30,10 @@ async function serve() {
       }else if(path==='/api/metrics'){
         text=JSON.stringify({connection:'live',serverTime:new Date().toISOString(),preferences:await store.snapshot(),groups:[],speed:{conversationId:id,counts:{},cache:null,context:null}});type='application/json';
       }else if(path==='/app.js')text=panelAppSource();
-      else if(path==='/i18n.js')text='export const createI18n='+extract(i18n);
-      else if(path==='/theme.js')text='export const createTheme='+extract(theme);
+      else if(path==='/i18n.js')text=makeEsmExportFromCjs('createI18n',i18n,'i18n');
+      else if(path==='/theme.js')text=makeEsmExportFromCjs('createTheme',theme,'theme');
       else if(path==='/theme.css'){text=themeCss;type='text/css';}
-      else if(path==='/inline-widget.js')text=`window.__agPulseI18nFactory=(${extract(i18n)});window.__agPulseThemeFactory=(${extract(theme)});(${extract(widget)})();`;
+      else if(path==='/inline-widget.js')text=bindWindowFactory('__agPulseI18nFactory',i18n,'i18n')+bindWindowFactory('__agPulseThemeFactory',theme,'theme')+invokeCjsFactory(widget,'inline-widget');
       else if(path==='/preload.js')text='';
       else if(path.startsWith('/toolbar-preview')){text=await read('sidecars/panel/toolbar-preview.html');type='text/html';}
       else if(['/','/app.js','/styles.css','/format.mjs'].includes(path)){text=await read('sidecars/panel/'+(path==='/'?'index.html':path.slice(1)));type=path==='/'?'text/html':path.endsWith('.css')?'text/css':'text/javascript';}
@@ -42,8 +44,7 @@ async function serve() {
   server.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
   return {url:'http://127.0.0.1:'+server.address().port,store,get completedWrites(){return completedWrites;},close:()=>new Promise(resolve=>server.close(resolve))};
 }
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[];let server;
 try {
   server=await serve();const firstOrigin=server.url;
@@ -81,3 +82,5 @@ try {
   assert.equal(await page.locator('#language-toggle').textContent(),'中');assert.deepEqual(errors,[]);
   console.log(JSON.stringify({changedOrigins:true,freshBrowserStorage:true,recreatedBackend:true,chineseRestored:true,englishRestored:true,panelToInlineSync:true,rapidToggle:true,pageErrors:errors},null,2));
 }finally{await browser.close();await server?.close();await rm(directory,{recursive:true,force:true});}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

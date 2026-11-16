@@ -7,12 +7,14 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
 import {reconcileMetrics,safeMetrics} from '../sidecars/panel/history.mjs';
+import {bindWindowFactory,invokeCjsFactory,makeEsmExportFromCjs} from '../compat/runtime-ui.mjs';
 import {panelAppSource,panelPageSource} from '../sidecars/panel/panel-source.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 
 const root=join(dirname(fileURLToPath(import.meta.url)),'..');
 const require=createRequire(import.meta.url);
-const factories=['i18n','theme','inline-widget'].map(name=>require(join(root,'compat',name+'.cjs')).toString());
-const install=`window.__agPulseI18nFactory=${factories[0]};window.__agPulseThemeFactory=${factories[1]};(${factories[2]})();`;
+const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(name=>readFile(join(root,'compat',name),'utf8')));
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const read=file=>readFile(join(root,file),'utf8');
 const id='11111111-1111-1111-1111-111111111111';
 const request=(key,usage)=>({chatModel:{usage:{responseId:key,...usage},streamingDuration:'2s'}});
@@ -46,6 +48,7 @@ const singleFlash=sampleWithSteps([
 assert.equal(orchestratorHybrid.modelUsage.models.length,2,'Orchestrator hybrid fixture has 2 distinct models');
 assert.equal(fourModelMix.modelUsage.models.length,4,'Four-model fixture has 4 distinct models');
 assert.equal(singleFlash.modelUsage.models.length,1,'Single-model Flash fixture has 1 model');
+export async function runCheck() {
 let language='en',speed=partial;
 const preferences=()=>({language,languageGuideDismissed:true,revision:1});
 const metrics=()=>({connection:'live',groups:[],speed});
@@ -58,8 +61,8 @@ const server=createServer(async(req,res)=>{
     else if(path==='/api/metrics'){content=JSON.stringify(metrics());type='application/json';}
     else if(path==='/app.js')content=panelAppSource();
     else if(path==='/'){content=panelPageSource();type='text/html';}
-    else if(path==='/i18n.js')content='export const createI18n='+factories[0];
-    else if(path==='/theme.js')content='export const createTheme='+factories[1];
+    else if(path==='/i18n.js')content=makeEsmExportFromCjs('createI18n',sources[0],'i18n');
+    else if(path==='/theme.js')content=makeEsmExportFromCjs('createTheme',sources[1],'theme');
     else if(path==='/theme.css'){content=require(join(root,'compat/theme.cjs'))().css(':root');type='text/css';}
     else if(path==='/preload.js')content='';
     else if(path==='/inline-widget.js')content=install;
@@ -70,12 +73,11 @@ const server=createServer(async(req,res)=>{
   }catch(error){res.writeHead(500);res.end(error.message);}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
 const output=join(root,'.data','token-usage-ui');await mkdir(output,{recursive:true});
 let browser;
 const errors=[],results=[];
 try {
-  browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+  browser=await launchTestBrowser();
   const origin='http://127.0.0.1:'+server.address().port;
   for(const inline of [true,false])for(const lang of ['en','zh-CN']) {
     language=lang;speed=partial;
@@ -268,3 +270,5 @@ try {
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({results,pageErrors:errors,screenshots:output},null,2));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

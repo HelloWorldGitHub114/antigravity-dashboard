@@ -110,6 +110,7 @@ var PROGRESS_PHASES = /* @__PURE__ */ new Set([
 ]);
 var WORKER_ERRORS = /* @__PURE__ */ new Set(["network", "busy", "verification", "rollback"]);
 var PUBLIC_ERRORS = /* @__PURE__ */ new Set(["python", "network", "busy", "verification", "rollback"]);
+var VERSION_PATTERN = /^(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})(?:-(?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
 var errorMessage = (error) => error instanceof Error ? error.message : String(error);
 var errorCode = (error) => error?.code;
 function safeProgress(value) {
@@ -236,7 +237,7 @@ var AppUpdater = class {
   }
   async current() {
     const manifest = JSON.parse(await readFile2(join(this.pluginDir, "plugin.json"), "utf8"));
-    if (!manifest || manifest.name !== "antigravity-pulse" || typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    if (!manifest || manifest.name !== "antigravity-pulse" || typeof manifest.version !== "string" || manifest.version.length > 64 || !VERSION_PATTERN.test(manifest.version)) {
       throw new Error("verification");
     }
     return manifest.version;

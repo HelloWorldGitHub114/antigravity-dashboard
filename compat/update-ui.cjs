@@ -1,88 +1,525 @@
-// Shared theme tokens; text-only release notes. Network checks require a click.
-module.exports = function createUpdateMenu({root,row,language,setMarkup,request,onOpen}){
- const button=document.createElement('button');button.type='button';button.className='update-menu-button';button.id='plugin-menu-button';button.textContent='⋯';button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');row.append(button);
- const menu=document.createElement('div');menu.className='update-menu';menu.id='plugin-menu';menu.hidden=true;menu.setAttribute('role','menu');
- setMarkup(menu,'<button type="button" id="check-update" role="menuitem"><span></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 6a5 5 0 1 0 0 4M12 2v4H8"/></svg></button>');row.append(menu);
- const dialog=document.createElement('dialog');dialog.id='plugin-update-dialog';dialog.className='update-dialog';
- setMarkup(dialog,'<header><strong id="update-title"></strong><button id="update-close" type="button">×</button></header><div class="update-status"><span id="update-icon" aria-hidden="true">↻</span><strong id="update-status"></strong></div><dl><div><dt id="update-current-label"></dt><dd id="update-current"></dd></div><div><dt id="update-latest-label"></dt><dd id="update-latest"></dd></div><div><dt id="update-host-label"></dt><dd>Antigravity App</dd></div></dl><section id="update-notes-wrap" hidden><h2 id="update-notes-label"></h2><p id="update-notes"></p></section><footer><span id="update-feedback" role="status"></span><button id="update-action" type="button" hidden></button></footer>');root.append(dialog);
- const progressView=document.createElement('div');progressView.className='update-progress';
- setMarkup(progressView,'<div class="update-progress-caption"><span id="update-progress-label"></span><span id="update-progress-value"></span></div><div id="update-progress-track" class="update-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="update-progress-fill"></i><i class="update-progress-sheen"></i></div>');dialog.querySelector('.update-status').after(progressView);
- setMarkup(dialog.querySelector('#update-icon'),'<svg viewBox="0 0 20 20" aria-hidden="true"><path id="update-symbol" d="M15.7 8a6 6 0 1 0-.2 4.5M16 3.5V8h-4.5"/></svg>');
- const css=document.createElement('style');css.textContent=`
- .card-language{position:relative}.update-menu-button{border:0;background:transparent;color:var(--pulse-muted);width:22px;height:24px;padding:0;flex:none;line-height:20px;font-size:18px;border-radius:5px;cursor:pointer;transition:background-color 140ms ease,color 140ms ease}.update-menu-button:hover,.update-menu-button[aria-expanded=true]{color:var(--pulse-foreground);background:var(--pulse-hover)}
- .update-menu{position:absolute;right:0;bottom:calc(100% + 6px);padding:4px;min-width:140px;border:1px solid var(--pulse-border);border-radius:8px;background:var(--pulse-menu);box-shadow:0 6px 22px var(--pulse-shadow);z-index:20;opacity:1;transform:none;transform-origin:bottom right;transition:opacity 130ms ease,transform 150ms cubic-bezier(.22,1,.36,1)}.update-menu[hidden]{display:none}@starting-style{.update-menu:not([hidden]){opacity:.08;transform:translateY(4px) scale(.97)}}.update-menu button{display:flex;align-items:center;justify-content:space-between;width:100%;gap:14px;padding:8px 10px;border:0;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:inherit;font-size:11px;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}.update-menu button:hover{background:var(--pulse-hover)}.update-menu svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
- .update-dialog{width:min(400px,calc(100vw - 32px));box-sizing:border-box;padding:20px;border:1px solid var(--pulse-border);border-radius:15px;background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 20px 80px var(--pulse-shadow);font:12px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;opacity:1;transform:none;transition:opacity 160ms ease,transform 180ms cubic-bezier(.22,1,.36,1)}.update-dialog::backdrop{background:#0007;backdrop-filter:blur(3px);transition:opacity 160ms ease}@starting-style{.update-dialog[open]{opacity:.08;transform:translateY(6px) scale(.98)}.update-dialog[open]::backdrop{opacity:0}}.update-dialog header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.update-dialog header strong{font-size:14px}.update-dialog header button{width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--pulse-muted);font-size:20px;cursor:pointer;transition:background-color 140ms ease,color 140ms ease}.update-dialog header button:hover{background:var(--pulse-hover);color:var(--pulse-foreground)}.update-status{display:flex;align-items:center;gap:12px;margin:0 0 22px}.update-status>span{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--pulse-hover);color:var(--pulse-accent);font-size:22px;transition:background-color 160ms ease,color 160ms ease}.update-status strong{font-size:16px;font-weight:550}.update-dialog dl>div{display:flex;justify-content:space-between;gap:14px;margin:8px 0}.update-dialog dt{color:var(--pulse-muted);font-size:11px}.update-dialog dd{margin:0;font-size:12px;font-variant-numeric:tabular-nums}.update-dialog section{padding-top:15px;margin-top:18px;border-top:1px solid var(--pulse-separator)}.update-dialog section[hidden]{display:none}.update-dialog h2{font-size:11px;color:var(--pulse-muted);font-weight:500;margin:0 0 7px}.update-dialog section p{max-height:180px;overflow:auto;white-space:pre-line;margin:0;font-size:11px;line-height:1.7}.update-dialog footer{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding-top:18px;margin-top:18px;border-top:1px solid var(--pulse-separator)}.update-dialog footer span{margin-right:auto;color:var(--pulse-muted);font-size:10px}.update-dialog footer button{padding:6px 13px;border:1px solid var(--pulse-border);border-radius:7px;background:var(--pulse-hover);color:var(--pulse-foreground);font:inherit;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,transform 120ms cubic-bezier(.22,1,.36,1)}.update-dialog footer button[hidden]{display:none}.update-dialog footer button{border-color:color-mix(in srgb,var(--pulse-accent) 60%,var(--pulse-border));background:color-mix(in srgb,var(--pulse-accent) 18%,var(--pulse-background));font-weight:550}.update-dialog button:active{transform:scale(.97)}.update-dialog button:focus-visible,.update-menu button:focus-visible,.update-menu-button:focus-visible{outline:2px solid var(--pulse-accent);outline-offset:2px}.update-dialog[aria-busy=true] #update-icon{animation:update-spin 900ms linear infinite}@keyframes update-spin{to{transform:rotate(360deg)}}
- `;root.append(css);
- // A glyph uses the inherited text line box and font metrics, which can exceed
- // the 26px button. Center a fixed-size vector independently of either.
- setMarkup(dialog.querySelector('#update-close'),'<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8"/></svg>');
- css.textContent+=' .update-dialog header button{display:grid;place-items:center;flex:0 0 26px;min-width:26px;min-height:26px;padding:0;margin:0;line-height:1;appearance:none}.update-dialog header button svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}';
- css.textContent+=`
- .update-progress{margin:-5px 0 22px;min-height:32px}.update-progress-caption{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;font-size:10px;line-height:16px;color:var(--pulse-muted)}#update-progress-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#update-progress-value{flex:none;font-variant-numeric:tabular-nums}
- .update-progress-track{position:relative;height:5px;overflow:hidden;isolation:isolate;border-radius:999px;background:var(--pulse-track)}#update-progress-fill{position:absolute;inset:0;border-radius:inherit;background:var(--pulse-accent);transform-origin:left;transform:scaleX(0);transition:transform 260ms cubic-bezier(.23,1,.32,1),opacity 180ms ease;will-change:transform}.update-progress-sheen{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--pulse-foreground) 40%,transparent),transparent);opacity:0;transform:translateX(-100%)}
- .update-dialog[data-progress=unknown] #update-progress-fill{animation:update-flow 1400ms linear infinite;transition:opacity 180ms ease}.update-dialog[data-progress=known][aria-busy=true] .update-progress-sheen{opacity:.32;animation:update-sheen 1600ms linear infinite}.update-dialog[data-progress=error] #update-progress-fill{background:var(--pulse-warning);opacity:.65}.update-dialog:not([open]) #update-progress-fill,.update-dialog:not([open]) .update-progress-sheen{animation-play-state:paused}
- .update-dialog[aria-busy=true] #update-icon{animation:none}.update-status>span{flex:none}#update-icon svg{display:block;width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}#update-icon[data-busy=true] svg{animation:update-spin 900ms linear infinite}#update-icon[data-complete=true] svg{animation:update-settle 220ms cubic-bezier(.23,1,.32,1) both}
- @keyframes update-flow{from{transform:translateX(-38%) scaleX(.38)}to{transform:translateX(100%) scaleX(.38)}}@keyframes update-sheen{to{transform:translateX(100%)}}@keyframes update-settle{from{transform:scale(.92);opacity:.45}to{transform:scale(1);opacity:1}}
- @media(prefers-reduced-motion:reduce){.update-dialog[data-progress=unknown] #update-progress-fill{animation:update-breathe 1200ms linear infinite;transform:scaleX(.4)}.update-progress-sheen{animation:none!important}#update-icon[data-busy=true] svg{animation:update-breathe 1200ms linear infinite}#update-icon[data-complete=true] svg{animation:none}.update-menu,.update-dialog,.update-dialog::backdrop,.update-menu-button,.update-menu button,.update-dialog header button,.update-status>span,.update-dialog footer button,#update-progress-fill{transition:none!important}.update-dialog button:active{transform:none}}@keyframes update-breathe{0%,100%{opacity:.45}50%{opacity:1}}
- `;
- const $=id=>dialog.querySelector('#'+id),zh=()=>language.language==='zh-CN',w=(cn,en)=>zh()?cn:en;
- let state={state:'idle'},disposed=false,timer=null,epoch=0,busy=false,lastRender='',meterPhase=null,meterFrame=null,meterRestoreFrame=null;
- function closeMenu(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
- function render(){
-  const signature=JSON.stringify([language.language,state,busy]);if(signature===lastRender)return;lastRender=signature;
-  button.setAttribute('aria-label',w('插件菜单','Plugin menu'));button.title=button.getAttribute('aria-label');menu.firstElementChild.firstElementChild.textContent=w('检查更新','Check for updates');
-  $('update-title').textContent=w('插件更新','Plugin update');$('update-close').setAttribute('aria-label',w('关闭','Close'));
-  const status={checking:w('正在检查…','Checking…'),current:w('已是最新版本','You’re up to date'),available:w('发现新版本','Update available'),installing:w('正在校验并安装…','Verifying and installing…'),installed:w('更新已完成','Update installed'),reloading:w('正在重新加载…','Reloading…'),error:w('更新未完成','Update incomplete'),idle:w('检查更新','Check for updates')};
-  $('update-status').textContent=status[state.state]||status.error;dialog.setAttribute('aria-busy',String(['checking','installing','reloading'].includes(state.state)));
-  renderProgress();
-  $('update-current-label').textContent=w('当前版本','Installed');$('update-latest-label').textContent=w('最新版本','Latest');$('update-host-label').textContent=w('安装类型','Installation');$('update-current').textContent=state.currentVersion?'v'+state.currentVersion:'—';$('update-latest').textContent=state.latestVersion?'v'+state.latestVersion:'—';
-  $('update-notes-wrap').hidden=state.state!=='available'||!state.notes;$('update-notes-label').textContent=w('更新内容','What’s new');$('update-notes').textContent=(state.notes||'').split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!line.startsWith('#')).slice(0,3).join('\n');
-  const errors={network:w('连接失败，请稍后重试','Connection failed. Please retry.'),python:w('未找到 Python','Python was not found.'),verification:w('未通过安装包校验','Package verification failed.'),busy:w('已有更新正在进行','Another update is in progress.'),install:w('安装未完成，原版已保留','Installation incomplete; previous files retained.'),rollback:w('恢复失败，可从备份恢复','Recovery failed; a local backup is available.')};
-  $('update-feedback').textContent=state.state==='error'?(errors[state.error]||errors.network):state.state==='available'?w('设置和统计记录将保留','Settings and statistics are retained'):'';
-  const actionable=['available','installed','error'].includes(state.state);$('update-action').hidden=!actionable;$('update-action').disabled=busy;
-  $('update-action').textContent=state.state==='installed'?w('重新加载插件','Reload plugin'):state.state==='error'?w('重试','Retry'):w('更新','Update');
- }
- function renderProgress(){
-  const progress=state.progress||{},phase=progress.phase;
-  const complete=['current','available','installed'].includes(state.state),active=['checking','installing','reloading'].includes(state.state);
-  const labels={check:w('正在连接发布源','Connecting to releases'),download:w('正在下载更新','Downloading update'),verify:w('正在校验安装包','Verifying package'),extract:w('正在准备文件','Preparing files'),backup:w('正在备份当前版本','Backing up installed version'),install:w('正在安装文件','Installing files'),recover:w('正在恢复原版本','Restoring previous version'),complete:w('更新完成','Update complete')};
-  const known=state.state==='installing'&&phase==='download'&&Number.isSafeInteger(progress.total)&&progress.total>0&&Number.isSafeInteger(progress.received)&&progress.received>=0&&progress.received<=progress.total;
-  const fraction=known?progress.received/progress.total:complete?1:null;
-  const nextMeterPhase=state.state+':'+(known?'download':phase||'unknown');
-  if(meterPhase!==nextMeterPhase){
-   meterPhase=nextMeterPhase;cancelAnimationFrame(meterFrame);cancelAnimationFrame(meterRestoreFrame);
-   // A finished check is a different task from a fresh download. Do not
-   // animate its 100% backwards into the new download's measured fraction.
-   $('update-progress-fill').style.transition='none';
-   meterFrame=requestAnimationFrame(()=>{meterRestoreFrame=requestAnimationFrame(()=>{if(!disposed)$('update-progress-fill').style.removeProperty('transition');});});
-  }
-  let label=labels[phase]||w('正在处理','Working');
-  if(state.state==='checking')label=labels.check;
-  else if(state.state==='current')label=w('检查完成','Check complete');
-  else if(state.state==='available')label=w('准备就绪','Ready to update');
-  else if(state.state==='installed')label=labels.complete;
-  else if(state.state==='reloading')label=w('正在重新加载插件','Reloading plugin');
-  else if(state.state==='error')label=w('操作未完成，可重试','Not completed. Retry available.');
-  $('update-progress-label').textContent=label;
-  $('update-progress-value').textContent=known?`${(progress.received/1048576).toFixed(1)} / ${(progress.total/1048576).toFixed(1)} MB · ${Math.floor(fraction*100)}%`:complete?'100%':'';
-  dialog.dataset.progress=state.state==='error'?'error':fraction===null?'unknown':'known';
-  const track=$('update-progress-track');track.setAttribute('aria-label',label);
-  if(fraction!==null){track.setAttribute('aria-valuenow',String(Math.floor(fraction*100)));$('update-progress-fill').style.transform=`scaleX(${fraction})`;}
-  else{track.removeAttribute('aria-valuenow');$('update-progress-fill').style.removeProperty('transform');}
-  const icon=$('update-icon');icon.dataset.busy=String(active);icon.dataset.complete=String(complete);
-  $('update-symbol').setAttribute('d',complete?'M4.5 10l3.5 3.5 7.5-7.5':'M15.7 8a6 6 0 1 0-.2 4.5M16 3.5V8h-4.5');
- }
- async function call(action){
-  const ticket=++epoch;busy=true;if(action==='check')state={...state,state:'checking',progress:{phase:'check'}};if(action==='apply')state={...state,state:'installing',progress:{phase:'verify'}};render();
-  try{const result=await request({action,...(action==='apply'?{version:state.latestVersion}:{})});if(disposed||ticket!==epoch)return;if(!result||result.error&&!result.state)throw Error('network');state=result;}
-  catch{if(!disposed&&ticket===epoch)state={...state,state:'error',error:'network'};}
-  finally{if(!disposed&&ticket===epoch){busy=false;render();if(['checking','installing'].includes(state.state)){clearTimeout(timer);timer=setTimeout(()=>void call('status'),800);}}}
- }
- button.addEventListener('click',()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));render();});
- menu.firstElementChild.addEventListener('click',()=>{closeMenu();onOpen?.();dialog.showModal();void call('check');});
- $('update-close').addEventListener('click',()=>{dialog.close();closeMenu();});
- $('update-action').addEventListener('click',()=>void call(state.state==='installed'?'reload':state.state==='error'?'check':'apply'));
- root.addEventListener('pointerdown',event=>{const path=event.composedPath();if(!path.includes(menu)&&!path.includes(button))closeMenu();});
- menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeMenu();button.focus();}});
- render();return {localize:render,dispose(){disposed=true;epoch++;clearTimeout(timer);cancelAnimationFrame(meterFrame);cancelAnimationFrame(meterRestoreFrame);dialog.close();dialog.remove();menu.remove();button.remove();css.remove();}};
+// Generated by tools/build.mjs from src/. Do not edit directly.
+module.exports = function createUpdateMenu(...args) {
+  var __agPulseModule = (() => {
+    "use strict";
+    var __defProp = Object.defineProperty;
+    var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+    var __getOwnPropNames = Object.getOwnPropertyNames;
+    var __hasOwnProp = Object.prototype.hasOwnProperty;
+    var __export = (target, all) => {
+      for (var name in all)
+        __defProp(target, name, { get: all[name], enumerable: true });
+    };
+    var __copyProps = (to, from, except, desc) => {
+      if (from && typeof from === "object" || typeof from === "function") {
+        for (let key of __getOwnPropNames(from))
+          if (!__hasOwnProp.call(to, key) && key !== except)
+            __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      }
+      return to;
+    };
+    var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+    // src/ui/update-banner/index.ts
+    var index_exports = {};
+    __export(index_exports, {
+      default: () => createUpdateMenu
+    });
+
+    // src/shared/dom.ts
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    var ALLOWED_MARKUP_TAGS = new Set(
+      "style div span button strong section dl dt dd p i svg path circle ellipse rect header h1 h2 nav footer table thead tbody tr th td details summary".split(
+        " "
+      )
+    );
+    var HTML_ENTITIES = {
+      amp: "&",
+      lt: "<",
+      gt: ">",
+      quot: '"',
+      apos: "'",
+      nbsp: "\xA0"
+    };
+    function decodeEntities(input) {
+      return input.replace(
+        /&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,
+        (all, key) => {
+          if (key[0] === "#") {
+            const isHex = key[1]?.toLowerCase() === "x";
+            const code = parseInt(key.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+            return Number.isInteger(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : all;
+          }
+          return HTML_ENTITIES[key.toLowerCase()] ?? all;
+        }
+      );
+    }
+    function setMarkup(target, markup, doc = target.ownerDocument ?? document) {
+      const fragment = doc.createDocumentFragment();
+      const stack = [fragment];
+      let offset = 0;
+      const token = /<\/?([a-z][\w-]*)(\s[^<>]*?)?\s*\/?\s*>/gi;
+      for (let match; match = token.exec(markup); ) {
+        if (match.index > offset) {
+          stack.at(-1).append(doc.createTextNode(decodeEntities(markup.slice(offset, match.index))));
+        }
+        const tag = match[1].toLowerCase();
+        const closing = match[0][1] === "/";
+        if (!ALLOWED_MARKUP_TAGS.has(tag)) {
+          throw new Error("Unsupported dashboard template element");
+        }
+        if (closing) {
+          const top = stack.at(-1);
+          if (stack.length === 1 || top?.localName !== tag) {
+            throw new Error("Unbalanced dashboard template");
+          }
+          stack.pop();
+        } else {
+          const parent = stack.at(-1);
+          const isSvg = tag === "svg" || parent.namespaceURI === SVG_NS;
+          const element = isSvg ? doc.createElementNS(SVG_NS, tag) : doc.createElement(tag);
+          const attrs = match[2] || "";
+          const attrRe = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+)))?/g;
+          for (let attr; attr = attrRe.exec(attrs); ) {
+            const name = attr[1];
+            if (name === "/" || /^on/i.test(name) || /^(src|href|srcdoc)$/i.test(name)) {
+              throw new Error("Unsupported dashboard template attribute");
+            }
+            element.setAttribute(name, decodeEntities(attr[2] ?? attr[3] ?? attr[4] ?? ""));
+          }
+          parent.append(element);
+          if (tag === "style") {
+            const end = markup.indexOf("</style>", token.lastIndex);
+            if (end < 0) throw new Error("Unclosed dashboard style");
+            element.textContent = markup.slice(token.lastIndex, end);
+            token.lastIndex = end + 8;
+          } else if (!match[0].endsWith("/>")) {
+            stack.push(element);
+          }
+        }
+        offset = token.lastIndex;
+      }
+      if (stack.length !== 1) {
+        throw new Error("Unclosed dashboard template");
+      }
+      if (offset < markup.length) {
+        fragment.append(doc.createTextNode(decodeEntities(markup.slice(offset))));
+      }
+      target.replaceChildren(fragment);
+    }
+    function createEl(tag, attrs = {}, doc = document) {
+      const element = doc.createElement(tag);
+      for (const [key, value] of Object.entries(attrs)) {
+        if (key === "text") {
+          element.textContent = value == null ? "" : String(value);
+        } else if (value !== false && value !== null && value !== void 0) {
+          element.setAttribute(key, value === true ? "" : String(value));
+        }
+      }
+      return element;
+    }
+    function setText(el, value) {
+      const next = value == null ? "" : String(value);
+      if (el && el.textContent !== next) el.textContent = next;
+    }
+    function setAttr(el, name, value) {
+      if (!el) return;
+      if (value === null || value === void 0) {
+        if (el.hasAttribute(name)) el.removeAttribute(name);
+        return;
+      }
+      const next = String(value);
+      if (el.getAttribute(name) !== next) el.setAttribute(name, next);
+    }
+
+    // src/ui/update-banner/copy.ts
+    var EN_COPY = {
+      pluginMenu: "Plugin menu",
+      checkUpdates: "Check for updates",
+      title: "Plugin update",
+      close: "Close",
+      currentVersion: "Installed",
+      latestVersion: "Latest",
+      installation: "Installation",
+      whatsNew: "What\u2019s new",
+      retained: "Settings and statistics are retained",
+      reloadPlugin: "Reload plugin",
+      retry: "Retry",
+      update: "Update",
+      working: "Working",
+      checkComplete: "Check complete",
+      readyToUpdate: "Ready to update",
+      reloadingPlugin: "Reloading plugin",
+      notCompleted: "Not completed. Retry available.",
+      statuses: {
+        checking: "Checking\u2026",
+        current: "You\u2019re up to date",
+        available: "Update available",
+        installing: "Verifying and installing\u2026",
+        installed: "Update installed",
+        reloading: "Reloading\u2026",
+        error: "Update incomplete",
+        idle: "Check for updates"
+      },
+      errors: {
+        network: "Connection failed. Please retry.",
+        python: "Python was not found.",
+        verification: "Package verification failed.",
+        busy: "Another update is in progress.",
+        install: "Installation incomplete; previous files retained.",
+        rollback: "Recovery failed; a local backup is available."
+      },
+      phases: {
+        check: "Connecting to releases",
+        download: "Downloading update",
+        verify: "Verifying package",
+        extract: "Preparing files",
+        backup: "Backing up installed version",
+        install: "Installing files",
+        recover: "Restoring previous version",
+        complete: "Update complete"
+      }
+    };
+    var ZH_COPY = {
+      pluginMenu: "\u63D2\u4EF6\u83DC\u5355",
+      checkUpdates: "\u68C0\u67E5\u66F4\u65B0",
+      title: "\u63D2\u4EF6\u66F4\u65B0",
+      close: "\u5173\u95ED",
+      currentVersion: "\u5F53\u524D\u7248\u672C",
+      latestVersion: "\u6700\u65B0\u7248\u672C",
+      installation: "\u5B89\u88C5\u7C7B\u578B",
+      whatsNew: "\u66F4\u65B0\u5185\u5BB9",
+      retained: "\u8BBE\u7F6E\u548C\u7EDF\u8BA1\u8BB0\u5F55\u5C06\u4FDD\u7559",
+      reloadPlugin: "\u91CD\u65B0\u52A0\u8F7D\u63D2\u4EF6",
+      retry: "\u91CD\u8BD5",
+      update: "\u66F4\u65B0",
+      working: "\u6B63\u5728\u5904\u7406",
+      checkComplete: "\u68C0\u67E5\u5B8C\u6210",
+      readyToUpdate: "\u51C6\u5907\u5C31\u7EEA",
+      reloadingPlugin: "\u6B63\u5728\u91CD\u65B0\u52A0\u8F7D\u63D2\u4EF6",
+      notCompleted: "\u64CD\u4F5C\u672A\u5B8C\u6210\uFF0C\u53EF\u91CD\u8BD5",
+      statuses: {
+        checking: "\u6B63\u5728\u68C0\u67E5\u2026",
+        current: "\u5DF2\u662F\u6700\u65B0\u7248\u672C",
+        available: "\u53D1\u73B0\u65B0\u7248\u672C",
+        installing: "\u6B63\u5728\u6821\u9A8C\u5E76\u5B89\u88C5\u2026",
+        installed: "\u66F4\u65B0\u5DF2\u5B8C\u6210",
+        reloading: "\u6B63\u5728\u91CD\u65B0\u52A0\u8F7D\u2026",
+        error: "\u66F4\u65B0\u672A\u5B8C\u6210",
+        idle: "\u68C0\u67E5\u66F4\u65B0"
+      },
+      errors: {
+        network: "\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5",
+        python: "\u672A\u627E\u5230 Python",
+        verification: "\u672A\u901A\u8FC7\u5B89\u88C5\u5305\u6821\u9A8C",
+        busy: "\u5DF2\u6709\u66F4\u65B0\u6B63\u5728\u8FDB\u884C",
+        install: "\u5B89\u88C5\u672A\u5B8C\u6210\uFF0C\u539F\u7248\u5DF2\u4FDD\u7559",
+        rollback: "\u6062\u590D\u5931\u8D25\uFF0C\u53EF\u4ECE\u5907\u4EFD\u6062\u590D"
+      },
+      phases: {
+        check: "\u6B63\u5728\u8FDE\u63A5\u53D1\u5E03\u6E90",
+        download: "\u6B63\u5728\u4E0B\u8F7D\u66F4\u65B0",
+        verify: "\u6B63\u5728\u6821\u9A8C\u5B89\u88C5\u5305",
+        extract: "\u6B63\u5728\u51C6\u5907\u6587\u4EF6",
+        backup: "\u6B63\u5728\u5907\u4EFD\u5F53\u524D\u7248\u672C",
+        install: "\u6B63\u5728\u5B89\u88C5\u6587\u4EF6",
+        recover: "\u6B63\u5728\u6062\u590D\u539F\u7248\u672C",
+        complete: "\u66F4\u65B0\u5B8C\u6210"
+      }
+    };
+    function getUpdateCopy(language) {
+      return language === "zh-CN" ? ZH_COPY : EN_COPY;
+    }
+    function formatReleaseNotes(notes) {
+      return (notes ?? "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && !line.startsWith("#")).slice(0, 3).join("\n");
+    }
+
+    // src/ui/update-banner/progress.ts
+    var COMPLETE_STATES = /* @__PURE__ */ new Set(["current", "available", "installed"]);
+    var ACTIVE_STATES = /* @__PURE__ */ new Set(["checking", "installing", "reloading"]);
+    var CHECKMARK_PATH = "M4.5 10l3.5 3.5 7.5-7.5";
+    var REFRESH_PATH = "M15.7 8a6 6 0 1 0-.2 4.5M16 3.5V8h-4.5";
+    var BYTES_PER_MIB = 1048576;
+    function isKnownDownload(state, progress) {
+      return state.state === "installing" && progress.phase === "download" && typeof progress.total === "number" && Number.isSafeInteger(progress.total) && progress.total > 0 && typeof progress.received === "number" && Number.isSafeInteger(progress.received) && progress.received >= 0 && progress.received <= progress.total;
+    }
+    function resolveProgressLabel(state, copy) {
+      if (state.state === "checking") return copy.phases.check;
+      if (state.state === "current") return copy.checkComplete;
+      if (state.state === "available") return copy.readyToUpdate;
+      if (state.state === "installed") return copy.phases.complete;
+      if (state.state === "reloading") return copy.reloadingPlugin;
+      if (state.state === "error") return copy.notCompleted;
+      const phase = state.progress?.phase;
+      return phase && copy.phases[phase] || copy.working;
+    }
+    function createProgressController(elements) {
+      const { dialog, icon, symbol, label: labelEl, value: valueEl, track, fill } = elements;
+      let disposed = false;
+      let meterPhase = null;
+      let meterFrame = null;
+      let meterRestoreFrame = null;
+      function clearFrames() {
+        if (meterFrame !== null) {
+          cancelAnimationFrame(meterFrame);
+          meterFrame = null;
+        }
+        if (meterRestoreFrame !== null) {
+          cancelAnimationFrame(meterRestoreFrame);
+          meterRestoreFrame = null;
+        }
+      }
+      function render(state, copy) {
+        const progress = state.progress ?? {};
+        const phase = progress.phase;
+        const complete = COMPLETE_STATES.has(state.state);
+        const active = ACTIVE_STATES.has(state.state);
+        const known = isKnownDownload(state, progress);
+        const fraction = known ? progress.received / progress.total : complete ? 1 : null;
+        const nextMeterPhase = `${state.state}:${known ? "download" : phase || "unknown"}`;
+        if (meterPhase !== nextMeterPhase) {
+          meterPhase = nextMeterPhase;
+          clearFrames();
+          fill.style.transition = "none";
+          meterFrame = requestAnimationFrame(() => {
+            meterRestoreFrame = requestAnimationFrame(() => {
+              if (!disposed) fill.style.removeProperty("transition");
+            });
+          });
+        }
+        const label = resolveProgressLabel(state, copy);
+        setText(labelEl, label);
+        setText(
+          valueEl,
+          known && fraction !== null ? `${(progress.received / BYTES_PER_MIB).toFixed(1)} / ${(progress.total / BYTES_PER_MIB).toFixed(1)} MB \xB7 ${Math.floor(fraction * 100)}%` : complete ? "100%" : ""
+        );
+        dialog.dataset.progress = state.state === "error" ? "error" : fraction === null ? "unknown" : "known";
+        setAttr(track, "aria-label", label);
+        if (fraction !== null) {
+          setAttr(track, "aria-valuenow", Math.floor(fraction * 100));
+          fill.style.transform = `scaleX(${fraction})`;
+        } else {
+          setAttr(track, "aria-valuenow", null);
+          fill.style.removeProperty("transform");
+        }
+        icon.dataset.busy = String(active);
+        icon.dataset.complete = String(complete);
+        setAttr(symbol, "d", complete ? CHECKMARK_PATH : REFRESH_PATH);
+      }
+      return {
+        render,
+        dispose() {
+          disposed = true;
+          clearFrames();
+        }
+      };
+    }
+
+    // src/ui/update-banner/update.css
+    var update_default = ".card-language { position: relative; }\n\n.update-menu-button {\n  border: 0; background: transparent; color: var(--pulse-muted);\n  width: 22px; height: 24px; padding: 0; flex: none;\n  line-height: 20px; font-size: 18px; border-radius: 5px; cursor: pointer;\n  transition: background-color 140ms ease, color 140ms ease;\n}\n.update-menu-button:hover,\n.update-menu-button[aria-expanded='true'] { color: var(--pulse-foreground); background: var(--pulse-hover); }\n\n.update-menu {\n  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 20;\n  padding: 4px; min-width: 140px; border: 1px solid var(--pulse-border); border-radius: 8px;\n  background: var(--pulse-menu); box-shadow: 0 6px 22px var(--pulse-shadow);\n  opacity: 1; transform: none; transform-origin: bottom right;\n  transition: opacity 130ms ease, transform 150ms cubic-bezier(.22, 1, .36, 1);\n}\n.update-menu[hidden] { display: none; }\n@starting-style { .update-menu:not([hidden]) { opacity: .08; transform: translateY(4px) scale(.97); } }\n.update-menu button {\n  display: flex; align-items: center; justify-content: space-between;\n  width: 100%; gap: 14px; padding: 8px 10px; border: 0; border-radius: 5px;\n  background: transparent; color: var(--pulse-foreground); font: inherit; font-size: 11px;\n  cursor: pointer; transition: background-color 120ms ease, color 120ms ease;\n}\n.update-menu button:hover { background: var(--pulse-hover); }\n.update-menu svg {\n  width: 13px; height: 13px; fill: none; stroke: currentColor;\n  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;\n}\n\n.update-dialog {\n  width: min(400px, calc(100vw - 32px)); box-sizing: border-box; padding: 20px;\n  border: 1px solid var(--pulse-border); border-radius: 15px;\n  background: var(--pulse-background); color: var(--pulse-foreground);\n  box-shadow: 0 20px 80px var(--pulse-shadow);\n  font: 12px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;\n  opacity: 1; transform: none;\n  transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1);\n}\n.update-dialog::backdrop { background: #0007; backdrop-filter: blur(3px); transition: opacity 160ms ease; }\n@starting-style {\n  .update-dialog[open] { opacity: .08; transform: translateY(6px) scale(.98); }\n  .update-dialog[open]::backdrop { opacity: 0; }\n}\n\n.update-dialog header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }\n.update-dialog header strong { font-size: 14px; }\n.update-dialog header button {\n  display: grid; place-items: center; flex: 0 0 26px;\n  width: 26px; height: 26px; min-width: 26px; min-height: 26px;\n  padding: 0; margin: 0; border: 0; border-radius: 6px;\n  background: transparent; color: var(--pulse-muted);\n  font-size: 20px; line-height: 1; appearance: none; cursor: pointer;\n  transition: background-color 140ms ease, color 140ms ease;\n}\n.update-dialog header button:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.update-dialog header button svg {\n  display: block; width: 14px; height: 14px; fill: none; stroke: currentColor;\n  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;\n}\n\n.update-status { display: flex; align-items: center; gap: 12px; margin: 0 0 22px; }\n.update-status > span {\n  display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 10px;\n  background: var(--pulse-hover); color: var(--pulse-accent); font-size: 22px;\n  transition: background-color 160ms ease, color 160ms ease;\n}\n.update-status strong { font-size: 16px; font-weight: 550; }\n\n.update-dialog dl > div { display: flex; justify-content: space-between; gap: 14px; margin: 8px 0; }\n.update-dialog dt { color: var(--pulse-muted); font-size: 11px; }\n.update-dialog dd { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }\n\n.update-dialog section { padding-top: 15px; margin-top: 18px; border-top: 1px solid var(--pulse-separator); }\n.update-dialog section[hidden] { display: none; }\n.update-dialog h2 { font-size: 11px; color: var(--pulse-muted); font-weight: 500; margin: 0 0 7px; }\n.update-dialog section p { max-height: 180px; overflow: auto; white-space: pre-line; margin: 0; font-size: 11px; line-height: 1.7; }\n\n.update-dialog footer {\n  display: flex; align-items: center; justify-content: flex-end; gap: 12px;\n  padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--pulse-separator);\n}\n.update-dialog footer span { margin-right: auto; color: var(--pulse-muted); font-size: 10px; }\n.update-dialog footer button {\n  padding: 6px 13px; border-radius: 7px; font: inherit; font-weight: 550; cursor: pointer;\n  border: 1px solid color-mix(in srgb, var(--pulse-accent) 60%, var(--pulse-border));\n  background: color-mix(in srgb, var(--pulse-accent) 18%, var(--pulse-background));\n  color: var(--pulse-foreground);\n  transition: background-color 140ms ease, border-color 140ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1);\n}\n.update-dialog footer button[hidden] { display: none; }\n.update-dialog button:active { transform: scale(.97); }\n.update-dialog button:focus-visible,\n.update-menu button:focus-visible,\n.update-menu-button:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: 2px; }\n\n.update-progress { margin: -5px 0 22px; min-height: 32px; }\n.update-progress-caption {\n  display: flex; align-items: center; justify-content: space-between;\n  gap: 12px; margin-bottom: 9px; font-size: 10px; line-height: 16px; color: var(--pulse-muted);\n}\n#update-progress-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n#update-progress-value { flex: none; font-variant-numeric: tabular-nums; }\n.update-progress-track { position: relative; height: 5px; overflow: hidden; isolation: isolate; border-radius: 999px; background: var(--pulse-track); }\n#update-progress-fill {\n  position: absolute; inset: 0; border-radius: inherit; background: var(--pulse-accent);\n  transform-origin: left; transform: scaleX(0); will-change: transform;\n  transition: transform 260ms cubic-bezier(.23, 1, .32, 1), opacity 180ms ease;\n}\n.update-progress-sheen {\n  position: absolute; inset: 0; pointer-events: none; opacity: 0; transform: translateX(-100%);\n  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--pulse-foreground) 40%, transparent), transparent);\n}\n.update-dialog[data-progress='unknown'] #update-progress-fill { animation: update-flow 1400ms linear infinite; transition: opacity 180ms ease; }\n.update-dialog[data-progress='known'][aria-busy='true'] .update-progress-sheen { opacity: .32; animation: update-sheen 1600ms linear infinite; }\n.update-dialog[data-progress='error'] #update-progress-fill { background: var(--pulse-warning); opacity: .65; }\n.update-dialog:not([open]) #update-progress-fill,\n.update-dialog:not([open]) .update-progress-sheen { animation-play-state: paused; }\n\n.update-dialog[aria-busy='true'] #update-icon { animation: none; }\n#update-icon svg {\n  display: block; width: 21px; height: 21px; fill: none; stroke: currentColor;\n  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;\n}\n#update-icon[data-busy='true'] svg { animation: update-spin 900ms linear infinite; }\n#update-icon[data-complete='true'] svg { animation: update-settle 220ms cubic-bezier(.23, 1, .32, 1) both; }\n\n@keyframes update-spin { to { transform: rotate(360deg); } }\n@keyframes update-flow { from { transform: translateX(-38%) scaleX(.38); } to { transform: translateX(100%) scaleX(.38); } }\n@keyframes update-sheen { to { transform: translateX(100%); } }\n@keyframes update-settle { from { transform: scale(.92); opacity: .45; } to { transform: scale(1); opacity: 1; } }\n@keyframes update-breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }\n\n@media (prefers-reduced-motion: reduce) {\n  .update-dialog[data-progress='unknown'] #update-progress-fill { animation: update-breathe 1200ms linear infinite; transform: scaleX(.4); }\n  .update-progress-sheen { animation: none !important; }\n  #update-icon[data-busy='true'] svg { animation: update-breathe 1200ms linear infinite; }\n  #update-icon[data-complete='true'] svg { animation: none; }\n  .update-menu, .update-dialog, .update-dialog::backdrop, .update-menu-button, .update-menu button,\n  .update-dialog header button, .update-status > span, .update-dialog footer button,\n  #update-progress-fill { transition: none !important; }\n  .update-dialog button:active { transform: none; }\n}\n";
+
+    // src/ui/update-banner/index.ts
+    var ACTIONABLE_STATES = /* @__PURE__ */ new Set(["available", "installed", "error"]);
+    var BUSY_STATES = /* @__PURE__ */ new Set(["checking", "installing", "reloading"]);
+    var MENU_MARKUP = '<button type="button" id="check-update" role="menuitem"><span></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 6a5 5 0 1 0 0 4M12 2v4H8"/></svg></button>';
+    var DIALOG_MARKUP = '<header><strong id="update-title"></strong><button id="update-close" type="button"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></header><div class="update-status"><span id="update-icon" aria-hidden="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path id="update-symbol" d="M15.7 8a6 6 0 1 0-.2 4.5M16 3.5V8h-4.5"/></svg></span><strong id="update-status"></strong></div><div class="update-progress"><div class="update-progress-caption"><span id="update-progress-label"></span><span id="update-progress-value"></span></div><div id="update-progress-track" class="update-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="update-progress-fill"></i><i class="update-progress-sheen"></i></div></div><dl><div><dt id="update-current-label"></dt><dd id="update-current"></dd></div><div><dt id="update-latest-label"></dt><dd id="update-latest"></dd></div><div><dt id="update-host-label"></dt><dd>Antigravity App</dd></div></dl><section id="update-notes-wrap" hidden><h2 id="update-notes-label"></h2><p id="update-notes"></p></section><footer><span id="update-feedback" role="status"></span><button id="update-action" type="button" hidden></button></footer>';
+    function createUpdateMenu({
+      root,
+      row,
+      language,
+      setMarkup: setMarkup2 = setMarkup,
+      request,
+      onOpen
+    }) {
+      const button = createEl("button", {
+        type: "button",
+        class: "update-menu-button",
+        id: "plugin-menu-button",
+        text: "\u22EF",
+        "aria-haspopup": "menu",
+        "aria-expanded": "false"
+      });
+      row.append(button);
+      const menu = createEl("div", {
+        class: "update-menu",
+        id: "plugin-menu",
+        role: "menu"
+      });
+      menu.hidden = true;
+      setMarkup2(menu, MENU_MARKUP);
+      row.append(menu);
+      const dialog = createEl("dialog", {
+        id: "plugin-update-dialog",
+        class: "update-dialog"
+      });
+      setMarkup2(dialog, DIALOG_MARKUP);
+      root.append(dialog);
+      const css = createEl("style");
+      css.textContent = update_default;
+      root.append(css);
+      const query = (id) => dialog.querySelector(`#${id}`);
+      const checkButton = menu.querySelector("#check-update");
+      const checkLabel = checkButton.querySelector("span");
+      const titleEl = query("update-title");
+      const closeButton = query("update-close");
+      const statusEl = query("update-status");
+      const currentLabelEl = query("update-current-label");
+      const currentEl = query("update-current");
+      const latestLabelEl = query("update-latest-label");
+      const latestEl = query("update-latest");
+      const hostLabelEl = query("update-host-label");
+      const notesWrapEl = query("update-notes-wrap");
+      const notesLabelEl = query("update-notes-label");
+      const notesEl = query("update-notes");
+      const feedbackEl = query("update-feedback");
+      const actionButton = query("update-action");
+      const progress = createProgressController({
+        dialog,
+        icon: query("update-icon"),
+        symbol: query("update-symbol"),
+        label: query("update-progress-label"),
+        value: query("update-progress-value"),
+        track: query("update-progress-track"),
+        fill: query("update-progress-fill")
+      });
+      let state = { state: "idle", host: "app", currentVersion: null };
+      let disposed = false;
+      let timer = null;
+      let epoch = 0;
+      let busy = false;
+      let lastRender = "";
+      function closeMenu() {
+        menu.hidden = true;
+        setAttr(button, "aria-expanded", "false");
+      }
+      function render() {
+        const signature = JSON.stringify([language.language, state, busy]);
+        if (signature === lastRender) return;
+        lastRender = signature;
+        const copy = getUpdateCopy(language.language);
+        setAttr(button, "aria-label", copy.pluginMenu);
+        button.title = copy.pluginMenu;
+        setText(checkLabel, copy.checkUpdates);
+        setText(titleEl, copy.title);
+        setAttr(closeButton, "aria-label", copy.close);
+        setText(statusEl, copy.statuses[state.state] || copy.statuses.error);
+        setAttr(dialog, "aria-busy", String(BUSY_STATES.has(state.state)));
+        progress.render(state, copy);
+        setText(currentLabelEl, copy.currentVersion);
+        setText(latestLabelEl, copy.latestVersion);
+        setText(hostLabelEl, copy.installation);
+        setText(currentEl, state.currentVersion ? `v${state.currentVersion}` : "\u2014");
+        setText(latestEl, state.latestVersion ? `v${state.latestVersion}` : "\u2014");
+        notesWrapEl.hidden = state.state !== "available" || !state.notes;
+        setText(notesLabelEl, copy.whatsNew);
+        setText(notesEl, formatReleaseNotes(state.notes));
+        const feedbackText = state.state === "error" ? state.error && copy.errors[state.error] || copy.errors.network : state.state === "available" ? copy.retained : "";
+        setText(feedbackEl, feedbackText);
+        actionButton.hidden = !ACTIONABLE_STATES.has(state.state);
+        actionButton.disabled = busy;
+        setText(
+          actionButton,
+          state.state === "installed" ? copy.reloadPlugin : state.state === "error" ? copy.retry : copy.update
+        );
+      }
+      async function call(action) {
+        const ticket = ++epoch;
+        busy = true;
+        if (action === "check") {
+          state = { ...state, state: "checking", progress: { phase: "check" } };
+        } else if (action === "apply") {
+          state = { ...state, state: "installing", progress: { phase: "verify" } };
+        }
+        render();
+        try {
+          const payload = action === "apply" ? { action, version: state.latestVersion } : { action };
+          const result = await request(payload);
+          if (disposed || ticket !== epoch) return;
+          if (!result || result.error && !result.state) {
+            throw new Error("network");
+          }
+          state = result;
+        } catch {
+          if (!disposed && ticket === epoch) {
+            state = { ...state, state: "error", error: "network" };
+          }
+        } finally {
+          if (!disposed && ticket === epoch) {
+            busy = false;
+            render();
+            if (state.state === "checking" || state.state === "installing") {
+              if (timer !== null) clearTimeout(timer);
+              timer = setTimeout(() => {
+                void call("status");
+              }, 800);
+            }
+          }
+        }
+      }
+      function open() {
+        if (disposed) return;
+        closeMenu();
+        onOpen?.();
+        if (!dialog.open) dialog.showModal();
+        void call("check");
+      }
+      const onButtonClick = () => {
+        menu.hidden = !menu.hidden;
+        setAttr(button, "aria-expanded", String(!menu.hidden));
+        render();
+      };
+      const onCheckClick = () => {
+        open();
+      };
+      const onCloseClick = () => {
+        if (dialog.open) dialog.close();
+        closeMenu();
+      };
+      const onActionClick = () => {
+        const nextAction = state.state === "installed" ? "reload" : state.state === "error" ? "check" : "apply";
+        void call(nextAction);
+      };
+      const onRootPointerDown = (event) => {
+        const path = event.composedPath();
+        if (!path.includes(menu) && !path.includes(button)) closeMenu();
+      };
+      const onMenuKeyDown = (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenu();
+          button.focus();
+        }
+      };
+      button.addEventListener("click", onButtonClick);
+      checkButton.addEventListener("click", onCheckClick);
+      closeButton.addEventListener("click", onCloseClick);
+      actionButton.addEventListener("click", onActionClick);
+      root.addEventListener("pointerdown", onRootPointerDown);
+      menu.addEventListener("keydown", onMenuKeyDown);
+      render();
+      return {
+        localize: render,
+        open,
+        dispose() {
+          disposed = true;
+          epoch++;
+          if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          progress.dispose();
+          root.removeEventListener("pointerdown", onRootPointerDown);
+          if (dialog.open) dialog.close();
+          dialog.remove();
+          menu.remove();
+          button.remove();
+          css.remove();
+        }
+      };
+    }
+    return __toCommonJS(index_exports);
+  })();
+  const __agPulseFactoryFn = __agPulseModule && typeof __agPulseModule === "object" && "default" in __agPulseModule ? __agPulseModule.default : __agPulseModule;
+  return __agPulseFactoryFn.apply(this, args);
 };

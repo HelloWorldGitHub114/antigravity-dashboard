@@ -334,6 +334,41 @@ with w.lifecycle_lock(Path(sys.argv[2])):w.install_staged(Path(sys.argv[3]),Path
             with self.assertRaises(urllib.error.URLError):worker.fetch('https://github.com/file',100)
             self.assertEqual(opener.call_count,1)
 
+    def test_prerelease_version_suffixes_parse_and_compare_by_semver_precedence(self):
+        ordered = [
+            '0.10.1',
+            '0.11.0-alpha.1',
+            '0.11.0-alpha.4',
+            '0.11.0-beta.1',
+            '0.11.0-beta.2',
+            '0.11.0-beta.10',
+            '0.11.0-rc.1',
+            '0.11.0',
+        ]
+        parsed = [worker.version(v) for v in ordered]
+        self.assertEqual(parsed, sorted(parsed))
+        self.assertEqual(len(set(parsed)), len(ordered))
+        for invalid in ['0.11.0-', '0.11.0-01', '0.11.0-beta..1', '0.11.0/../evil', 'v0.11.0-beta.2']:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                worker.version(invalid)
+
+        (self.target / 'plugin.json').write_text(json.dumps({'name': 'antigravity-pulse', 'version': '0.11.0-beta.2'}))
+        self.assertEqual(worker.validate_target(self.target, self.home), '0.11.0-beta.2')
+
+        older_release = {'tag_name': 'v0.10.1', 'assets': []}
+        self.assertFalse(worker.release_plan(older_release, '0.11.0-beta.2')['hasUpdate'])
+
+        stable_release = {
+            'tag_name': 'v0.11.0',
+            'assets': [
+                {'name': 'antigrative-dashboard-0.11.0.zip', 'size': 123,
+                 'browser_download_url': f'https://github.com/{worker.REPO}/releases/download/v0.11.0/antigrative-dashboard-0.11.0.zip'},
+                {'name': 'antigrative-dashboard-0.11.0.zip.sha256',
+                 'browser_download_url': f'https://github.com/{worker.REPO}/releases/download/v0.11.0/antigrative-dashboard-0.11.0.zip.sha256'},
+            ],
+        }
+        self.assertTrue(worker.release_plan(stable_release, '0.11.0-beta.2')['hasUpdate'])
+
 
 if __name__ == '__main__':
     unittest.main()

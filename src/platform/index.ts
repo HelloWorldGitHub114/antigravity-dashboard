@@ -23,3 +23,17 @@ export {
   type SidecarOwnerRecord,
   type SidecarOwnerOptions,
 } from './sidecar-owner.ts';
+export {
+  isLoopbackHost,
+  isValidDevToolsTarget,
+  readDevToolsPort,
+  fetchDevToolsTargets,
+  discoverDevToolsTargets,
+  type DevToolsTargetMode,
+  type DevToolsTarget,
+  type ReadDevToolsPortOptions,
+  type FetchDevToolsTargetsOptions,
+  type DiscoverDevToolsTargetsOptions,
+  type DevToolsDiscoveryResult,
+} from './devtools.ts';
+export * from './manifest.ts';

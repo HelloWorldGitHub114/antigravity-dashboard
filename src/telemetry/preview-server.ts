@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import type { IntegrationHealth, MetricsRequestInput, MetricsSnapshot, PreferencesUpdateInput } from '../contracts/index.ts';
-import type { RuntimePreferencesBridge } from '../../compat/runtime-ui.mjs';
+import type { RuntimePreferencesBridge } from '../ui/runtime-ui/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
 import type { MetricsStore } from './store/index.ts';
 
@@ -11,7 +11,7 @@ export interface PreviewServerOptions {
   port: number;
   guidPattern: RegExp;
   staticFiles: Record<string, [string, string]>;
-  livePreferences: RuntimePreferencesBridge;
+  livePreferences: Required<RuntimePreferencesBridge>;
   store: MetricsStore;
   metrics: (input?: MetricsRequestInput) => Promise<MetricsSnapshot>;
   getHealth: () => IntegrationHealth;

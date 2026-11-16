@@ -47,6 +47,8 @@ const PROGRESS_PHASES = new Set<UpdateProgressPhase>([
 ]);
 const WORKER_ERRORS = new Set<string>(['network', 'busy', 'verification', 'rollback']);
 const PUBLIC_ERRORS = new Set<string>(['python', 'network', 'busy', 'verification', 'rollback']);
+const VERSION_PATTERN =
+  /^(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})(?:-(?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const errorCode = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null | undefined)?.code;
@@ -186,7 +188,13 @@ export class AppUpdater {
       name?: unknown;
       version?: unknown;
     };
-    if (!manifest || manifest.name !== 'antigravity-pulse' || typeof manifest.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    if (
+      !manifest ||
+      manifest.name !== 'antigravity-pulse' ||
+      typeof manifest.version !== 'string' ||
+      manifest.version.length > 64 ||
+      !VERSION_PATTERN.test(manifest.version)
+    ) {
       throw new Error('verification');
     }
     return manifest.version;

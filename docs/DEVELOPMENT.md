@@ -1,38 +1,60 @@
-# 开发与验证
+# 开发与验证（v0.11.0+）
 
-## 结构
+## 架构与目录结构
+
+自 **v0.11.0** 起，项目采用 **全栈 TypeScript 模块化源码（`src/`，单文件 `<300` 行）+ `esbuild` 零依赖原位编译产物** 架构。编译产物直接输出至宿主期望的原始入口路径（`sidecars/panel/`、`compat/`、`ide/`、`cli/` 与根目录 `manage.mjs`），在消除运行时 `module.exports` 字符串切片拼装与跨层协议漂移的同时，保持用户端零 `node_modules` / 零 `pip` 依赖分发：
 
 ```text
-plugin.json                 Antigravity 插件元数据
-manage.py                   安装 / 开关 / 卸载 / 打包
-compat/patch-loader.py      带备份和校验的版本适配器
-compat/runtime-ui.mjs       默认发现、受限桥接与重连
-compat/inline-widget.cjs    与模型选择同行的 Shadow DOM 控件
-compat/ipc-host.cjs         主进程到本地 sidecar 的受限桥接
-sidecars/panel/client.mjs   本地 LanguageServer 查询
-sidecars/panel/metrics.mjs  速率、缓存、时长与额度转换
-compat/i18n.cjs             两种界面共用的英文 / 中文词表
-sidecars/panel/store.mjs    请求合并、短缓存与账户切换
-sidecars/panel/history.mjs  按账号/对话原子保存白名单统计
-sidecars/panel/sdk.mjs      已安装 App SDK 的加载兼容
-tests/                     生命周期验证
-.github/workflows/ci.yml    Windows/Linux/macOS CI 与发行包检查
+src/
+├── contracts/              IPC、指标、用量账本、调用时间线与偏好设置的唯一类型契约 (SSOT)
+├── shared/                 数字/时间格式化、WCAG 色彩合成、Trusted-Types DOM、原子写盘、PID 文件锁与零依赖 ZIP
+├── platform/               manifest.ts (打包与脱敏清单唯一真源)、Pro + Vertex 双实例路径、DevTools 发现与实例锁
+├── telemetry/              后端遥测核心库 (projector/, reader/, client/, metrics/, delegation/, ledger/, timeline/, store/)
+├── ui/                     前端组件与样式 (host-adapter/, inline-widget/, usage-modal/, panel-webview/, update-banner/, shared/)
+├── ide/                    独立 Antigravity IDE 扩展与发现适配器
+└── lifecycle/              安装/双实例同步 (installer.ts)、ZIP/VSIX 打包与发布 (packager.ts)、CLI 状态栏与脱敏导出 (sanitizer.ts)
+
+编译输出与工具层：
+├── tools/build.mjs         esbuild 零依赖多目标构建器 (51 个产物同步校验 + 静态依赖图验证)
+├── tools/ui-runner.mjs     基于 AsyncLocalStorage + ScopedBrowser 的并发 Playwright UI 测试运行器
+├── manage.mjs / manage.py  桌面端与 CLI 生命周期管理入口 (Node 优先 + Python 兼容回退)
+├── sidecars/panel/         Sidecar 后端模块 (*.mjs) 与侧边栏自包含浏览器 bundle (app.js, styles.css)
+├── compat/                 桌面端 CDP/IPC 注入桥接与自包含工厂产物 (*.mjs, *.cjs)
+├── ide/                    独立 IDE VSIX 运行时与打包脚本 (extension.cjs, main.mjs, package.mjs, manage.mjs)
+└── cli/                    官方 CLI statusLine 独立运行产物 (statusline.mjs, metrics.mjs, render.mjs)
 ```
 
-## 测试
+## 构建与测试
+
+仅开发编译期使用 `typescript` 与 `esbuild`（`devDependencies`）；运行与安装包无任何第三方依赖：
 
 ```powershell
+# 1. 类型检查与零依赖构建（--check 校验 51 个编译产物与 manifest 依赖图是否完全同步）
+npm run typecheck
+npm run build
+node tools/build.mjs --check
+
+# 2. Node 单元测试（Sidecar 遥测、多账号账本、子代理、时间线、CLI、共享工具与生命周期）
 npm test
 node --test ide/tests/*.test.mjs
-python -m unittest discover -s tests -v
-npm run test:ui
-node tools/check-ide-ui.mjs
-python manage.py package
-python ide/package.py
-```
 
-无 npm / pip 第三方依赖。Node.js 测试涵盖 TPS 加权、思考与 TTFT 分离、缺失计时、请求去重、重叠工具时间、额度边界、重置到期、账户切换、失联及分页。
-Python 测试在临时目录验证安装、启停、卸载、备份恢复、未知修改拒绝和发行包排除规则，不操作用户 App。
+# 3. Python 生命周期与更新器事务测试
+npm run test:lifecycle
+
+# 4. Playwright 浏览器 UI 回归测试（需本机或 CI 安装 playwright）
+npm run test:ui
+npm run test:usage-ui
+npm run test:panel-ui
+node tools/check-ide-ui.mjs
+
+# 5. 长对话与日志流式内存预算基准测试
+node --expose-gc tools/check-trajectory-resources.mjs
+node --expose-gc tools/check-transcript-resources.mjs
+
+# 6. 生成 dist/ 发行包（App/CLI ZIP + IDE VSIX + SHA256）并校验发布完整性
+npm run package
+node tools/publish-release.mjs --tag v0.11.0 --check-only
+```
 
 ## 本地实时预览
 
@@ -40,21 +62,10 @@ Python 测试在临时目录验证安装、启停、卸载、备份恢复、未�
 node sidecars/panel/main.mjs
 ```
 
-打开 `http://127.0.0.1:17891` 查看独立面板。`/toolbar-preview?new` 验证新对话同行布局，`/toolbar-preview` 会关联最近活动会话。需要 App 已启动。
+打开 `http://127.0.0.1:17891` 查看独立侧边栏面板。`/toolbar-preview?new` 验证新对话同行布局，`/toolbar-preview` 关联最近活动会话（需桌面 App 已启动）。
 
-## 数据边界
+## 单一真源清单与数据安全边界
 
-`ide/` 为独立 Antigravity IDE adapter；VSIX 使用明示模块列表，不包含账户数据、历史、日志或宿主资源。`ide/manage.py` 校验目标应用的 product identity，并调用宿主 bundled runtime。新版本同时生成桌面/CLI ZIP 与 IDE VSIX，各自带 SHA256；发布校验两者版本、完整模块与校验值。
-IDE 进程发现需与 renderer PID 谱系、同用户和端口一致，DOM adapter 只从当前输入框拥有者读取 conversation ID。`tools/check-ide-ui.mjs` 运行真实控件，覆盖 Trusted Types、宽窄布局、会话隔离和轮询滚动稳定性。
-
-安装代码不携带任何账号凭据。sidecar 发现当前 standalone 进程凭据并校验端口归属，不使用可能过期的环境凭据；凭据只在后台内存使用。
-本地 RPC 返回的会话正文不会发给控件；前端只收到数值、状态和模型名称。速率计算使用后台原始元数据，采集后不将完整轨迹落盘。
-SDK 兼容器从用户已安装的应用读取所需资源并存入私有运行目录；仓库和发行包不分发 Antigravity 的二进制、SDK 源码或备份。
-
-## 手动实机验证
-
-完整故障矩阵见 [ROBUSTNESS.md](ROBUSTNESS.md)。`node tools/check-live-history.mjs` 实机补存当前账号历史并检查重启恢复，写入本地统计，不输出正文或凭据。
-
-首次安装后完全重启 App；新对话只显示上下文入口（无样本显示横线），悬停仍可查看额度；已有会话显示 TPS、缓存与上下文三个控件。悬停上下文应同时显示 5h/周额度、额度组选择、刷新和重置时间。上下文缺容量应显示不可用，悬停注明请求开始时估计。
-悬停三项显示相应卡片；打开额度组菜单，等待至少三次轮询，菜单应保持打开。选择另一个组后比例和倒计时应一并切换。
-执行 disable 后缩略条隐藏，enable 后恢复；uninstall 后完整重启，控件消失。默认安装/更新/卸载不改原生 app.asar；迁移旧加载器才尝试经过 SHA256 校验的恢复。
+- **清单唯一真源（`src/platform/manifest.ts`）：** 统一维护桌面运行文件、私有排除目录（`data`、`history-v1`、`usage-v1`、`timeline-v1`、`sdk`）、IDE VSIX 模块白名单（`IDE_VSIX_MODULES`）、CLI 状态栏文件及开源脱敏排除规则。`tools/build.mjs` 在每次构建时通过 `verifyManifestDependencyGraph()` 静态扫描 `import`/`require` 传递闭包，杜绝 VSIX 或发行包遗漏模块。
+- **凭据与正文隔离：** 安装包与仓库不携带任何账号凭据或个人标识（本地可选账号映射存放在 `.gitignore` 忽略的 `.data/usage-accounts.local.json` 中）。sidecar 仅在内存中持有当前 standalone 进程凭据并校验 PID 端口归属；前端只接收脱敏后的数值统计、状态、模型名称与纯结构化时间线节点，绝不落盘或传输提示词、回复正文、思考文本或工具参数。
+- **默认零归档入侵：** 默认安装、升级与卸载绝不修改宿主 `resources/app.asar`（旧版主动注入参数已退役，仅保留经 SHA-256 严格校验的历史备份还原能力）。完整故障与恢复矩阵见 [ROBUSTNESS.md](ROBUSTNESS.md)。

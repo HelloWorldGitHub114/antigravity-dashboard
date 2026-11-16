@@ -1,180 +1,649 @@
-// Shared, serializable translations for the inline widget and native panel.
-module.exports = function createDashboardI18n(initialLanguage) {
-  const dictionary={
-    en:{
-      tokenPartial:'Known tokens only (≥): {input} requests lack input usage; {output} lack output usage. Output is counted independently of cache availability.',
-      tokenLegacy:'Saved token usage is a lower bound (≥); request-level coverage cannot be verified.',unknownCoverage:'unknown',
-      cacheZeroInput:'Reported total input is 0; the cache hit rate has no denominator.',
-      savedCache:'Cache ratio uses saved statistics ({time}).',savedSpeed:'Speed uses saved statistics ({time}).',
-      panelSpeed:'Speed',panelCache:'Cache',panelContext:'Context',panelDetails:'Metric details',panelUsed:'used',panelSharedQuota:'Shared quota',
-      newConversationStats:'New conversation: send a message or open an existing conversation to view its statistics. Account quota is shown separately below.',
-      subagentStats:'Current subagent statistics',accountQuota:'Account quota, shared across agents.',
-      transcriptTitle:'Recorded text estimate',transcriptUser:'User text',transcriptAssistant:'Replies + thinking',transcriptTool:'Tool output',transcriptSystem:'System text',transcriptMarkers:'Compaction markers',transcriptImages:'Image-generation steps',transcriptPartial:'partial',transcriptLoading:'Loading…',transcriptUnavailable:'Unavailable',transcriptSaved:'saved',transcriptBasis:'Estimated logged text, not active context or billed usage. Hidden prompts, media and tool-call arguments are excluded.',
-      contextHostLimit:'Active window (host)',contextProviderCapacity:'Provider capacity reference',contextCompressionLimit:'Compaction threshold',contextLimitUnknown:'Unknown',contextReferenceBasis:'Provider specification; not this session\'s available capacity.',
-      context:'Context window',contextShort:'Ctx',contextUsed:'{used}% used ({remaining}% left)',contextTokens:'{used} / {max} tok',contextUnknown:'Context capacity unavailable',contextUnavailable:'Context statistics are unavailable for this request.',contextBasis:'Host estimate at the latest request start; not cumulative tokens or a live streaming counter.',contextModel:'Sampled model',contextLimit:'Window capacity',contextUsage:'Used tokens (estimate)',contextSaved:'Showing saved context statistics ({time}).',contextExceeded:'The host estimate exceeds the reported capacity.',
-      savedStats:'Showing saved conversation statistics ({time}).',saveFailed:'Statistics could not be saved locally.',
-      strip:'Antigrative Dashboard statistics',session:'Session statistics',cache:'Cache hit',cacheTitle:'Token usage',five:'Five-hour quota',week:'Weekly quota',weekShort:'Wk',
-      modelTime:'Model time',toolTime:'Tool time',ttft:'Average TTFT',sessionTps:'Session TPS',latest:'Last request',tokens:'Response / thinking',remaining:'remaining',
-      resetIn:'Resets in',resetTime:'Reset time (UTC+8)',group:'Quota group',selectGroup:'Select quota group',refresh:'Refresh quota',refreshStats:'Refresh statistics',refreshing:'Refreshing…',
-      waiting:'Waiting for refresh',connecting:'Connecting to Antigravity…',waitingApp:'Waiting for Antigravity',waitingModel:'Waiting for a model request',waitingRequest:'No requests yet',
-      hover:'Hover over the strip for details',autoConnect:'Open the app to connect automatically',loadingQuota:'Loading quota…',unavailableQuota:'Quota unavailable',
-      live:'Connected to Antigrative Dashboard',stale:'Showing last available quota',offline:'Antigrative Dashboard is offline',
-      responseBasis:'Calculation: response tokens ÷ streaming time; session TPS is time-weighted.',allBasis:'Calculation: output tokens ÷ streaming time (includes streamed thinking); session TPS is time-weighted.',
-      missingTime:'{n} requests lack timing and are excluded from TPS.',shortSample:'Last request is under 1s; its rate may vary substantially.',running:'Generating; showing completed requests.',
-      generating:'Generating…',
-      timingUnreliable:'Timing uncertain',ratePending:'Awaiting recalculation',excludedTime:'{n} requests with uncertain timing are excluded from TPS.',rateWarning:'Another {n} short or unusually fast samples remain included in TPS; their rates may fluctuate.',rateWarningOnly:'{n} short or unusually fast samples remain included in TPS; their rates may fluctuate.',rateReasons:'Reason: {reasons}.',rateReasonCount:'{reason}: {n} requests',rateUsageRetained:'Token and cache usage is still retained in full.',legacyRate:'Saved TPS uses the old calculation. Reopen this conversation while connected to recalculate.',
-      reasonToken:'Token scope mismatch',reasonDuplicate:'Conflicting request records',reasonRetry:'Retry/token timing scope uncertain',reasonTool:'Short tool-only timing window',reasonOutlier:'Short sample far above same-model baseline',reasonNonfinite:'Invalid calculated rate',
-      sample:'{rounds} turns · {steps} steps · {requests} samples',sampleCount:'{n} samples',rounds:'{rounds} turns {steps} steps ·',
-      noQuota:'This account did not return this quota window.',disabledQuota:'This quota window is disabled.',noFraction:'The account did not return a remaining fraction.',
-      sharedQuota:'Models in this group share quota.',quotaSource:'Balances and reset times come from the account API.',updated:'Updated {time}',health:'Quota updated {time} · actual request metrics',firstUpdate:'Waiting for the first update',
-      cacheRate:'Cache hit',cacheRead:'Cache read',cacheInput:'Total input',cacheMiss:'Uncached input',cacheWrite:'Cache write',cacheOutput:'Output',
-      cacheBasis:'Cached input ÷ total input, weighted across requests. Cache writes are not hits.',cacheMissing:'{n} requests have unavailable cache statistics.',cacheUnavailable:'Cache statistics are unavailable for this conversation.',
-      cacheCoverage:'{measured} of {total} requests',language:'Language',switchLanguage:'Switch to Chinese',languageSaveFailed:'Language preference could not be saved. Please retry.',reconnecting:'Waiting to reconnect',panelUnavailable:'The statistics panel cannot connect right now.',invalidData:'Incompatible statistics data',
-      taskTotalTokens:'Task total tokens',taskTokensSelf:'Main conversation',taskTokensSubagents:'Subagents ({count})',
-      subagentsTitle:'Subagents',subagentTPS:'Speed (TPS)',subagentModel:'Model',subagentSteps:'Steps',subagentTokensDetail:'Tokens',subagentContext:'Context',subagentStatus:'Status',subagentStatusIdle:'Idle (waiting or done)',subagentStatusRunning:'Running',subagentStatusWaitingUser:'Waiting for user',subagentStatusWaiting:'Waiting',subagentStatusDone:'Completed',subagentStatusError:'Error',subagentStatusStopped:'Stopped',subagentStatusUnknown:'Unknown',noSubagents:'No subagents invoked yet',loading:'Loading…',
-      contextPlanner:'Planner entrypoint',contextQuotaSplit:'Plan uses Argon weekly quota · Worker uses Flash 5h quota',contextMultiModelHint:'Multiple models sampled in this session',
-      modelMixTitle:'Model breakdown',modelMixMetricTotal:'Total',modelMixMetricOutput:'Output',modelMixMetricCalls:'Calls',modelMixScopeSession:'Session only',modelMixScopeTask:'Include subagents',modelRolePlan:'Plan',modelRoleWorker:'Worker',modelRoleSubagent:'Subagent',modelRoleModel:'Model',modelCallsUnit:'calls',modelCallsCount:'{count} calls',modelMixOther:'Other',modelMixModelsCount:'{count} models',
-      timelineTitle:'Model timeline',timelinePrivacySummary:'Local structural trace only · No prompts, paths, or args',timelineEnable:'Enable',timelineDisable:'Disable',timelineClear:'Clear',timelineCleared:'Local timeline cache cleared',timelineEmpty:'Waiting for the first recorded turn',timelineTruncated:'Older events compacted to stay within local trace bounds',timelineSaveFailed:'Timeline preference could not be saved.',timelineClearFailed:'Timeline cache could not be cleared.',
-      timelineLanePlan:'Plan',timelineLaneWorker:'Worker',timelineLaneToolsAgents:'Tools·Agents',
-      timelineEventTurn:'Turn',timelineEventPlan:'Plan',timelineEventHandoff:'Handoff',timelineEventWorker:'Worker',timelineEventToolGroup:'Tool group',timelineEventSubagent:'Subagent',timelineEventModelSwitch:'Model switch',timelineEventError:'Error',
-    },
-    'zh-CN':{
-      tokenPartial:'仅统计已知 Token（≥）：{input} 次请求缺少输入用量，{output} 次缺少输出用量。输出独立于缓存统计。',
-      tokenLegacy:'已保存 Token 用量为下界（≥）；无法确认逐请求统计覆盖情况。',unknownCoverage:'未知',
-      cacheZeroInput:'报告的总输入为 0，缓存命中率无可计算的分母。',
-      savedCache:'缓存率使用已保存统计（{time}）。',savedSpeed:'速度使用已保存统计（{time}）。',
-      panelSpeed:'速度',panelCache:'缓存',panelContext:'上下文',panelDetails:'统计详情',panelUsed:'已用',panelSharedQuota:'共享额度',
-      newConversationStats:'当前为新对话：发送消息或打开已有对话后显示该会话统计。账号额度在下方单独展示。',
-      subagentStats:'当前子代理统计',accountQuota:'账号共享额度，所有代理共用。',
-      transcriptTitle:'已记录文本估算',transcriptUser:'用户文本',transcriptAssistant:'回复与思考',transcriptTool:'工具输出',transcriptSystem:'系统文本',transcriptMarkers:'压缩标记记录',transcriptImages:'图像生成步骤',transcriptPartial:'不完整',transcriptLoading:'读取中…',transcriptUnavailable:'不可用',transcriptSaved:'已保存',transcriptBasis:'日志文本估算，非当前上下文或计费用量。不含隐藏提示、媒体和工具调用参数。',
-      contextHostLimit:'当前窗口容量（宿主）',contextProviderCapacity:'供应商容量参考',contextCompressionLimit:'压缩触发阈值',contextLimitUnknown:'未知',contextReferenceBasis:'供应商规格参考，不代表当前会话可用容量。',
-      context:'上下文窗口',contextShort:'上下文',contextUsed:'{used}% 已用（剩余 {remaining}%）',contextTokens:'{used} / {max} tok',contextUnknown:'上下文容量不可用',contextUnavailable:'此请求暂无可用上下文统计。',contextBasis:'宿主在最近请求开始时的估计值，非累计 Token，也非流式实时计数。',contextModel:'采样模型',contextLimit:'窗口容量',contextUsage:'已用 Token（估计）',contextSaved:'显示已保存的上下文统计（{time}）。',contextExceeded:'宿主估计值超过返回的窗口容量。',
-      savedStats:'显示已保存的会话统计（{time}）。',saveFailed:'统计暂时无法保存到本地。',
-      strip:'Antigrative Dashboard 会话与额度状态条',session:'会话统计',cache:'缓存命中',cacheTitle:'Token 用量',five:'5h 额度',week:'周额度',weekShort:'周',
-      modelTime:'模型调用用时',toolTime:'工具调用用时',ttft:'首 token 平均（TTFT）',sessionTps:'会话输出速率（TPS）',latest:'最近一次请求',tokens:'正文 / 思考输出',remaining:'剩余',
-      resetIn:'重置倒计时',resetTime:'重置时间（北京时间）',group:'额度组',selectGroup:'选择额度组',refresh:'刷新额度',refreshStats:'刷新统计',refreshing:'正在刷新…',
-      waiting:'等待刷新',connecting:'连接 Antigravity…',waitingApp:'等待 Antigravity',waitingModel:'等待模型生成',waitingRequest:'尚无请求',hover:'悬停状态条，查看详细统计',autoConnect:'打开应用后自动连接',loadingQuota:'读取额度…',unavailableQuota:'额度暂不可用',
-      live:'已连接 Antigrative Dashboard',stale:'显示上次成功读取的额度',offline:'Antigrative Dashboard 暂未连接',
-      responseBasis:'统计方式：正文 Token ÷ 流式时长；会话 TPS 按总时长加权。',allBasis:'统计方式：输出 Token ÷ 流式时长（含流式思考或未拆分思考）；会话 TPS 按总时长加权。',
-      missingTime:'{n} 次请求缺少时长，未计入 TPS。',shortSample:'最近请求不足 1 秒，单次速率波动较大。',running:'生成中，显示已完成请求统计。',
-      generating:'计算中…',
-      timingUnreliable:'计时异常',ratePending:'等待重算',excludedTime:'已排除 {n} 次异常计时，不计入 TPS。',rateWarning:'另有 {n} 次短时或高速度采样可能波动，仍计入 TPS。',rateWarningOnly:'{n} 次短时或高速度采样可能波动，仍计入 TPS。',rateReasons:'原因：{reasons}。',rateReasonCount:'{reason}：{n} 次',rateUsageRetained:'Token 和缓存用量仍完整保留。',legacyRate:'已保存的 TPS 使用旧算法；连接后打开此对话即可重新计算。',
-      reasonToken:'Token 统计范围不一致',reasonDuplicate:'同一请求的记录冲突',reasonRetry:'重试的 Token 与计时范围不明确',reasonTool:'工具输出的计时窗口过短',reasonOutlier:'短时速率显著高于同模型基线',reasonNonfinite:'计算速率无效',
-      sample:'{rounds}轮 {steps}步 · {requests} 次采样',sampleCount:'{n} 次采样',rounds:'{rounds}轮 {steps}步 ·',
-      noQuota:'账户未返回此额度窗口。',disabledQuota:'此额度窗口已停用。',noFraction:'账户未返回剩余比例。',sharedQuota:'同组模型共享额度。',quotaSource:'余额与重置时间来自账户接口。',updated:'{time} 更新',health:'额度更新于 {time} · 真实请求统计',firstUpdate:'等待首次更新',
-      cacheRate:'缓存命中',cacheRead:'缓存读取',cacheInput:'总输入',cacheMiss:'未缓存输入',cacheWrite:'缓存写入',cacheOutput:'输出',cacheBasis:'缓存读取 token ÷ 总输入 token，按请求 token 总量加权；缓存写入不算命中。',cacheMissing:'{n} 次请求缺少缓存统计。',cacheUnavailable:'此会话暂无可用缓存统计。',cacheCoverage:'{measured} / {total} 次请求',
-      language:'语言',switchLanguage:'Switch to English',languageSaveFailed:'语言设置暂时无法保存，请重试。',reconnecting:'等待控件重新连接',panelUnavailable:'统计面板暂时无法连接',invalidData:'统计数据格式不兼容',
-      taskTotalTokens:'任务总 Token（聚合）',taskTokensSelf:'主会话',taskTokensSubagents:'子代理（{count} 个）',
-      subagentsTitle:'子代理列表',subagentTPS:'输出速率（TPS）',subagentModel:'模型',subagentSteps:'执行步数',subagentTokensDetail:'消耗 Token',subagentContext:'上下文',subagentStatus:'状态',subagentStatusIdle:'空闲 · 待命或已完成',subagentStatusRunning:'正在运行',subagentStatusWaitingUser:'等待用户输入',subagentStatusWaiting:'等待中',subagentStatusDone:'已完成',subagentStatusError:'执行出错',subagentStatusStopped:'已停止',subagentStatusUnknown:'状态未知',noSubagents:'暂未调用子代理',loading:'读取中…',
-      contextPlanner:'主控入口',contextQuotaSplit:'规划用 Argon 周额度 · 执行用 Flash 5h 额度',contextMultiModelHint:'当前会话采样了多个模型',
-      modelMixTitle:'多模型分布',modelMixMetricTotal:'总用量',modelMixMetricOutput:'输出',modelMixMetricCalls:'请求数',modelMixScopeSession:'仅当前会话',modelMixScopeTask:'含子代理',modelRolePlan:'规划',modelRoleWorker:'执行',modelRoleSubagent:'子代理',modelRoleModel:'模型',modelCallsUnit:'次请求',modelCallsCount:'{count} 次',modelMixOther:'其他',modelMixModelsCount:'{count} 个模型',
-      timelineTitle:'模型调用时间树',timelinePrivacySummary:'仅本地结构轨迹 · 不含提示词、路径或参数',timelineEnable:'开启',timelineDisable:'关闭',timelineClear:'清除',timelineCleared:'已清除本地时间树缓存',timelineEmpty:'等待记录首个模型调用轮次',timelineTruncated:'早期事件已压缩，以保持本地有界缓存',timelineSaveFailed:'时间树开关设置保存失败，请重试。',timelineClearFailed:'时间树缓存清除失败，请重试。',
-      timelineLanePlan:'规划',timelineLaneWorker:'执行',timelineLaneToolsAgents:'工具·代理',
-      timelineEventTurn:'轮次',timelineEventPlan:'规划',timelineEventHandoff:'交接',timelineEventWorker:'执行',timelineEventToolGroup:'工具组',timelineEventSubagent:'子代理',timelineEventModelSwitch:'切换模型',timelineEventError:'错误',
-    },
-  };
-  let language=initialLanguage==='zh-CN'?'zh-CN':'en';
-  const t=(key,args={})=>(dictionary[language][key]||dictionary.en[key]||key).replace(/\{(\w+)\}/g,(_,name)=>String(args[name]??''));
-  function countdown(at,now=Date.now(),compact=false){
-    const end=Date.parse(at);if(!Number.isFinite(end))return '—';if(end<=now)return t('waiting');
-    const left=Math.ceil((end-now)/1000),days=Math.floor(left/86400),hours=Math.floor(left%86400/3600),mins=Math.floor(left%3600/60),secs=left%60,pad=n=>String(n).padStart(2,'0');
-    return `${days?`${days}${language==='en'?'d':'天'} `:''}${pad(hours)}:${pad(mins)}${compact&&days?'':`:${pad(secs)}`}`;
-  }
-  function elapsed(value){
-    if(typeof value!=='number'||!Number.isFinite(value))return '—';if(value<60)return `${value.toFixed(2)}${language==='en'?'s':' 秒'}`;
-    const whole=Math.round(value),h=Math.floor(whole/3600),m=Math.floor(whole%3600/60),s=whole%60;
-    return language==='en'?`${h?`${h}h `:''}${m}m ${s}s`:`${h?`${h}小时`:''}${m}分${s}秒`;
-  }
-  function resetDate(value){
-    const date=new Date(value);return Number.isFinite(date.getTime())?new Intl.DateTimeFormat(language==='en'?'en-GB':'zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Shanghai'}).format(date):'—';
-  }
-  function errorMessage(value){
-    if(!value)return '';
-    const key=Object.keys(dictionary.en).find(key=>dictionary.en[key]===value);
-    if(key)return t(key);
-    if(language==='zh-CN')return value;
-    const errors={
-      '请先打开 Antigravity':'Open Antigravity to connect.', '当前采集适配器支持 Windows':'This collector requires Windows.',
-      '检测到多个 Antigravity 实例，请保留一个':'Multiple Antigravity instances detected. Keep one open.',
-      '未找到 Antigravity 桌面后台':'Antigravity desktop backend was not found.',
-      '当前版本未提供可用的本地检测凭据':'Local metrics credentials are unavailable in this version.',
-      '等待 Antigravity 本地接口启动':'Waiting for the local Antigravity API.',
-      '未找到 Antigravity 语言服务日志，请检查日志路径':'Antigravity language-server log was not found. Check the log path.',
-      '会话暂时没有可用统计':'No statistics are available for this conversation yet.',
-      '完整会话统计分页暂不可用':'Complete conversation statistics are temporarily unavailable.',
-      '会话统计数据超过内存预算':'Conversation statistics exceed the memory budget.',
-      '会话统计数据超过采集上限':'Retained conversation statistics exceed the collection budget.',
-      '会话统计字段超过采集上限':'A statistics field exceeds the collection budget.',
-      '会话统计分页读取超时':'Conversation statistics pagination timed out.',
-      '会话统计分页数量无效':'Invalid conversation statistics page count.',
-      '会话统计分页格式无效':'Invalid conversation statistics page format.',
-      '会话仍在更新，请等待下一次刷新':'The conversation is updating; waiting for the next refresh.',
-      '接口响应超过采集上限':'The API response exceeds the collection budget.',
-      'Antigravity 接口返回了无法解析的数据':'Antigravity returned an invalid response.',
-      'Antigravity 本地接口超时':'The local Antigravity API timed out.',
-      '远程环境休眠或同步较慢，请稍候刷新':'Remote environment is hibernated or syncing slowly; please refresh shortly.',
-      '当前登录账号未开启远程 Agent (Cloud Conversations) 权限':'Cloud Conversations (Remote Agent) is not enabled for the signed-in account.',
-      '会话标识无效':'Invalid conversation identifier.',
-      '等待 Antigrative Dashboard 后台启动':'Waiting for the dashboard background process.',
-      '等待 Antigrative Dashboard 重新连接':'Waiting for the dashboard to reconnect.',
-      '等待 AG Pulse 后台启动':'Waiting for the dashboard background process.',
-      '等待 AG Pulse 重新连接':'Waiting for the dashboard to reconnect.',
+// Generated by tools/build.mjs from src/. Do not edit directly.
+module.exports = function createDashboardI18n(...args) {
+  var __agPulseModule = (() => {
+    "use strict";
+    var __defProp = Object.defineProperty;
+    var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+    var __getOwnPropNames = Object.getOwnPropertyNames;
+    var __hasOwnProp = Object.prototype.hasOwnProperty;
+    var __export = (target, all) => {
+      for (var name in all)
+        __defProp(target, name, { get: all[name], enumerable: true });
     };
-    if(errors[value])return errors[value];
-    const match=String(value).match(/^Antigravity 接口 (\w+) 返回 (\d+)$/);
-    return match?`Antigravity ${match[1]} returned HTTP ${match[2]}.`:'Statistics are temporarily unavailable.';
-  }
-  function connectPreferences({read,write,cache=()=>{},changed=()=>{}}) {
-    let epoch=0,writes=0,revision=-1,disposed=false,error=false,queue=Promise.resolve();
-    const valid=value=>value==='en'||value==='zh-CN';
-    const notify=()=>{if(!disposed)changed();};
-    const remember=()=>{try{cache(language);}catch{}};
-    const check=value=>{if(!value||value.error||!Object.hasOwn(value,'language')||value.language!==null&&!valid(value.language))throw new Error('Invalid preference response');return value;};
-    function sync(value) {
-      if(disposed||writes)return;
-      try {
-        check(value);const next=Number.isSafeInteger(value.revision)?value.revision:0;
-        if(next<revision)return;
-        if(error&&epoch>0&&value.language!==language)return; // retain an unsaved choice and its warning
-        if(value.language===null&&epoch===0&&valid(initialLanguage)){void choose(initialLanguage);return;}
-        revision=next;error=false;
-        if(valid(value.language)&&language!==value.language){language=value.language;remember();}
-        notify();
-      } catch {error=true;notify();}
+    var __copyProps = (to, from, except, desc) => {
+      if (from && typeof from === "object" || typeof from === "function") {
+        for (let key of __getOwnPropNames(from))
+          if (!__hasOwnProp.call(to, key) && key !== except)
+            __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      }
+      return to;
+    };
+    var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+    // src/ui/i18n/index.ts
+    var index_exports = {};
+    __export(index_exports, {
+      default: () => createDashboardI18n
+    });
+
+    // src/shared/format.ts
+    function elapsed(seconds, language = "zh-CN") {
+      if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "\u2014";
+      if (seconds < 60) {
+        return `${seconds.toFixed(2)}${language === "en" ? "s" : " \u79D2"}`;
+      }
+      const whole = Math.round(seconds);
+      const h = Math.floor(whole / 3600);
+      const m = Math.floor(whole % 3600 / 60);
+      const s = whole % 60;
+      return language === "en" ? `${h ? `${h}h ` : ""}${m}m ${s}s` : `${h ? `${h}\u5C0F\u65F6` : ""}${m}\u5206${s}\u79D2`;
     }
-    function choose(value) {
-      if(disposed||!valid(value))return Promise.resolve();
-      const choice=++epoch;language=value;writes++;error=false;remember();notify();
-      const pending=queue.then(async()=>{
-        try {
-          const saved=check(await write({language:value}));
-          if(saved.language!==value)throw new Error('Preference acknowledgement differs');
-          revision=Math.max(revision,Number.isSafeInteger(saved.revision)?saved.revision:0);
-          if(choice===epoch)error=false;
-        } catch {if(choice===epoch)error=true;}
-        finally {writes--;notify();}
-      });
-      queue=pending;return pending;
+    function countdown(resetAt, now = Date.now(), compactMode = false, language = "zh-CN") {
+      const end = typeof resetAt === "number" ? resetAt : resetAt instanceof Date ? resetAt.getTime() : typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+      if (!Number.isFinite(end)) return "\u2014";
+      if (end <= now) return language === "en" ? "Waiting for refresh" : "\u7B49\u5F85\u5237\u65B0";
+      const left = Math.ceil((end - now) / 1e3);
+      const d = Math.floor(left / 86400);
+      const h = Math.floor(left % 86400 / 3600);
+      const m = Math.floor(left % 3600 / 60);
+      const s = left % 60;
+      const pad = (n) => String(n).padStart(2, "0");
+      const dayUnit = language === "en" ? "d" : "\u5929";
+      return `${d ? `${d}${dayUnit} ` : ""}${pad(h)}:${pad(m)}${compactMode && d ? "" : `:${pad(s)}`}`;
     }
-    const ready=(async()=>{
-      const started=epoch;
-      try {
-        const saved=check(await read());
-        if(disposed||epoch!==started)return;
-        if(saved.language===null&&valid(initialLanguage))await choose(initialLanguage); // migrate an existing browser choice once
-        else sync(saved);
-      }catch{if(!disposed&&epoch===started){error=true;notify();}}
-    })();
-    return {ready,sync,choose,toggle:()=>choose(language==='en'?'zh-CN':'en'),get error(){return error;},get pending(){return writes>0;},dispose(){disposed=true;}};
-  }
-  function rateNote(speed) {
-    if (!speed) return t('waitingRequest');
-    if (speed.latestRateStatus === 'legacy') return t('ratePending');
-    const basis = t(speed.rateBasis==='all-output'?'allBasis':'responseBasis');
-    if (speed.latestRateStatus === 'generating' || /RUNNING/i.test(speed.status || '')) {
-      return `${t('running')} ${basis}`;
+    function resetDate(value, language = "zh-CN") {
+      if (value === null || value === void 0) return "\u2014";
+      const date = value instanceof Date ? value : new Date(value);
+      const locale = language === "en" ? "en-GB" : "zh-CN";
+      return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(locale, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "Asia/Shanghai"
+      }).format(date) : "\u2014";
     }
-    return basis;
-  }
-  return {t,rateNote,countdown,elapsed,resetDate,errorMessage,connectPreferences,get language(){return language;},setLanguage(value){language=value==='zh-CN'?'zh-CN':'en';},toggle(){language=language==='en'?'zh-CN':'en';return language;}};
+
+    // src/ui/i18n/dictionary-en.ts
+    var EN_DICTIONARY = {
+      tokenPartial: "Known tokens only (\u2265): {input} requests lack input usage; {output} lack output usage. Output is counted independently of cache availability.",
+      tokenLegacy: "Saved token usage is a lower bound (\u2265); request-level coverage cannot be verified.",
+      unknownCoverage: "unknown",
+      cacheZeroInput: "Reported total input is 0; the cache hit rate has no denominator.",
+      savedCache: "Cache ratio uses saved statistics ({time}).",
+      savedSpeed: "Speed uses saved statistics ({time}).",
+      panelSpeed: "Speed",
+      panelCache: "Cache",
+      panelContext: "Context",
+      panelDetails: "Metric details",
+      panelUsed: "used",
+      panelSharedQuota: "Shared quota",
+      newConversationStats: "New conversation: send a message or open an existing conversation to view its statistics. Account quota is shown separately below.",
+      subagentStats: "Current subagent statistics",
+      accountQuota: "Account quota, shared across agents.",
+      transcriptTitle: "Recorded text estimate",
+      transcriptUser: "User text",
+      transcriptAssistant: "Replies + thinking",
+      transcriptTool: "Tool output",
+      transcriptSystem: "System text",
+      transcriptMarkers: "Compaction markers",
+      transcriptImages: "Image-generation steps",
+      transcriptPartial: "partial",
+      transcriptLoading: "Loading\u2026",
+      transcriptUnavailable: "Unavailable",
+      transcriptSaved: "saved",
+      transcriptBasis: "Estimated logged text, not active context or billed usage. Hidden prompts, media and tool-call arguments are excluded.",
+      contextHostLimit: "Active window (host)",
+      contextProviderCapacity: "Provider capacity reference",
+      contextCompressionLimit: "Compaction threshold",
+      contextLimitUnknown: "Unknown",
+      contextReferenceBasis: "Provider specification; not this session's available capacity.",
+      context: "Context window",
+      contextShort: "Ctx",
+      contextUsed: "{used}% used ({remaining}% left)",
+      contextTokens: "{used} / {max} tok",
+      contextUnknown: "Context capacity unavailable",
+      contextUnavailable: "Context statistics are unavailable for this request.",
+      contextBasis: "Host estimate at the latest request start; not cumulative tokens or a live streaming counter.",
+      contextModel: "Sampled model",
+      contextLimit: "Window capacity",
+      contextUsage: "Used tokens (estimate)",
+      contextSaved: "Showing saved context statistics ({time}).",
+      contextExceeded: "The host estimate exceeds the reported capacity.",
+      savedStats: "Showing saved conversation statistics ({time}).",
+      saveFailed: "Statistics could not be saved locally.",
+      strip: "Antigrative Dashboard statistics",
+      session: "Session statistics",
+      cache: "Cache hit",
+      cacheTitle: "Token usage",
+      five: "Five-hour quota",
+      week: "Weekly quota",
+      weekShort: "Wk",
+      modelTime: "Model time",
+      toolTime: "Tool time",
+      ttft: "Average TTFT",
+      sessionTps: "Session TPS",
+      latest: "Last request",
+      tokens: "Response / thinking",
+      remaining: "remaining",
+      resetIn: "Resets in",
+      resetTime: "Reset time (UTC+8)",
+      group: "Quota group",
+      selectGroup: "Select quota group",
+      refresh: "Refresh quota",
+      refreshStats: "Refresh statistics",
+      refreshing: "Refreshing\u2026",
+      waiting: "Waiting for refresh",
+      connecting: "Connecting to Antigravity\u2026",
+      waitingApp: "Waiting for Antigravity",
+      waitingModel: "Waiting for a model request",
+      waitingRequest: "No requests yet",
+      hover: "Hover over the strip for details",
+      autoConnect: "Open the app to connect automatically",
+      loadingQuota: "Loading quota\u2026",
+      unavailableQuota: "Quota unavailable",
+      live: "Connected to Antigrative Dashboard",
+      stale: "Showing last available quota",
+      offline: "Antigrative Dashboard is offline",
+      responseBasis: "Calculation: response tokens \xF7 streaming time; session TPS is time-weighted.",
+      allBasis: "Calculation: output tokens \xF7 streaming time (includes streamed thinking); session TPS is time-weighted.",
+      missingTime: "{n} requests lack timing and are excluded from TPS.",
+      shortSample: "Last request is under 1s; its rate may vary substantially.",
+      running: "Generating; showing completed requests.",
+      generating: "Generating\u2026",
+      timingUnreliable: "Timing uncertain",
+      ratePending: "Awaiting recalculation",
+      excludedTime: "{n} requests with uncertain timing are excluded from TPS.",
+      rateWarning: "Another {n} short or unusually fast samples remain included in TPS; their rates may fluctuate.",
+      rateWarningOnly: "{n} short or unusually fast samples remain included in TPS; their rates may fluctuate.",
+      rateReasons: "Reason: {reasons}.",
+      rateReasonCount: "{reason}: {n} requests",
+      rateUsageRetained: "Token and cache usage is still retained in full.",
+      legacyRate: "Saved TPS uses the old calculation. Reopen this conversation while connected to recalculate.",
+      reasonToken: "Token scope mismatch",
+      reasonDuplicate: "Conflicting request records",
+      reasonRetry: "Retry/token timing scope uncertain",
+      reasonTool: "Short tool-only timing window",
+      reasonOutlier: "Short sample far above same-model baseline",
+      reasonNonfinite: "Invalid calculated rate",
+      sample: "{rounds} turns \xB7 {steps} steps \xB7 {requests} samples",
+      sampleCount: "{n} samples",
+      rounds: "{rounds} turns {steps} steps \xB7",
+      noQuota: "This account did not return this quota window.",
+      disabledQuota: "This quota window is disabled.",
+      noFraction: "The account did not return a remaining fraction.",
+      sharedQuota: "Models in this group share quota.",
+      quotaSource: "Balances and reset times come from the account API.",
+      updated: "Updated {time}",
+      health: "Quota updated {time} \xB7 actual request metrics",
+      firstUpdate: "Waiting for the first update",
+      cacheRate: "Cache hit",
+      cacheRead: "Cache read",
+      cacheInput: "Total input",
+      cacheMiss: "Uncached input",
+      cacheWrite: "Cache write",
+      cacheOutput: "Output",
+      cacheBasis: "Cached input \xF7 total input, weighted across requests. Cache writes are not hits.",
+      cacheMissing: "{n} requests have unavailable cache statistics.",
+      cacheUnavailable: "Cache statistics are unavailable for this conversation.",
+      cacheCoverage: "{measured} of {total} requests",
+      language: "Language",
+      switchLanguage: "Switch to Chinese",
+      languageSaveFailed: "Language preference could not be saved. Please retry.",
+      reconnecting: "Waiting to reconnect",
+      panelUnavailable: "The statistics panel cannot connect right now.",
+      invalidData: "Incompatible statistics data",
+      taskTotalTokens: "Task total tokens",
+      taskTokensSelf: "Main conversation",
+      taskTokensSubagents: "Subagents ({count})",
+      subagentsTitle: "Subagents",
+      subagentTPS: "Speed (TPS)",
+      subagentModel: "Model",
+      subagentSteps: "Steps",
+      subagentTokensDetail: "Tokens",
+      subagentContext: "Context",
+      subagentStatus: "Status",
+      subagentStatusIdle: "Idle (waiting or done)",
+      subagentStatusRunning: "Running",
+      subagentStatusWaitingUser: "Waiting for user",
+      subagentStatusWaiting: "Waiting",
+      subagentStatusDone: "Completed",
+      subagentStatusError: "Error",
+      subagentStatusStopped: "Stopped",
+      subagentStatusUnknown: "Unknown",
+      noSubagents: "No subagents invoked yet",
+      loading: "Loading\u2026",
+      contextPlanner: "Planner entrypoint",
+      contextQuotaSplit: "Plan uses Argon weekly quota \xB7 Worker uses Flash 5h quota",
+      contextMultiModelHint: "Multiple models sampled in this session",
+      modelMixTitle: "Model breakdown",
+      modelMixMetricTotal: "Total",
+      modelMixMetricOutput: "Output",
+      modelMixMetricCalls: "Calls",
+      modelMixScopeSession: "Session only",
+      modelMixScopeTask: "Include subagents",
+      modelRolePlan: "Plan",
+      modelRoleWorker: "Worker",
+      modelRoleSubagent: "Subagent",
+      modelRoleModel: "Model",
+      modelCallsUnit: "calls",
+      modelCallsCount: "{count} calls",
+      modelMixOther: "Other",
+      modelMixModelsCount: "{count} models",
+      timelineTitle: "Model timeline",
+      timelinePrivacySummary: "Local structural trace only \xB7 No prompts, paths, or args",
+      timelineEnable: "Enable",
+      timelineDisable: "Disable",
+      timelineClear: "Clear",
+      timelineCleared: "Local timeline cache cleared",
+      timelineEmpty: "Waiting for the first recorded turn",
+      timelineTruncated: "Older events compacted to stay within local trace bounds",
+      timelineSaveFailed: "Timeline preference could not be saved.",
+      timelineClearFailed: "Timeline cache could not be cleared.",
+      timelineLanePlan: "Plan",
+      timelineLaneWorker: "Worker",
+      timelineLaneToolsAgents: "Tools\xB7Agents",
+      timelineEventTurn: "Turn",
+      timelineEventPlan: "Plan",
+      timelineEventHandoff: "Handoff",
+      timelineEventWorker: "Worker",
+      timelineEventToolGroup: "Tool group",
+      timelineEventSubagent: "Subagent",
+      timelineEventModelSwitch: "Model switch",
+      timelineEventError: "Error"
+    };
+
+    // src/ui/i18n/dictionary-zh.ts
+    var ZH_DICTIONARY = {
+      tokenPartial: "\u4EC5\u7EDF\u8BA1\u5DF2\u77E5 Token\uFF08\u2265\uFF09\uFF1A{input} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u8F93\u5165\u7528\u91CF\uFF0C{output} \u6B21\u7F3A\u5C11\u8F93\u51FA\u7528\u91CF\u3002\u8F93\u51FA\u72EC\u7ACB\u4E8E\u7F13\u5B58\u7EDF\u8BA1\u3002",
+      tokenLegacy: "\u5DF2\u4FDD\u5B58 Token \u7528\u91CF\u4E3A\u4E0B\u754C\uFF08\u2265\uFF09\uFF1B\u65E0\u6CD5\u786E\u8BA4\u9010\u8BF7\u6C42\u7EDF\u8BA1\u8986\u76D6\u60C5\u51B5\u3002",
+      unknownCoverage: "\u672A\u77E5",
+      cacheZeroInput: "\u62A5\u544A\u7684\u603B\u8F93\u5165\u4E3A 0\uFF0C\u7F13\u5B58\u547D\u4E2D\u7387\u65E0\u53EF\u8BA1\u7B97\u7684\u5206\u6BCD\u3002",
+      savedCache: "\u7F13\u5B58\u7387\u4F7F\u7528\u5DF2\u4FDD\u5B58\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+      savedSpeed: "\u901F\u5EA6\u4F7F\u7528\u5DF2\u4FDD\u5B58\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+      panelSpeed: "\u901F\u5EA6",
+      panelCache: "\u7F13\u5B58",
+      panelContext: "\u4E0A\u4E0B\u6587",
+      panelDetails: "\u7EDF\u8BA1\u8BE6\u60C5",
+      panelUsed: "\u5DF2\u7528",
+      panelSharedQuota: "\u5171\u4EAB\u989D\u5EA6",
+      newConversationStats: "\u5F53\u524D\u4E3A\u65B0\u5BF9\u8BDD\uFF1A\u53D1\u9001\u6D88\u606F\u6216\u6253\u5F00\u5DF2\u6709\u5BF9\u8BDD\u540E\u663E\u793A\u8BE5\u4F1A\u8BDD\u7EDF\u8BA1\u3002\u8D26\u53F7\u989D\u5EA6\u5728\u4E0B\u65B9\u5355\u72EC\u5C55\u793A\u3002",
+      subagentStats: "\u5F53\u524D\u5B50\u4EE3\u7406\u7EDF\u8BA1",
+      accountQuota: "\u8D26\u53F7\u5171\u4EAB\u989D\u5EA6\uFF0C\u6240\u6709\u4EE3\u7406\u5171\u7528\u3002",
+      transcriptTitle: "\u5DF2\u8BB0\u5F55\u6587\u672C\u4F30\u7B97",
+      transcriptUser: "\u7528\u6237\u6587\u672C",
+      transcriptAssistant: "\u56DE\u590D\u4E0E\u601D\u8003",
+      transcriptTool: "\u5DE5\u5177\u8F93\u51FA",
+      transcriptSystem: "\u7CFB\u7EDF\u6587\u672C",
+      transcriptMarkers: "\u538B\u7F29\u6807\u8BB0\u8BB0\u5F55",
+      transcriptImages: "\u56FE\u50CF\u751F\u6210\u6B65\u9AA4",
+      transcriptPartial: "\u4E0D\u5B8C\u6574",
+      transcriptLoading: "\u8BFB\u53D6\u4E2D\u2026",
+      transcriptUnavailable: "\u4E0D\u53EF\u7528",
+      transcriptSaved: "\u5DF2\u4FDD\u5B58",
+      transcriptBasis: "\u65E5\u5FD7\u6587\u672C\u4F30\u7B97\uFF0C\u975E\u5F53\u524D\u4E0A\u4E0B\u6587\u6216\u8BA1\u8D39\u7528\u91CF\u3002\u4E0D\u542B\u9690\u85CF\u63D0\u793A\u3001\u5A92\u4F53\u548C\u5DE5\u5177\u8C03\u7528\u53C2\u6570\u3002",
+      contextHostLimit: "\u5F53\u524D\u7A97\u53E3\u5BB9\u91CF\uFF08\u5BBF\u4E3B\uFF09",
+      contextProviderCapacity: "\u4F9B\u5E94\u5546\u5BB9\u91CF\u53C2\u8003",
+      contextCompressionLimit: "\u538B\u7F29\u89E6\u53D1\u9608\u503C",
+      contextLimitUnknown: "\u672A\u77E5",
+      contextReferenceBasis: "\u4F9B\u5E94\u5546\u89C4\u683C\u53C2\u8003\uFF0C\u4E0D\u4EE3\u8868\u5F53\u524D\u4F1A\u8BDD\u53EF\u7528\u5BB9\u91CF\u3002",
+      context: "\u4E0A\u4E0B\u6587\u7A97\u53E3",
+      contextShort: "\u4E0A\u4E0B\u6587",
+      contextUsed: "{used}% \u5DF2\u7528\uFF08\u5269\u4F59 {remaining}%\uFF09",
+      contextTokens: "{used} / {max} tok",
+      contextUnknown: "\u4E0A\u4E0B\u6587\u5BB9\u91CF\u4E0D\u53EF\u7528",
+      contextUnavailable: "\u6B64\u8BF7\u6C42\u6682\u65E0\u53EF\u7528\u4E0A\u4E0B\u6587\u7EDF\u8BA1\u3002",
+      contextBasis: "\u5BBF\u4E3B\u5728\u6700\u8FD1\u8BF7\u6C42\u5F00\u59CB\u65F6\u7684\u4F30\u8BA1\u503C\uFF0C\u975E\u7D2F\u8BA1 Token\uFF0C\u4E5F\u975E\u6D41\u5F0F\u5B9E\u65F6\u8BA1\u6570\u3002",
+      contextModel: "\u91C7\u6837\u6A21\u578B",
+      contextLimit: "\u7A97\u53E3\u5BB9\u91CF",
+      contextUsage: "\u5DF2\u7528 Token\uFF08\u4F30\u8BA1\uFF09",
+      contextSaved: "\u663E\u793A\u5DF2\u4FDD\u5B58\u7684\u4E0A\u4E0B\u6587\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+      contextExceeded: "\u5BBF\u4E3B\u4F30\u8BA1\u503C\u8D85\u8FC7\u8FD4\u56DE\u7684\u7A97\u53E3\u5BB9\u91CF\u3002",
+      savedStats: "\u663E\u793A\u5DF2\u4FDD\u5B58\u7684\u4F1A\u8BDD\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+      saveFailed: "\u7EDF\u8BA1\u6682\u65F6\u65E0\u6CD5\u4FDD\u5B58\u5230\u672C\u5730\u3002",
+      strip: "Antigrative Dashboard \u4F1A\u8BDD\u4E0E\u989D\u5EA6\u72B6\u6001\u6761",
+      session: "\u4F1A\u8BDD\u7EDF\u8BA1",
+      cache: "\u7F13\u5B58\u547D\u4E2D",
+      cacheTitle: "Token \u7528\u91CF",
+      five: "5h \u989D\u5EA6",
+      week: "\u5468\u989D\u5EA6",
+      weekShort: "\u5468",
+      modelTime: "\u6A21\u578B\u8C03\u7528\u7528\u65F6",
+      toolTime: "\u5DE5\u5177\u8C03\u7528\u7528\u65F6",
+      ttft: "\u9996 token \u5E73\u5747\uFF08TTFT\uFF09",
+      sessionTps: "\u4F1A\u8BDD\u8F93\u51FA\u901F\u7387\uFF08TPS\uFF09",
+      latest: "\u6700\u8FD1\u4E00\u6B21\u8BF7\u6C42",
+      tokens: "\u6B63\u6587 / \u601D\u8003\u8F93\u51FA",
+      remaining: "\u5269\u4F59",
+      resetIn: "\u91CD\u7F6E\u5012\u8BA1\u65F6",
+      resetTime: "\u91CD\u7F6E\u65F6\u95F4\uFF08\u5317\u4EAC\u65F6\u95F4\uFF09",
+      group: "\u989D\u5EA6\u7EC4",
+      selectGroup: "\u9009\u62E9\u989D\u5EA6\u7EC4",
+      refresh: "\u5237\u65B0\u989D\u5EA6",
+      refreshStats: "\u5237\u65B0\u7EDF\u8BA1",
+      refreshing: "\u6B63\u5728\u5237\u65B0\u2026",
+      waiting: "\u7B49\u5F85\u5237\u65B0",
+      connecting: "\u8FDE\u63A5 Antigravity\u2026",
+      waitingApp: "\u7B49\u5F85 Antigravity",
+      waitingModel: "\u7B49\u5F85\u6A21\u578B\u751F\u6210",
+      waitingRequest: "\u5C1A\u65E0\u8BF7\u6C42",
+      hover: "\u60AC\u505C\u72B6\u6001\u6761\uFF0C\u67E5\u770B\u8BE6\u7EC6\u7EDF\u8BA1",
+      autoConnect: "\u6253\u5F00\u5E94\u7528\u540E\u81EA\u52A8\u8FDE\u63A5",
+      loadingQuota: "\u8BFB\u53D6\u989D\u5EA6\u2026",
+      unavailableQuota: "\u989D\u5EA6\u6682\u4E0D\u53EF\u7528",
+      live: "\u5DF2\u8FDE\u63A5 Antigrative Dashboard",
+      stale: "\u663E\u793A\u4E0A\u6B21\u6210\u529F\u8BFB\u53D6\u7684\u989D\u5EA6",
+      offline: "Antigrative Dashboard \u6682\u672A\u8FDE\u63A5",
+      responseBasis: "\u7EDF\u8BA1\u65B9\u5F0F\uFF1A\u6B63\u6587 Token \xF7 \u6D41\u5F0F\u65F6\u957F\uFF1B\u4F1A\u8BDD TPS \u6309\u603B\u65F6\u957F\u52A0\u6743\u3002",
+      allBasis: "\u7EDF\u8BA1\u65B9\u5F0F\uFF1A\u8F93\u51FA Token \xF7 \u6D41\u5F0F\u65F6\u957F\uFF08\u542B\u6D41\u5F0F\u601D\u8003\u6216\u672A\u62C6\u5206\u601D\u8003\uFF09\uFF1B\u4F1A\u8BDD TPS \u6309\u603B\u65F6\u957F\u52A0\u6743\u3002",
+      missingTime: "{n} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u65F6\u957F\uFF0C\u672A\u8BA1\u5165 TPS\u3002",
+      shortSample: "\u6700\u8FD1\u8BF7\u6C42\u4E0D\u8DB3 1 \u79D2\uFF0C\u5355\u6B21\u901F\u7387\u6CE2\u52A8\u8F83\u5927\u3002",
+      running: "\u751F\u6210\u4E2D\uFF0C\u663E\u793A\u5DF2\u5B8C\u6210\u8BF7\u6C42\u7EDF\u8BA1\u3002",
+      generating: "\u8BA1\u7B97\u4E2D\u2026",
+      timingUnreliable: "\u8BA1\u65F6\u5F02\u5E38",
+      ratePending: "\u7B49\u5F85\u91CD\u7B97",
+      excludedTime: "\u5DF2\u6392\u9664 {n} \u6B21\u5F02\u5E38\u8BA1\u65F6\uFF0C\u4E0D\u8BA1\u5165 TPS\u3002",
+      rateWarning: "\u53E6\u6709 {n} \u6B21\u77ED\u65F6\u6216\u9AD8\u901F\u5EA6\u91C7\u6837\u53EF\u80FD\u6CE2\u52A8\uFF0C\u4ECD\u8BA1\u5165 TPS\u3002",
+      rateWarningOnly: "{n} \u6B21\u77ED\u65F6\u6216\u9AD8\u901F\u5EA6\u91C7\u6837\u53EF\u80FD\u6CE2\u52A8\uFF0C\u4ECD\u8BA1\u5165 TPS\u3002",
+      rateReasons: "\u539F\u56E0\uFF1A{reasons}\u3002",
+      rateReasonCount: "{reason}\uFF1A{n} \u6B21",
+      rateUsageRetained: "Token \u548C\u7F13\u5B58\u7528\u91CF\u4ECD\u5B8C\u6574\u4FDD\u7559\u3002",
+      legacyRate: "\u5DF2\u4FDD\u5B58\u7684 TPS \u4F7F\u7528\u65E7\u7B97\u6CD5\uFF1B\u8FDE\u63A5\u540E\u6253\u5F00\u6B64\u5BF9\u8BDD\u5373\u53EF\u91CD\u65B0\u8BA1\u7B97\u3002",
+      reasonToken: "Token \u7EDF\u8BA1\u8303\u56F4\u4E0D\u4E00\u81F4",
+      reasonDuplicate: "\u540C\u4E00\u8BF7\u6C42\u7684\u8BB0\u5F55\u51B2\u7A81",
+      reasonRetry: "\u91CD\u8BD5\u7684 Token \u4E0E\u8BA1\u65F6\u8303\u56F4\u4E0D\u660E\u786E",
+      reasonTool: "\u5DE5\u5177\u8F93\u51FA\u7684\u8BA1\u65F6\u7A97\u53E3\u8FC7\u77ED",
+      reasonOutlier: "\u77ED\u65F6\u901F\u7387\u663E\u8457\u9AD8\u4E8E\u540C\u6A21\u578B\u57FA\u7EBF",
+      reasonNonfinite: "\u8BA1\u7B97\u901F\u7387\u65E0\u6548",
+      sample: "{rounds}\u8F6E {steps}\u6B65 \xB7 {requests} \u6B21\u91C7\u6837",
+      sampleCount: "{n} \u6B21\u91C7\u6837",
+      rounds: "{rounds}\u8F6E {steps}\u6B65 \xB7",
+      noQuota: "\u8D26\u6237\u672A\u8FD4\u56DE\u6B64\u989D\u5EA6\u7A97\u53E3\u3002",
+      disabledQuota: "\u6B64\u989D\u5EA6\u7A97\u53E3\u5DF2\u505C\u7528\u3002",
+      noFraction: "\u8D26\u6237\u672A\u8FD4\u56DE\u5269\u4F59\u6BD4\u4F8B\u3002",
+      sharedQuota: "\u540C\u7EC4\u6A21\u578B\u5171\u4EAB\u989D\u5EA6\u3002",
+      quotaSource: "\u4F59\u989D\u4E0E\u91CD\u7F6E\u65F6\u95F4\u6765\u81EA\u8D26\u6237\u63A5\u53E3\u3002",
+      updated: "{time} \u66F4\u65B0",
+      health: "\u989D\u5EA6\u66F4\u65B0\u4E8E {time} \xB7 \u771F\u5B9E\u8BF7\u6C42\u7EDF\u8BA1",
+      firstUpdate: "\u7B49\u5F85\u9996\u6B21\u66F4\u65B0",
+      cacheRate: "\u7F13\u5B58\u547D\u4E2D",
+      cacheRead: "\u7F13\u5B58\u8BFB\u53D6",
+      cacheInput: "\u603B\u8F93\u5165",
+      cacheMiss: "\u672A\u7F13\u5B58\u8F93\u5165",
+      cacheWrite: "\u7F13\u5B58\u5199\u5165",
+      cacheOutput: "\u8F93\u51FA",
+      cacheBasis: "\u7F13\u5B58\u8BFB\u53D6 token \xF7 \u603B\u8F93\u5165 token\uFF0C\u6309\u8BF7\u6C42 token \u603B\u91CF\u52A0\u6743\uFF1B\u7F13\u5B58\u5199\u5165\u4E0D\u7B97\u547D\u4E2D\u3002",
+      cacheMissing: "{n} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u7F13\u5B58\u7EDF\u8BA1\u3002",
+      cacheUnavailable: "\u6B64\u4F1A\u8BDD\u6682\u65E0\u53EF\u7528\u7F13\u5B58\u7EDF\u8BA1\u3002",
+      cacheCoverage: "{measured} / {total} \u6B21\u8BF7\u6C42",
+      language: "\u8BED\u8A00",
+      switchLanguage: "Switch to English",
+      languageSaveFailed: "\u8BED\u8A00\u8BBE\u7F6E\u6682\u65F6\u65E0\u6CD5\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+      reconnecting: "\u7B49\u5F85\u63A7\u4EF6\u91CD\u65B0\u8FDE\u63A5",
+      panelUnavailable: "\u7EDF\u8BA1\u9762\u677F\u6682\u65F6\u65E0\u6CD5\u8FDE\u63A5",
+      invalidData: "\u7EDF\u8BA1\u6570\u636E\u683C\u5F0F\u4E0D\u517C\u5BB9",
+      taskTotalTokens: "\u4EFB\u52A1\u603B Token\uFF08\u805A\u5408\uFF09",
+      taskTokensSelf: "\u4E3B\u4F1A\u8BDD",
+      taskTokensSubagents: "\u5B50\u4EE3\u7406\uFF08{count} \u4E2A\uFF09",
+      subagentsTitle: "\u5B50\u4EE3\u7406\u5217\u8868",
+      subagentTPS: "\u8F93\u51FA\u901F\u7387\uFF08TPS\uFF09",
+      subagentModel: "\u6A21\u578B",
+      subagentSteps: "\u6267\u884C\u6B65\u6570",
+      subagentTokensDetail: "\u6D88\u8017 Token",
+      subagentContext: "\u4E0A\u4E0B\u6587",
+      subagentStatus: "\u72B6\u6001",
+      subagentStatusIdle: "\u7A7A\u95F2 \xB7 \u5F85\u547D\u6216\u5DF2\u5B8C\u6210",
+      subagentStatusRunning: "\u6B63\u5728\u8FD0\u884C",
+      subagentStatusWaitingUser: "\u7B49\u5F85\u7528\u6237\u8F93\u5165",
+      subagentStatusWaiting: "\u7B49\u5F85\u4E2D",
+      subagentStatusDone: "\u5DF2\u5B8C\u6210",
+      subagentStatusError: "\u6267\u884C\u51FA\u9519",
+      subagentStatusStopped: "\u5DF2\u505C\u6B62",
+      subagentStatusUnknown: "\u72B6\u6001\u672A\u77E5",
+      noSubagents: "\u6682\u672A\u8C03\u7528\u5B50\u4EE3\u7406",
+      loading: "\u8BFB\u53D6\u4E2D\u2026",
+      contextPlanner: "\u4E3B\u63A7\u5165\u53E3",
+      contextQuotaSplit: "\u89C4\u5212\u7528 Argon \u5468\u989D\u5EA6 \xB7 \u6267\u884C\u7528 Flash 5h \u989D\u5EA6",
+      contextMultiModelHint: "\u5F53\u524D\u4F1A\u8BDD\u91C7\u6837\u4E86\u591A\u4E2A\u6A21\u578B",
+      modelMixTitle: "\u591A\u6A21\u578B\u5206\u5E03",
+      modelMixMetricTotal: "\u603B\u7528\u91CF",
+      modelMixMetricOutput: "\u8F93\u51FA",
+      modelMixMetricCalls: "\u8BF7\u6C42\u6570",
+      modelMixScopeSession: "\u4EC5\u5F53\u524D\u4F1A\u8BDD",
+      modelMixScopeTask: "\u542B\u5B50\u4EE3\u7406",
+      modelRolePlan: "\u89C4\u5212",
+      modelRoleWorker: "\u6267\u884C",
+      modelRoleSubagent: "\u5B50\u4EE3\u7406",
+      modelRoleModel: "\u6A21\u578B",
+      modelCallsUnit: "\u6B21\u8BF7\u6C42",
+      modelCallsCount: "{count} \u6B21",
+      modelMixOther: "\u5176\u4ED6",
+      modelMixModelsCount: "{count} \u4E2A\u6A21\u578B",
+      timelineTitle: "\u6A21\u578B\u8C03\u7528\u65F6\u95F4\u6811",
+      timelinePrivacySummary: "\u4EC5\u672C\u5730\u7ED3\u6784\u8F68\u8FF9 \xB7 \u4E0D\u542B\u63D0\u793A\u8BCD\u3001\u8DEF\u5F84\u6216\u53C2\u6570",
+      timelineEnable: "\u5F00\u542F",
+      timelineDisable: "\u5173\u95ED",
+      timelineClear: "\u6E05\u9664",
+      timelineCleared: "\u5DF2\u6E05\u9664\u672C\u5730\u65F6\u95F4\u6811\u7F13\u5B58",
+      timelineEmpty: "\u7B49\u5F85\u8BB0\u5F55\u9996\u4E2A\u6A21\u578B\u8C03\u7528\u8F6E\u6B21",
+      timelineTruncated: "\u65E9\u671F\u4E8B\u4EF6\u5DF2\u538B\u7F29\uFF0C\u4EE5\u4FDD\u6301\u672C\u5730\u6709\u754C\u7F13\u5B58",
+      timelineSaveFailed: "\u65F6\u95F4\u6811\u5F00\u5173\u8BBE\u7F6E\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+      timelineClearFailed: "\u65F6\u95F4\u6811\u7F13\u5B58\u6E05\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+      timelineLanePlan: "\u89C4\u5212",
+      timelineLaneWorker: "\u6267\u884C",
+      timelineLaneToolsAgents: "\u5DE5\u5177\xB7\u4EE3\u7406",
+      timelineEventTurn: "\u8F6E\u6B21",
+      timelineEventPlan: "\u89C4\u5212",
+      timelineEventHandoff: "\u4EA4\u63A5",
+      timelineEventWorker: "\u6267\u884C",
+      timelineEventToolGroup: "\u5DE5\u5177\u7EC4",
+      timelineEventSubagent: "\u5B50\u4EE3\u7406",
+      timelineEventModelSwitch: "\u5207\u6362\u6A21\u578B",
+      timelineEventError: "\u9519\u8BEF"
+    };
+
+    // src/ui/i18n/index.ts
+    var BACKEND_ERRORS = {
+      "\u8BF7\u5148\u6253\u5F00 Antigravity": "Open Antigravity to connect.",
+      "\u5F53\u524D\u91C7\u96C6\u9002\u914D\u5668\u652F\u6301 Windows": "This collector requires Windows.",
+      "\u68C0\u6D4B\u5230\u591A\u4E2A Antigravity \u5B9E\u4F8B\uFF0C\u8BF7\u4FDD\u7559\u4E00\u4E2A": "Multiple Antigravity instances detected. Keep one open.",
+      "\u672A\u627E\u5230 Antigravity \u684C\u9762\u540E\u53F0": "Antigravity desktop backend was not found.",
+      "\u5F53\u524D\u7248\u672C\u672A\u63D0\u4F9B\u53EF\u7528\u7684\u672C\u5730\u68C0\u6D4B\u51ED\u636E": "Local metrics credentials are unavailable in this version.",
+      "\u7B49\u5F85 Antigravity \u672C\u5730\u63A5\u53E3\u542F\u52A8": "Waiting for the local Antigravity API.",
+      "\u672A\u627E\u5230 Antigravity \u8BED\u8A00\u670D\u52A1\u65E5\u5FD7\uFF0C\u8BF7\u68C0\u67E5\u65E5\u5FD7\u8DEF\u5F84": "Antigravity language-server log was not found. Check the log path.",
+      "\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1": "No statistics are available for this conversation yet.",
+      "\u5B8C\u6574\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u6682\u4E0D\u53EF\u7528": "Complete conversation statistics are temporarily unavailable.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u5185\u5B58\u9884\u7B97": "Conversation statistics exceed the memory budget.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "Retained conversation statistics exceed the collection budget.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u5B57\u6BB5\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "A statistics field exceeds the collection budget.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u8BFB\u53D6\u8D85\u65F6": "Conversation statistics pagination timed out.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u6570\u91CF\u65E0\u6548": "Invalid conversation statistics page count.",
+      "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u683C\u5F0F\u65E0\u6548": "Invalid conversation statistics page format.",
+      "\u4F1A\u8BDD\u4ECD\u5728\u66F4\u65B0\uFF0C\u8BF7\u7B49\u5F85\u4E0B\u4E00\u6B21\u5237\u65B0": "The conversation is updating; waiting for the next refresh.",
+      "\u63A5\u53E3\u54CD\u5E94\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "The API response exceeds the collection budget.",
+      "Antigravity \u63A5\u53E3\u8FD4\u56DE\u4E86\u65E0\u6CD5\u89E3\u6790\u7684\u6570\u636E": "Antigravity returned an invalid response.",
+      "Antigravity \u672C\u5730\u63A5\u53E3\u8D85\u65F6": "The local Antigravity API timed out.",
+      "\u8FDC\u7A0B\u73AF\u5883\u4F11\u7720\u6216\u540C\u6B65\u8F83\u6162\uFF0C\u8BF7\u7A0D\u5019\u5237\u65B0": "Remote environment is hibernated or syncing slowly; please refresh shortly.",
+      "\u5F53\u524D\u767B\u5F55\u8D26\u53F7\u672A\u5F00\u542F\u8FDC\u7A0B Agent (Cloud Conversations) \u6743\u9650": "Cloud Conversations (Remote Agent) is not enabled for the signed-in account.",
+      "\u4F1A\u8BDD\u6807\u8BC6\u65E0\u6548": "Invalid conversation identifier.",
+      "\u7B49\u5F85 Antigrative Dashboard \u540E\u53F0\u542F\u52A8": "Waiting for the dashboard background process.",
+      "\u7B49\u5F85 Antigrative Dashboard \u91CD\u65B0\u8FDE\u63A5": "Waiting for the dashboard to reconnect.",
+      "\u7B49\u5F85 AG Pulse \u540E\u53F0\u542F\u52A8": "Waiting for the dashboard background process.",
+      "\u7B49\u5F85 AG Pulse \u91CD\u65B0\u8FDE\u63A5": "Waiting for the dashboard to reconnect."
+    };
+    var DICTIONARIES = {
+      en: EN_DICTIONARY,
+      "zh-CN": ZH_DICTIONARY
+    };
+    var isLanguageCode = (value) => value === "en" || value === "zh-CN";
+    function createDashboardI18n(initialLanguage) {
+      let language = initialLanguage === "zh-CN" ? "zh-CN" : "en";
+      const t = (key, args = {}) => {
+        const dict = DICTIONARIES[language];
+        const template = (Object.hasOwn(dict, key) ? dict[key] : void 0) || (Object.hasOwn(EN_DICTIONARY, key) ? EN_DICTIONARY[key] : void 0) || key;
+        return template.replace(/\{(\w+)\}/g, (_, name) => String(args[name] ?? ""));
+      };
+      function countdown2(at, now = Date.now(), compact = false) {
+        return countdown(at, now, compact, language);
+      }
+      function elapsed2(value) {
+        return elapsed(value, language);
+      }
+      function resetDate2(value) {
+        return resetDate(value, language);
+      }
+      function errorMessage(value) {
+        if (!value) return "";
+        const key = Object.keys(EN_DICTIONARY).find(
+          (entry) => EN_DICTIONARY[entry] === value
+        );
+        if (key) return t(key);
+        if (language === "zh-CN") return value;
+        if (BACKEND_ERRORS[value]) return BACKEND_ERRORS[value];
+        const match = String(value).match(/^Antigravity 接口 (\w+) 返回 (\d+)$/);
+        return match ? `Antigravity ${match[1]} returned HTTP ${match[2]}.` : "Statistics are temporarily unavailable.";
+      }
+      function connectPreferences({
+        read,
+        write,
+        cache = () => {
+        },
+        changed = () => {
+        }
+      }) {
+        let epoch = 0;
+        let writes = 0;
+        let revision = -1;
+        let disposed = false;
+        let error = false;
+        let queue = Promise.resolve();
+        const notify = () => {
+          if (!disposed) changed();
+        };
+        const remember = () => {
+          try {
+            cache(language);
+          } catch {
+          }
+        };
+        const check = (value) => {
+          if (!value || "error" in value || !Object.hasOwn(value, "language") || value.language !== null && !isLanguageCode(value.language)) {
+            throw new Error("Invalid preference response");
+          }
+          return value;
+        };
+        function sync(value) {
+          if (disposed || writes) return;
+          try {
+            const checked = check(value);
+            const next = Number.isSafeInteger(checked.revision) ? checked.revision : 0;
+            if (next < revision) return;
+            if (error && epoch > 0 && checked.language !== language) return;
+            if (checked.language === null && epoch === 0 && isLanguageCode(initialLanguage)) {
+              void choose(initialLanguage);
+              return;
+            }
+            revision = next;
+            error = false;
+            if (isLanguageCode(checked.language) && language !== checked.language) {
+              language = checked.language;
+              remember();
+            }
+            notify();
+          } catch {
+            error = true;
+            notify();
+          }
+        }
+        function choose(value) {
+          if (disposed || !isLanguageCode(value)) return Promise.resolve();
+          const choice = ++epoch;
+          language = value;
+          writes++;
+          error = false;
+          remember();
+          notify();
+          const pending = queue.then(async () => {
+            try {
+              const saved = check(await write({ language: value }));
+              if (saved.language !== value) throw new Error("Preference acknowledgement differs");
+              revision = Math.max(revision, Number.isSafeInteger(saved.revision) ? saved.revision : 0);
+              if (choice === epoch) error = false;
+            } catch {
+              if (choice === epoch) error = true;
+            } finally {
+              writes--;
+              notify();
+            }
+          });
+          queue = pending;
+          return pending;
+        }
+        const ready = (async () => {
+          const started = epoch;
+          try {
+            const saved = check(await read());
+            if (disposed || epoch !== started) return;
+            if (saved.language === null && isLanguageCode(initialLanguage)) {
+              await choose(initialLanguage);
+            } else {
+              sync(saved);
+            }
+          } catch {
+            if (!disposed && epoch === started) {
+              error = true;
+              notify();
+            }
+          }
+        })();
+        return {
+          ready,
+          sync,
+          choose,
+          toggle: () => choose(language === "en" ? "zh-CN" : "en"),
+          get error() {
+            return error;
+          },
+          get pending() {
+            return writes > 0;
+          },
+          dispose() {
+            disposed = true;
+          }
+        };
+      }
+      function rateNote(speed) {
+        if (!speed) return t("waitingRequest");
+        if (speed.latestRateStatus === "legacy") return t("ratePending");
+        const basis = t(speed.rateBasis === "all-output" ? "allBasis" : "responseBasis");
+        if (speed.latestRateStatus === "generating" || /RUNNING/i.test(speed.status || "")) {
+          return `${t("running")} ${basis}`;
+        }
+        return basis;
+      }
+      return {
+        t,
+        rateNote,
+        countdown: countdown2,
+        elapsed: elapsed2,
+        resetDate: resetDate2,
+        errorMessage,
+        connectPreferences,
+        get language() {
+          return language;
+        },
+        setLanguage(value) {
+          language = value === "zh-CN" ? "zh-CN" : "en";
+        },
+        toggle() {
+          language = language === "en" ? "zh-CN" : "en";
+          return language;
+        }
+      };
+    }
+    return __toCommonJS(index_exports);
+  })();
+  const __agPulseFactoryFn = __agPulseModule && typeof __agPulseModule === "object" && "default" in __agPulseModule ? __agPulseModule.default : __agPulseModule;
+  return __agPulseFactoryFn.apply(this, args);
 };

@@ -4,11 +4,12 @@ import {readFile,mkdir} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(f=>readFile(join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const install=`window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});(${extract(sources[2])})();`;
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const id='11111111-1111-1111-1111-111111111111';
 const metrics={connection:'live',groups:[],speed:trajectoryMetrics({trajectory:{cascadeId:id,generatorMetadata:[{chatModel:{modelDisplayName:'Claude Sonnet',chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:112000,maxContextTokens:256000}},usage:{inputTokens:162000,responseOutputTokens:1381,outputTokens:1381,cacheReadTokens:838000,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},streamingDuration:'2s'}}]}})};
 const editor='<div class="editor" contenteditable="true" role="textbox"></div>';
@@ -25,6 +26,7 @@ const fixtures={
   'subagent-auxiliary-combobox':`<div style="display:flex;height:600px"><main style="flex:1;display:flex;flex-direction:column;justify-content:flex-end">${editor}</main><aside style="display:flex;flex-direction:column;width:447px"><div class="actions">${controls}</div><div style="flex:1"><button role="combobox" aria-haspopup="listbox">Uncommitted</button></div></aside></div>`,
 };
 const css=`body{margin:0;background:#15171c;color:#eee;font:14px sans-serif;padding:24px}.composer{margin:40px auto;max-width:880px;padding:12px;border:1px solid #444;border-radius:12px}.editor{height:64px;outline:none}.actions{display:flex;align-items:center;gap:8px;position:relative;height:32px}.model-branch{display:flex}.controls{display:flex;flex:none;margin-left:auto;gap:6px}.protected{width:28px;flex:none}.reserved{flex:1}.nonflex{display:block}.agent-shell{height:500px}.agent-shell main{padding-top:360px}button{height:28px;white-space:nowrap;background:#252932;border:0;color:inherit;border-radius:4px}`;
+export async function runCheck() {
 const server=createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   if(url.pathname==='/widget.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end(install);return;}
@@ -34,8 +36,7 @@ const server=createServer((req,res)=>{
   res.end(`<!doctype html><style>${css}</style>${fixtures[key]}<script>history.replaceState({},'', '/c/${id}');window.clicks=0;document.querySelectorAll('.protected').forEach(e=>e.onclick=()=>window.clicks++);window.agPulseHost={getMetrics:async()=>(${JSON.stringify(metrics)}),getPreferences:async()=>({language:'${url.searchParams.get('lang')==='en'?'en':'zh-CN'}',languageGuideDismissed:true,revision:1}),setPreferences:async x=>({...x,revision:2}),report:()=>{}};</script><script src="/widget.js"></script>`);
 });
 server.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[],results=[];
 const base=`http://127.0.0.1:${server.address().port}`;
 async function clickable(page){
@@ -139,3 +140,5 @@ try{
   }
   assert.deepEqual(errors,[]);console.log(JSON.stringify({cases:results,pageErrors:errors},null,2));
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

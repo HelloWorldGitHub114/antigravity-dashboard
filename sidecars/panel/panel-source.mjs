@@ -6,35 +6,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 var HERE = dirname(fileURLToPath(import.meta.url));
-var PANEL_IMPORTS = [
-  "import { percent, rate, count, elapsed, countdown, resetDate } from './format.mjs';",
-  "import { createI18n } from './i18n.js';",
-  "import { createTheme } from './theme.js';"
-];
 function panelAppSource() {
-  const read = (name) => readFileSync(join(HERE, name), "utf8");
-  const factory = (name) => {
-    const source = read(`../../compat/${name}.cjs`);
-    const prefix = "module.exports = ";
-    const index = source.indexOf(prefix);
-    if (index < 0) throw new Error(`Panel factory format changed: ${name}`);
-    return source.slice(index + prefix.length).trim().replace(/;$/, "");
-  };
-  let app = read("app.js");
-  for (const line of PANEL_IMPORTS) {
-    if (!app.includes(line)) throw new Error("Panel dependency list changed");
-    app = app.replace(line, "");
-  }
-  const format = read("format.mjs").replace(/^export function /gm, "function ");
-  if (/^\s*(?:import|export)\b/m.test(app + format)) {
-    throw new Error("Unsupported panel module dependency");
-  }
-  return `(()=>{'use strict';
-${format}
-const createI18n=(${factory("i18n")});
-const createTheme=(${factory("theme")});
-${app}
-})();`;
+  return readFileSync(join(HERE, "app.js"), "utf8");
 }
 function panelPageSource() {
   const assets = /(href|src)="\/(theme\.css|styles\.css|app\.js)(?:\?[^"]*)?"/g;

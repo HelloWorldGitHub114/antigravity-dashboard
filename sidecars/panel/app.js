@@ -1,1248 +1,2848 @@
-import { percent, rate, count, elapsed, countdown, resetDate } from './format.mjs';
-import { createI18n } from './i18n.js';
-import { createTheme } from './theme.js';
-function initPanel(){
-if(!document.querySelector('.widget')||window.__agPulsePanelInstalled)return;
-window.__agPulsePanelInstalled=true;
-const theme=createTheme();
-let themeController=theme.attach(document.documentElement);
-window.addEventListener('pagehide',()=>themeController.dispose());
-window.addEventListener('pageshow',event=>{if(event.persisted)themeController=theme.attach(document.documentElement);});
-const localGet=key=>{try{return localStorage.getItem(key);}catch{return null;}};
-const localSet=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
-const language=createI18n(localGet('ag-pulse-language'));
-const t=language.t;
-
-const domCache = new Map();
-const $ = id => {
-  let el = domCache.get(id);
-  if (!el || !el.isConnected) {
-    el = document.getElementById(id);
-    if (el) domCache.set(id, el);
-  }
-  return el;
-};
-const setText = (el, value) => {
-  const next = value == null ? '' : String(value);
-  if (el && el.textContent !== next) el.textContent = next;
-};
-const setAttr = (el, name, value) => {
-  if (!el) return;
-  if (value === null || value === undefined) {
-    if (el.hasAttribute(name)) el.removeAttribute(name);
-    return;
-  }
-  const next = String(value);
-  if (el.getAttribute(name) !== next) el.setAttribute(name, next);
-};
-const setStyle = (el, prop, value) => {
-  if (!el) return;
-  const next = value == null ? '' : String(value);
-  if (el.style[prop] !== next) el.style[prop] = next;
-};
-const setHidden = (el, hidden) => { if (el && el.hidden !== !!hidden) el.hidden = !!hidden; };
-const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-const compact=n=>typeof n!=='number'||!Number.isFinite(n)?'—':n>=1e9?`${(n/1e9).toFixed(1).replace(/\.0$/,'')}B`:n>=1e6?`${(n/1e6).toFixed(1).replace(/\.0$/,'')}M`:n>=1e3?`${(n/1e3).toFixed(1).replace(/\.0$/,'')}K`:String(n);
-const chips = [...document.querySelectorAll('[data-card]')];
-const i18nTextNodes = [...document.querySelectorAll('[data-i18n]')];
-const i18nAriaNodes = [...document.querySelectorAll('[data-i18n-aria]')];
-const i18nTitleNodes = [...document.querySelectorAll('[data-i18n-aria][title]')];
-const groupNameNodes = [...document.querySelectorAll('.group-name')];
-const reducedMotionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
-const isMotionReduced = () => Boolean(
-  reducedMotionQuery?.matches ||
-  document.documentElement.classList.contains('motion-reduced') ||
-  document.body.classList.contains('motion-reduced') ||
-  document.querySelector('.widget')?.classList.contains('motion-reduced')
-);
-let snapshot = null, selectedGroup = localGet('ag-pulse-group'), group = null;
-let pending = false, timer = null, serverOffset = 0, lastExpiredRefresh = 0;
-let selectedCard='speed',cardMotion=null;
-const cardScroll = new Map();
-let refreshRequest=null,manualRequest=null,syncingFromRefresh=false,lastThemeKey=null,lastLocalizedKey=null;
-let mixMetric='total',mixScope='session',mixScopeManual=false,mixActiveId=null,mixHoverId=null,lastMixSig=null,mixDisplayModels=[];
-let timelineEnabled=false,timelineEpoch=0,timelineBusy=false,timelineNoticeKey=null,timelineNoticeIsError=false,lastTimelineSig=null,lastTimelineRender=[],lastTimelineClearAt=0;
-const timelineToggled=new Map();
-const host = window.sidecar;
-if (!host) document.body.classList.add('standalone');
-const preferenceRequest=async(input)=>{
-  const transport=host?.fetch?host.fetch.bind(host):fetch;
-  const response=await transport('/api/preferences',input?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)}:{cache:'no-store'});
-  if(!response.ok)throw new Error('Preferences unavailable');return response.json();
-};
-const connectPreferences=()=>language.connectPreferences({read:()=>preferenceRequest(),write:preferenceRequest,
-  cache:value=>localSet('ag-pulse-language',value),changed:()=>{localize();if(!syncingFromRefresh){render();updateCountdowns();}}});
-let preferences=connectPreferences();
-
-const panelMotion = new WeakMap();
-const clearMotionProps = el => { el.style.maxHeight = ''; el.style.opacity = ''; el.style.overflow = ''; };
-function setExpandedState(el, expanded, animate = true) {
-  if (!el) return;
-  const prev = panelMotion.get(el);
-  const isVisible = !el.hidden && !(prev && !prev.expanding);
-  if (!prev && isVisible === expanded) return;
-  let fromHeight = null, fromOpacity = null;
-  if (prev) {
-    fromHeight = el.getBoundingClientRect().height;
-    fromOpacity = parseFloat(getComputedStyle(el).opacity);
-    prev.anim?.cancel();
-    clearMotionProps(el);
-    panelMotion.delete(el);
-    if (isVisible === expanded) { el.hidden = !expanded; return; }
-  }
-  if (!animate || isMotionReduced() || typeof el.animate !== 'function') {
-    el.hidden = !expanded;
-    return;
-  }
-  el.hidden = false;
-  const cssMax = parseFloat(getComputedStyle(el).maxHeight);
-  const fullHeight = Number.isFinite(cssMax) && cssMax > 0 ? Math.min(el.scrollHeight, cssMax) : el.scrollHeight;
-  if (fullHeight <= 0) { el.hidden = !expanded; return; }
-  const startHeight = fromHeight !== null ? fromHeight : (expanded ? 0 : fullHeight);
-  const endHeight = expanded ? fullHeight : 0;
-  const startOpacity = Number.isFinite(fromOpacity) ? fromOpacity : (expanded ? 0 : 1);
-  const endOpacity = expanded ? 1 : 0;
-  el.style.overflow = 'hidden';
-  const anim = el.animate(
-    [{ maxHeight: `${startHeight}px`, opacity: startOpacity }, { maxHeight: `${endHeight}px`, opacity: endOpacity }],
-    { duration: expanded ? 180 : 160, easing: 'cubic-bezier(.22,1,.36,1)' }
+// Generated by tools/build.mjs from src/. Do not edit directly.
+"use strict";
+(() => {
+  // src/shared/dom.ts
+  var ALLOWED_MARKUP_TAGS = new Set(
+    "style div span button strong section dl dt dd p i svg path circle ellipse rect header h1 h2 nav footer table thead tbody tr th td details summary".split(
+      " "
+    )
   );
-  panelMotion.set(el, { anim, expanding: expanded });
-  const settle = cancelled => {
-    if (panelMotion.get(el)?.anim !== anim) return;
-    clearMotionProps(el);
-    panelMotion.delete(el);
-    if (!cancelled && !expanded) el.hidden = true;
+  var HTML_ESCAPE_MAP = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
   };
-  anim.onfinish = () => settle(false);
-  anim.oncancel = () => settle(true);
-}
-
-function showCard(name,animate=false) {
-  if(!['speed','cache','context'].includes(name))return;
-  const prev=selectedCard,changed=prev!==name;
-  if(changed){const prevEl=$(`${prev}-card`);if(prevEl)cardScroll.set(prev,prevEl.scrollTop);}
-  selectedCard=name;
-  cardMotion?.cancel();cardMotion=null;
-  for (const chip of chips){const selected=chip.dataset.card===name;setAttr(chip,'aria-selected',String(selected));chip.tabIndex=selected?0:-1;}
-  for (const nameKey of ['speed','cache','context']) setHidden($(`${nameKey}-card`), name !== nameKey);
-  const card=$(`${name}-card`);
-  if(card&&changed)card.scrollTop=cardScroll.get(name)??0;
-  if(changed&&animate&&!isMotionReduced()&&card?.animate)cardMotion=card.animate([{opacity:.55,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],{duration:160,easing:'cubic-bezier(.22,1,.36,1)'});
-}
-for (const chip of chips) {
-  chip.addEventListener('click', event => showCard(chip.dataset.card,event.detail>0));
-  chip.addEventListener('keydown',event=>{
-    const current=chips.indexOf(chip);let next;
-    if(event.key==='ArrowRight')next=(current+1)%chips.length;else if(event.key==='ArrowLeft')next=(current+chips.length-1)%chips.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=chips.length-1;else return;
-    event.preventDefault();showCard(chips[next].dataset.card,true);chips[next].focus();
-  });
-}
-function localize(){
-  const locKey=`${language.language}|${Boolean(preferences.error)}`;
-  if(locKey===lastLocalizedKey)return;
-  lastLocalizedKey=locKey;
-  lastMixSig=null;
-  lastTimelineSig=null;
-  setAttr(document.documentElement,'lang',language.language);
-  for(const e of i18nTextNodes){
-    if(!e.isConnected)continue;
-    if(e.dataset.i18n==='taskTokensSubagents'&&snapshot?.speed?.taskUsage?.subagents>0)continue;
-    setText(e,t(e.dataset.i18n));
+  function escapeHtml(value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (ch) => HTML_ESCAPE_MAP[ch] ?? ch
+    );
   }
-  for(const e of i18nAriaNodes)setAttr(e,'aria-label',t(e.dataset.i18nAria));
-  for(const e of i18nTitleNodes){
-    if(e.id==='language-toggle')continue;
-    const ariaTitle=t(e.dataset.i18nAria);
-    if(e.title!==ariaTitle)e.title=ariaTitle;
-  }
-  const privacyEl=$('timeline-privacy-text');
-  if(privacyEl)setAttr(privacyEl,'title',t('timelinePrivacySummary'));
-  renderTimelineStatus();
-  const toggle=$('language-toggle');
-  setText(toggle,language.language==='en'?'EN':'中');
-  const nextTitle=t('switchLanguage')+(preferences.error?' · '+t('languageSaveFailed'):'');
-  if(toggle.title!==nextTitle)toggle.title=nextTitle;
-  setAttr(toggle,'data-save-failed',String(preferences.error));
-}
-
-function chooseGroup(groups, speed) {
-  if (selectedGroup && groups.some(g => g.id === selectedGroup)) return groups.find(g => g.id === selectedGroup);
-  const model = String(speed?.activeModel || speed?.model || '').toLowerCase();
-  return groups.find(g => /gemini/.test(model) ? /gemini/i.test(g.id) : /claude|gpt/.test(model) ? /3p|claude|gpt/i.test(g.id) : false) || groups[0] || null;
-}
-function groupLabel(value) {
-  return /gemini/i.test(value.name) ? 'Gemini' : /claude|gpt/i.test(value.name) ? 'Claude / GPT' : value.name;
-}
-const quotaColor = remaining => typeof remaining === 'number' && remaining < .05 ? 'var(--pulse-danger)'
-  : typeof remaining === 'number' && remaining < .2 ? 'var(--pulse-warning)' : '';
-function applyQuotaFill(fill, remaining) {
-  setStyle(fill, 'width', typeof remaining === 'number' ? `${Math.min(100, Math.max(0, remaining * 100))}%` : '0%');
-  setStyle(fill, 'background', quotaColor(remaining));
-}
-
-function renderQuota(window, prefix) {
-  const bucket = group?.windows?.[window];
-  const remaining = bucket?.remaining;
-  setText($(`${prefix}-balance`), percent(remaining));
-  const fill = $(`${prefix}-fill`), track = $(`${prefix}-track`);
-  applyQuotaFill(fill, remaining);
-  if (typeof remaining === 'number') { setAttr(track,'aria-valuenow',String(remaining * 100)); setAttr(track,'aria-valuemin','0'); setAttr(track,'aria-valuemax','100'); }
-  else setAttr(track,'aria-valuenow',null);
-  setText($(`${prefix}-reset`), language.resetDate(bucket?.resetAt));
-  setText($(`${prefix}-note`), !bucket?.available ? t('noQuota') : bucket.disabled ? t('disabledQuota') : remaining === null ? t('noFraction') : t('sharedQuota')+' '+t('quotaSource'));
-}
-
-const treeState = new Map();
-const detailState = new Set();
-let lastTaskId = null;
-
-function buildSubagentTree(items) {
-  const map = new Map(), roots = [];
-  for (const item of items) {
-    map.set(item.id, { ...item, children: [] });
-  }
-  const hasAncestor = (childId, ancestorId) => {
-    let curr = map.get(ancestorId);
-    while (curr && curr.parentId) {
-      if (curr.parentId === childId) return true;
-      curr = map.get(curr.parentId);
+  function createEl(tag, attrs = {}, doc = document) {
+    const element = doc.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "text") {
+        element.textContent = value == null ? "" : String(value);
+      } else if (value !== false && value !== null && value !== void 0) {
+        element.setAttribute(key, value === true ? "" : String(value));
+      }
     }
-    return false;
-  };
-  for (const node of map.values()) {
-    if (node.parentId && map.has(node.parentId) && node.parentId !== node.id && !hasAncestor(node.id, node.parentId)) {
-      map.get(node.parentId).children.push(node);
-    } else {
-      roots.push(node);
+    return element;
+  }
+  function setText(el, value) {
+    const next = value == null ? "" : String(value);
+    if (el && el.textContent !== next) el.textContent = next;
+  }
+  function setAttr(el, name, value) {
+    if (!el) return;
+    if (value === null || value === void 0) {
+      if (el.hasAttribute(name)) el.removeAttribute(name);
+      return;
+    }
+    const next = String(value);
+    if (el.getAttribute(name) !== next) el.setAttribute(name, next);
+  }
+  function setStyle(el, prop, value) {
+    if (!el) return;
+    const next = value == null ? "" : String(value);
+    if (prop.startsWith("--") || prop.includes("-")) {
+      if (el.style.getPropertyValue(prop) !== next) {
+        el.style.setProperty(prop, next);
+      }
+      return;
+    }
+    const styleObj = el.style;
+    if (styleObj[prop] !== next) {
+      styleObj[prop] = next;
     }
   }
-  return roots;
-}
+  function setHidden(el, hidden) {
+    const next = Boolean(hidden);
+    if (el && el.hidden !== next) el.hidden = next;
+  }
 
-const subagentRefs = new WeakMap();
-let lastSubagentsSig = null;
+  // src/shared/format.ts
+  function percent(fraction) {
+    return typeof fraction === "number" && Number.isFinite(fraction) ? `${(fraction * 100).toFixed(1)}%` : "\u2014";
+  }
+  function rate(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : "\u2014";
+  }
+  function count(value, locale = "en-US") {
+    return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString(locale) : "\u2014";
+  }
+  function elapsed(seconds, language = "zh-CN") {
+    if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "\u2014";
+    if (seconds < 60) {
+      return `${seconds.toFixed(2)}${language === "en" ? "s" : " \u79D2"}`;
+    }
+    const whole = Math.round(seconds);
+    const h = Math.floor(whole / 3600);
+    const m = Math.floor(whole % 3600 / 60);
+    const s = whole % 60;
+    return language === "en" ? `${h ? `${h}h ` : ""}${m}m ${s}s` : `${h ? `${h}\u5C0F\u65F6` : ""}${m}\u5206${s}\u79D2`;
+  }
+  function countdown(resetAt, now = Date.now(), compactMode = false, language = "zh-CN") {
+    const end = typeof resetAt === "number" ? resetAt : resetAt instanceof Date ? resetAt.getTime() : typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+    if (!Number.isFinite(end)) return "\u2014";
+    if (end <= now) return language === "en" ? "Waiting for refresh" : "\u7B49\u5F85\u5237\u65B0";
+    const left = Math.ceil((end - now) / 1e3);
+    const d = Math.floor(left / 86400);
+    const h = Math.floor(left % 86400 / 3600);
+    const m = Math.floor(left % 3600 / 60);
+    const s = left % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    const dayUnit = language === "en" ? "d" : "\u5929";
+    return `${d ? `${d}${dayUnit} ` : ""}${pad(h)}:${pad(m)}${compactMode && d ? "" : `:${pad(s)}`}`;
+  }
+  function resetDate(value, language = "zh-CN") {
+    if (value === null || value === void 0) return "\u2014";
+    const date = value instanceof Date ? value : new Date(value);
+    const locale = language === "en" ? "en-GB" : "zh-CN";
+    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(locale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Shanghai"
+    }).format(date) : "\u2014";
+  }
+  function compact(value, options = {}) {
+    const fallback = options.fallback ?? "\u2014";
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    if (options.maxUnit !== "M" && value >= 1e9) {
+      return `${(value / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
+    }
+    if (value >= 1e6) {
+      return `${(value / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
+    }
+    if (value >= 1e3) {
+      return `${(value / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
+    }
+    return options.localeFallback ? value.toLocaleString(options.localeFallback) : String(value);
+  }
 
-function subagentLabels() {
-  return language.language === 'zh-CN'
-    ? { expand: '展开子代理', collapse: '折叠子代理', toggleAria: '切换子代理列表', detailTitle: '查看指标明细', detailAria: '切换详情', count: n => String(n), countTitle: n => `${n} 个子代理` }
-    : { expand: 'Expand subagents', collapse: 'Collapse subagents', toggleAria: 'Toggle subagents', detailTitle: 'View metric details', detailAria: 'Toggle details', count: n => String(n), countTitle: n => `${n} ${n === 1 ? 'subagent' : 'subagents'}` };
-}
+  // src/ui/i18n/dictionary-en.ts
+  var EN_DICTIONARY = {
+    tokenPartial: "Known tokens only (\u2265): {input} requests lack input usage; {output} lack output usage. Output is counted independently of cache availability.",
+    tokenLegacy: "Saved token usage is a lower bound (\u2265); request-level coverage cannot be verified.",
+    unknownCoverage: "unknown",
+    cacheZeroInput: "Reported total input is 0; the cache hit rate has no denominator.",
+    savedCache: "Cache ratio uses saved statistics ({time}).",
+    savedSpeed: "Speed uses saved statistics ({time}).",
+    panelSpeed: "Speed",
+    panelCache: "Cache",
+    panelContext: "Context",
+    panelDetails: "Metric details",
+    panelUsed: "used",
+    panelSharedQuota: "Shared quota",
+    newConversationStats: "New conversation: send a message or open an existing conversation to view its statistics. Account quota is shown separately below.",
+    subagentStats: "Current subagent statistics",
+    accountQuota: "Account quota, shared across agents.",
+    transcriptTitle: "Recorded text estimate",
+    transcriptUser: "User text",
+    transcriptAssistant: "Replies + thinking",
+    transcriptTool: "Tool output",
+    transcriptSystem: "System text",
+    transcriptMarkers: "Compaction markers",
+    transcriptImages: "Image-generation steps",
+    transcriptPartial: "partial",
+    transcriptLoading: "Loading\u2026",
+    transcriptUnavailable: "Unavailable",
+    transcriptSaved: "saved",
+    transcriptBasis: "Estimated logged text, not active context or billed usage. Hidden prompts, media and tool-call arguments are excluded.",
+    contextHostLimit: "Active window (host)",
+    contextProviderCapacity: "Provider capacity reference",
+    contextCompressionLimit: "Compaction threshold",
+    contextLimitUnknown: "Unknown",
+    contextReferenceBasis: "Provider specification; not this session's available capacity.",
+    context: "Context window",
+    contextShort: "Ctx",
+    contextUsed: "{used}% used ({remaining}% left)",
+    contextTokens: "{used} / {max} tok",
+    contextUnknown: "Context capacity unavailable",
+    contextUnavailable: "Context statistics are unavailable for this request.",
+    contextBasis: "Host estimate at the latest request start; not cumulative tokens or a live streaming counter.",
+    contextModel: "Sampled model",
+    contextLimit: "Window capacity",
+    contextUsage: "Used tokens (estimate)",
+    contextSaved: "Showing saved context statistics ({time}).",
+    contextExceeded: "The host estimate exceeds the reported capacity.",
+    savedStats: "Showing saved conversation statistics ({time}).",
+    saveFailed: "Statistics could not be saved locally.",
+    strip: "Antigrative Dashboard statistics",
+    session: "Session statistics",
+    cache: "Cache hit",
+    cacheTitle: "Token usage",
+    five: "Five-hour quota",
+    week: "Weekly quota",
+    weekShort: "Wk",
+    modelTime: "Model time",
+    toolTime: "Tool time",
+    ttft: "Average TTFT",
+    sessionTps: "Session TPS",
+    latest: "Last request",
+    tokens: "Response / thinking",
+    remaining: "remaining",
+    resetIn: "Resets in",
+    resetTime: "Reset time (UTC+8)",
+    group: "Quota group",
+    selectGroup: "Select quota group",
+    refresh: "Refresh quota",
+    refreshStats: "Refresh statistics",
+    refreshing: "Refreshing\u2026",
+    waiting: "Waiting for refresh",
+    connecting: "Connecting to Antigravity\u2026",
+    waitingApp: "Waiting for Antigravity",
+    waitingModel: "Waiting for a model request",
+    waitingRequest: "No requests yet",
+    hover: "Hover over the strip for details",
+    autoConnect: "Open the app to connect automatically",
+    loadingQuota: "Loading quota\u2026",
+    unavailableQuota: "Quota unavailable",
+    live: "Connected to Antigrative Dashboard",
+    stale: "Showing last available quota",
+    offline: "Antigrative Dashboard is offline",
+    responseBasis: "Calculation: response tokens \xF7 streaming time; session TPS is time-weighted.",
+    allBasis: "Calculation: output tokens \xF7 streaming time (includes streamed thinking); session TPS is time-weighted.",
+    missingTime: "{n} requests lack timing and are excluded from TPS.",
+    shortSample: "Last request is under 1s; its rate may vary substantially.",
+    running: "Generating; showing completed requests.",
+    generating: "Generating\u2026",
+    timingUnreliable: "Timing uncertain",
+    ratePending: "Awaiting recalculation",
+    excludedTime: "{n} requests with uncertain timing are excluded from TPS.",
+    rateWarning: "Another {n} short or unusually fast samples remain included in TPS; their rates may fluctuate.",
+    rateWarningOnly: "{n} short or unusually fast samples remain included in TPS; their rates may fluctuate.",
+    rateReasons: "Reason: {reasons}.",
+    rateReasonCount: "{reason}: {n} requests",
+    rateUsageRetained: "Token and cache usage is still retained in full.",
+    legacyRate: "Saved TPS uses the old calculation. Reopen this conversation while connected to recalculate.",
+    reasonToken: "Token scope mismatch",
+    reasonDuplicate: "Conflicting request records",
+    reasonRetry: "Retry/token timing scope uncertain",
+    reasonTool: "Short tool-only timing window",
+    reasonOutlier: "Short sample far above same-model baseline",
+    reasonNonfinite: "Invalid calculated rate",
+    sample: "{rounds} turns \xB7 {steps} steps \xB7 {requests} samples",
+    sampleCount: "{n} samples",
+    rounds: "{rounds} turns {steps} steps \xB7",
+    noQuota: "This account did not return this quota window.",
+    disabledQuota: "This quota window is disabled.",
+    noFraction: "The account did not return a remaining fraction.",
+    sharedQuota: "Models in this group share quota.",
+    quotaSource: "Balances and reset times come from the account API.",
+    updated: "Updated {time}",
+    health: "Quota updated {time} \xB7 actual request metrics",
+    firstUpdate: "Waiting for the first update",
+    cacheRate: "Cache hit",
+    cacheRead: "Cache read",
+    cacheInput: "Total input",
+    cacheMiss: "Uncached input",
+    cacheWrite: "Cache write",
+    cacheOutput: "Output",
+    cacheBasis: "Cached input \xF7 total input, weighted across requests. Cache writes are not hits.",
+    cacheMissing: "{n} requests have unavailable cache statistics.",
+    cacheUnavailable: "Cache statistics are unavailable for this conversation.",
+    cacheCoverage: "{measured} of {total} requests",
+    language: "Language",
+    switchLanguage: "Switch to Chinese",
+    languageSaveFailed: "Language preference could not be saved. Please retry.",
+    reconnecting: "Waiting to reconnect",
+    panelUnavailable: "The statistics panel cannot connect right now.",
+    invalidData: "Incompatible statistics data",
+    taskTotalTokens: "Task total tokens",
+    taskTokensSelf: "Main conversation",
+    taskTokensSubagents: "Subagents ({count})",
+    subagentsTitle: "Subagents",
+    subagentTPS: "Speed (TPS)",
+    subagentModel: "Model",
+    subagentSteps: "Steps",
+    subagentTokensDetail: "Tokens",
+    subagentContext: "Context",
+    subagentStatus: "Status",
+    subagentStatusIdle: "Idle (waiting or done)",
+    subagentStatusRunning: "Running",
+    subagentStatusWaitingUser: "Waiting for user",
+    subagentStatusWaiting: "Waiting",
+    subagentStatusDone: "Completed",
+    subagentStatusError: "Error",
+    subagentStatusStopped: "Stopped",
+    subagentStatusUnknown: "Unknown",
+    noSubagents: "No subagents invoked yet",
+    loading: "Loading\u2026",
+    contextPlanner: "Planner entrypoint",
+    contextQuotaSplit: "Plan uses Argon weekly quota \xB7 Worker uses Flash 5h quota",
+    contextMultiModelHint: "Multiple models sampled in this session",
+    modelMixTitle: "Model breakdown",
+    modelMixMetricTotal: "Total",
+    modelMixMetricOutput: "Output",
+    modelMixMetricCalls: "Calls",
+    modelMixScopeSession: "Session only",
+    modelMixScopeTask: "Include subagents",
+    modelRolePlan: "Plan",
+    modelRoleWorker: "Worker",
+    modelRoleSubagent: "Subagent",
+    modelRoleModel: "Model",
+    modelCallsUnit: "calls",
+    modelCallsCount: "{count} calls",
+    modelMixOther: "Other",
+    modelMixModelsCount: "{count} models",
+    timelineTitle: "Model timeline",
+    timelinePrivacySummary: "Local structural trace only \xB7 No prompts, paths, or args",
+    timelineEnable: "Enable",
+    timelineDisable: "Disable",
+    timelineClear: "Clear",
+    timelineCleared: "Local timeline cache cleared",
+    timelineEmpty: "Waiting for the first recorded turn",
+    timelineTruncated: "Older events compacted to stay within local trace bounds",
+    timelineSaveFailed: "Timeline preference could not be saved.",
+    timelineClearFailed: "Timeline cache could not be cleared.",
+    timelineLanePlan: "Plan",
+    timelineLaneWorker: "Worker",
+    timelineLaneToolsAgents: "Tools\xB7Agents",
+    timelineEventTurn: "Turn",
+    timelineEventPlan: "Plan",
+    timelineEventHandoff: "Handoff",
+    timelineEventWorker: "Worker",
+    timelineEventToolGroup: "Tool group",
+    timelineEventSubagent: "Subagent",
+    timelineEventModelSwitch: "Model switch",
+    timelineEventError: "Error"
+  };
 
-const SUBAGENT_STATUS_MAP = {
-  IDLE: { kind: 'idle', key: 'subagentStatusIdle' },
-  DONE: { kind: 'done', key: 'subagentStatusDone' },
-  COMPLETED: { kind: 'done', key: 'subagentStatusDone' },
-  COMPLETE: { kind: 'done', key: 'subagentStatusDone' },
-  FINISHED: { kind: 'done', key: 'subagentStatusDone' },
-  SUCCEEDED: { kind: 'done', key: 'subagentStatusDone' },
-  RUNNING: { kind: 'running', key: 'subagentStatusRunning', running: true },
-  WORKING: { kind: 'running', key: 'subagentStatusRunning', running: true },
-  IN_PROGRESS: { kind: 'running', key: 'subagentStatusRunning', running: true },
-  WAITING_FOR_USER: { kind: 'waiting', key: 'subagentStatusWaitingUser' },
-  WAITING: { kind: 'waiting', key: 'subagentStatusWaiting' },
-  PENDING: { kind: 'waiting', key: 'subagentStatusWaiting' },
-  QUEUED: { kind: 'waiting', key: 'subagentStatusWaiting' },
-  ERROR: { kind: 'error', key: 'subagentStatusError', error: true },
-  FAILED: { kind: 'error', key: 'subagentStatusError', error: true },
-  CANCELLED: { kind: 'stopped', key: 'subagentStatusStopped' },
-  CANCELED: { kind: 'stopped', key: 'subagentStatusStopped' },
-  ABORTED: { kind: 'stopped', key: 'subagentStatusStopped' },
-  STOPPED: { kind: 'stopped', key: 'subagentStatusStopped' },
-  UNSPECIFIED: { kind: 'unknown', key: 'subagentStatusUnknown' }
-};
+  // src/ui/i18n/dictionary-zh.ts
+  var ZH_DICTIONARY = {
+    tokenPartial: "\u4EC5\u7EDF\u8BA1\u5DF2\u77E5 Token\uFF08\u2265\uFF09\uFF1A{input} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u8F93\u5165\u7528\u91CF\uFF0C{output} \u6B21\u7F3A\u5C11\u8F93\u51FA\u7528\u91CF\u3002\u8F93\u51FA\u72EC\u7ACB\u4E8E\u7F13\u5B58\u7EDF\u8BA1\u3002",
+    tokenLegacy: "\u5DF2\u4FDD\u5B58 Token \u7528\u91CF\u4E3A\u4E0B\u754C\uFF08\u2265\uFF09\uFF1B\u65E0\u6CD5\u786E\u8BA4\u9010\u8BF7\u6C42\u7EDF\u8BA1\u8986\u76D6\u60C5\u51B5\u3002",
+    unknownCoverage: "\u672A\u77E5",
+    cacheZeroInput: "\u62A5\u544A\u7684\u603B\u8F93\u5165\u4E3A 0\uFF0C\u7F13\u5B58\u547D\u4E2D\u7387\u65E0\u53EF\u8BA1\u7B97\u7684\u5206\u6BCD\u3002",
+    savedCache: "\u7F13\u5B58\u7387\u4F7F\u7528\u5DF2\u4FDD\u5B58\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+    savedSpeed: "\u901F\u5EA6\u4F7F\u7528\u5DF2\u4FDD\u5B58\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+    panelSpeed: "\u901F\u5EA6",
+    panelCache: "\u7F13\u5B58",
+    panelContext: "\u4E0A\u4E0B\u6587",
+    panelDetails: "\u7EDF\u8BA1\u8BE6\u60C5",
+    panelUsed: "\u5DF2\u7528",
+    panelSharedQuota: "\u5171\u4EAB\u989D\u5EA6",
+    newConversationStats: "\u5F53\u524D\u4E3A\u65B0\u5BF9\u8BDD\uFF1A\u53D1\u9001\u6D88\u606F\u6216\u6253\u5F00\u5DF2\u6709\u5BF9\u8BDD\u540E\u663E\u793A\u8BE5\u4F1A\u8BDD\u7EDF\u8BA1\u3002\u8D26\u53F7\u989D\u5EA6\u5728\u4E0B\u65B9\u5355\u72EC\u5C55\u793A\u3002",
+    subagentStats: "\u5F53\u524D\u5B50\u4EE3\u7406\u7EDF\u8BA1",
+    accountQuota: "\u8D26\u53F7\u5171\u4EAB\u989D\u5EA6\uFF0C\u6240\u6709\u4EE3\u7406\u5171\u7528\u3002",
+    transcriptTitle: "\u5DF2\u8BB0\u5F55\u6587\u672C\u4F30\u7B97",
+    transcriptUser: "\u7528\u6237\u6587\u672C",
+    transcriptAssistant: "\u56DE\u590D\u4E0E\u601D\u8003",
+    transcriptTool: "\u5DE5\u5177\u8F93\u51FA",
+    transcriptSystem: "\u7CFB\u7EDF\u6587\u672C",
+    transcriptMarkers: "\u538B\u7F29\u6807\u8BB0\u8BB0\u5F55",
+    transcriptImages: "\u56FE\u50CF\u751F\u6210\u6B65\u9AA4",
+    transcriptPartial: "\u4E0D\u5B8C\u6574",
+    transcriptLoading: "\u8BFB\u53D6\u4E2D\u2026",
+    transcriptUnavailable: "\u4E0D\u53EF\u7528",
+    transcriptSaved: "\u5DF2\u4FDD\u5B58",
+    transcriptBasis: "\u65E5\u5FD7\u6587\u672C\u4F30\u7B97\uFF0C\u975E\u5F53\u524D\u4E0A\u4E0B\u6587\u6216\u8BA1\u8D39\u7528\u91CF\u3002\u4E0D\u542B\u9690\u85CF\u63D0\u793A\u3001\u5A92\u4F53\u548C\u5DE5\u5177\u8C03\u7528\u53C2\u6570\u3002",
+    contextHostLimit: "\u5F53\u524D\u7A97\u53E3\u5BB9\u91CF\uFF08\u5BBF\u4E3B\uFF09",
+    contextProviderCapacity: "\u4F9B\u5E94\u5546\u5BB9\u91CF\u53C2\u8003",
+    contextCompressionLimit: "\u538B\u7F29\u89E6\u53D1\u9608\u503C",
+    contextLimitUnknown: "\u672A\u77E5",
+    contextReferenceBasis: "\u4F9B\u5E94\u5546\u89C4\u683C\u53C2\u8003\uFF0C\u4E0D\u4EE3\u8868\u5F53\u524D\u4F1A\u8BDD\u53EF\u7528\u5BB9\u91CF\u3002",
+    context: "\u4E0A\u4E0B\u6587\u7A97\u53E3",
+    contextShort: "\u4E0A\u4E0B\u6587",
+    contextUsed: "{used}% \u5DF2\u7528\uFF08\u5269\u4F59 {remaining}%\uFF09",
+    contextTokens: "{used} / {max} tok",
+    contextUnknown: "\u4E0A\u4E0B\u6587\u5BB9\u91CF\u4E0D\u53EF\u7528",
+    contextUnavailable: "\u6B64\u8BF7\u6C42\u6682\u65E0\u53EF\u7528\u4E0A\u4E0B\u6587\u7EDF\u8BA1\u3002",
+    contextBasis: "\u5BBF\u4E3B\u5728\u6700\u8FD1\u8BF7\u6C42\u5F00\u59CB\u65F6\u7684\u4F30\u8BA1\u503C\uFF0C\u975E\u7D2F\u8BA1 Token\uFF0C\u4E5F\u975E\u6D41\u5F0F\u5B9E\u65F6\u8BA1\u6570\u3002",
+    contextModel: "\u91C7\u6837\u6A21\u578B",
+    contextLimit: "\u7A97\u53E3\u5BB9\u91CF",
+    contextUsage: "\u5DF2\u7528 Token\uFF08\u4F30\u8BA1\uFF09",
+    contextSaved: "\u663E\u793A\u5DF2\u4FDD\u5B58\u7684\u4E0A\u4E0B\u6587\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+    contextExceeded: "\u5BBF\u4E3B\u4F30\u8BA1\u503C\u8D85\u8FC7\u8FD4\u56DE\u7684\u7A97\u53E3\u5BB9\u91CF\u3002",
+    savedStats: "\u663E\u793A\u5DF2\u4FDD\u5B58\u7684\u4F1A\u8BDD\u7EDF\u8BA1\uFF08{time}\uFF09\u3002",
+    saveFailed: "\u7EDF\u8BA1\u6682\u65F6\u65E0\u6CD5\u4FDD\u5B58\u5230\u672C\u5730\u3002",
+    strip: "Antigrative Dashboard \u4F1A\u8BDD\u4E0E\u989D\u5EA6\u72B6\u6001\u6761",
+    session: "\u4F1A\u8BDD\u7EDF\u8BA1",
+    cache: "\u7F13\u5B58\u547D\u4E2D",
+    cacheTitle: "Token \u7528\u91CF",
+    five: "5h \u989D\u5EA6",
+    week: "\u5468\u989D\u5EA6",
+    weekShort: "\u5468",
+    modelTime: "\u6A21\u578B\u8C03\u7528\u7528\u65F6",
+    toolTime: "\u5DE5\u5177\u8C03\u7528\u7528\u65F6",
+    ttft: "\u9996 token \u5E73\u5747\uFF08TTFT\uFF09",
+    sessionTps: "\u4F1A\u8BDD\u8F93\u51FA\u901F\u7387\uFF08TPS\uFF09",
+    latest: "\u6700\u8FD1\u4E00\u6B21\u8BF7\u6C42",
+    tokens: "\u6B63\u6587 / \u601D\u8003\u8F93\u51FA",
+    remaining: "\u5269\u4F59",
+    resetIn: "\u91CD\u7F6E\u5012\u8BA1\u65F6",
+    resetTime: "\u91CD\u7F6E\u65F6\u95F4\uFF08\u5317\u4EAC\u65F6\u95F4\uFF09",
+    group: "\u989D\u5EA6\u7EC4",
+    selectGroup: "\u9009\u62E9\u989D\u5EA6\u7EC4",
+    refresh: "\u5237\u65B0\u989D\u5EA6",
+    refreshStats: "\u5237\u65B0\u7EDF\u8BA1",
+    refreshing: "\u6B63\u5728\u5237\u65B0\u2026",
+    waiting: "\u7B49\u5F85\u5237\u65B0",
+    connecting: "\u8FDE\u63A5 Antigravity\u2026",
+    waitingApp: "\u7B49\u5F85 Antigravity",
+    waitingModel: "\u7B49\u5F85\u6A21\u578B\u751F\u6210",
+    waitingRequest: "\u5C1A\u65E0\u8BF7\u6C42",
+    hover: "\u60AC\u505C\u72B6\u6001\u6761\uFF0C\u67E5\u770B\u8BE6\u7EC6\u7EDF\u8BA1",
+    autoConnect: "\u6253\u5F00\u5E94\u7528\u540E\u81EA\u52A8\u8FDE\u63A5",
+    loadingQuota: "\u8BFB\u53D6\u989D\u5EA6\u2026",
+    unavailableQuota: "\u989D\u5EA6\u6682\u4E0D\u53EF\u7528",
+    live: "\u5DF2\u8FDE\u63A5 Antigrative Dashboard",
+    stale: "\u663E\u793A\u4E0A\u6B21\u6210\u529F\u8BFB\u53D6\u7684\u989D\u5EA6",
+    offline: "Antigrative Dashboard \u6682\u672A\u8FDE\u63A5",
+    responseBasis: "\u7EDF\u8BA1\u65B9\u5F0F\uFF1A\u6B63\u6587 Token \xF7 \u6D41\u5F0F\u65F6\u957F\uFF1B\u4F1A\u8BDD TPS \u6309\u603B\u65F6\u957F\u52A0\u6743\u3002",
+    allBasis: "\u7EDF\u8BA1\u65B9\u5F0F\uFF1A\u8F93\u51FA Token \xF7 \u6D41\u5F0F\u65F6\u957F\uFF08\u542B\u6D41\u5F0F\u601D\u8003\u6216\u672A\u62C6\u5206\u601D\u8003\uFF09\uFF1B\u4F1A\u8BDD TPS \u6309\u603B\u65F6\u957F\u52A0\u6743\u3002",
+    missingTime: "{n} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u65F6\u957F\uFF0C\u672A\u8BA1\u5165 TPS\u3002",
+    shortSample: "\u6700\u8FD1\u8BF7\u6C42\u4E0D\u8DB3 1 \u79D2\uFF0C\u5355\u6B21\u901F\u7387\u6CE2\u52A8\u8F83\u5927\u3002",
+    running: "\u751F\u6210\u4E2D\uFF0C\u663E\u793A\u5DF2\u5B8C\u6210\u8BF7\u6C42\u7EDF\u8BA1\u3002",
+    generating: "\u8BA1\u7B97\u4E2D\u2026",
+    timingUnreliable: "\u8BA1\u65F6\u5F02\u5E38",
+    ratePending: "\u7B49\u5F85\u91CD\u7B97",
+    excludedTime: "\u5DF2\u6392\u9664 {n} \u6B21\u5F02\u5E38\u8BA1\u65F6\uFF0C\u4E0D\u8BA1\u5165 TPS\u3002",
+    rateWarning: "\u53E6\u6709 {n} \u6B21\u77ED\u65F6\u6216\u9AD8\u901F\u5EA6\u91C7\u6837\u53EF\u80FD\u6CE2\u52A8\uFF0C\u4ECD\u8BA1\u5165 TPS\u3002",
+    rateWarningOnly: "{n} \u6B21\u77ED\u65F6\u6216\u9AD8\u901F\u5EA6\u91C7\u6837\u53EF\u80FD\u6CE2\u52A8\uFF0C\u4ECD\u8BA1\u5165 TPS\u3002",
+    rateReasons: "\u539F\u56E0\uFF1A{reasons}\u3002",
+    rateReasonCount: "{reason}\uFF1A{n} \u6B21",
+    rateUsageRetained: "Token \u548C\u7F13\u5B58\u7528\u91CF\u4ECD\u5B8C\u6574\u4FDD\u7559\u3002",
+    legacyRate: "\u5DF2\u4FDD\u5B58\u7684 TPS \u4F7F\u7528\u65E7\u7B97\u6CD5\uFF1B\u8FDE\u63A5\u540E\u6253\u5F00\u6B64\u5BF9\u8BDD\u5373\u53EF\u91CD\u65B0\u8BA1\u7B97\u3002",
+    reasonToken: "Token \u7EDF\u8BA1\u8303\u56F4\u4E0D\u4E00\u81F4",
+    reasonDuplicate: "\u540C\u4E00\u8BF7\u6C42\u7684\u8BB0\u5F55\u51B2\u7A81",
+    reasonRetry: "\u91CD\u8BD5\u7684 Token \u4E0E\u8BA1\u65F6\u8303\u56F4\u4E0D\u660E\u786E",
+    reasonTool: "\u5DE5\u5177\u8F93\u51FA\u7684\u8BA1\u65F6\u7A97\u53E3\u8FC7\u77ED",
+    reasonOutlier: "\u77ED\u65F6\u901F\u7387\u663E\u8457\u9AD8\u4E8E\u540C\u6A21\u578B\u57FA\u7EBF",
+    reasonNonfinite: "\u8BA1\u7B97\u901F\u7387\u65E0\u6548",
+    sample: "{rounds}\u8F6E {steps}\u6B65 \xB7 {requests} \u6B21\u91C7\u6837",
+    sampleCount: "{n} \u6B21\u91C7\u6837",
+    rounds: "{rounds}\u8F6E {steps}\u6B65 \xB7",
+    noQuota: "\u8D26\u6237\u672A\u8FD4\u56DE\u6B64\u989D\u5EA6\u7A97\u53E3\u3002",
+    disabledQuota: "\u6B64\u989D\u5EA6\u7A97\u53E3\u5DF2\u505C\u7528\u3002",
+    noFraction: "\u8D26\u6237\u672A\u8FD4\u56DE\u5269\u4F59\u6BD4\u4F8B\u3002",
+    sharedQuota: "\u540C\u7EC4\u6A21\u578B\u5171\u4EAB\u989D\u5EA6\u3002",
+    quotaSource: "\u4F59\u989D\u4E0E\u91CD\u7F6E\u65F6\u95F4\u6765\u81EA\u8D26\u6237\u63A5\u53E3\u3002",
+    updated: "{time} \u66F4\u65B0",
+    health: "\u989D\u5EA6\u66F4\u65B0\u4E8E {time} \xB7 \u771F\u5B9E\u8BF7\u6C42\u7EDF\u8BA1",
+    firstUpdate: "\u7B49\u5F85\u9996\u6B21\u66F4\u65B0",
+    cacheRate: "\u7F13\u5B58\u547D\u4E2D",
+    cacheRead: "\u7F13\u5B58\u8BFB\u53D6",
+    cacheInput: "\u603B\u8F93\u5165",
+    cacheMiss: "\u672A\u7F13\u5B58\u8F93\u5165",
+    cacheWrite: "\u7F13\u5B58\u5199\u5165",
+    cacheOutput: "\u8F93\u51FA",
+    cacheBasis: "\u7F13\u5B58\u8BFB\u53D6 token \xF7 \u603B\u8F93\u5165 token\uFF0C\u6309\u8BF7\u6C42 token \u603B\u91CF\u52A0\u6743\uFF1B\u7F13\u5B58\u5199\u5165\u4E0D\u7B97\u547D\u4E2D\u3002",
+    cacheMissing: "{n} \u6B21\u8BF7\u6C42\u7F3A\u5C11\u7F13\u5B58\u7EDF\u8BA1\u3002",
+    cacheUnavailable: "\u6B64\u4F1A\u8BDD\u6682\u65E0\u53EF\u7528\u7F13\u5B58\u7EDF\u8BA1\u3002",
+    cacheCoverage: "{measured} / {total} \u6B21\u8BF7\u6C42",
+    language: "\u8BED\u8A00",
+    switchLanguage: "Switch to English",
+    languageSaveFailed: "\u8BED\u8A00\u8BBE\u7F6E\u6682\u65F6\u65E0\u6CD5\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+    reconnecting: "\u7B49\u5F85\u63A7\u4EF6\u91CD\u65B0\u8FDE\u63A5",
+    panelUnavailable: "\u7EDF\u8BA1\u9762\u677F\u6682\u65F6\u65E0\u6CD5\u8FDE\u63A5",
+    invalidData: "\u7EDF\u8BA1\u6570\u636E\u683C\u5F0F\u4E0D\u517C\u5BB9",
+    taskTotalTokens: "\u4EFB\u52A1\u603B Token\uFF08\u805A\u5408\uFF09",
+    taskTokensSelf: "\u4E3B\u4F1A\u8BDD",
+    taskTokensSubagents: "\u5B50\u4EE3\u7406\uFF08{count} \u4E2A\uFF09",
+    subagentsTitle: "\u5B50\u4EE3\u7406\u5217\u8868",
+    subagentTPS: "\u8F93\u51FA\u901F\u7387\uFF08TPS\uFF09",
+    subagentModel: "\u6A21\u578B",
+    subagentSteps: "\u6267\u884C\u6B65\u6570",
+    subagentTokensDetail: "\u6D88\u8017 Token",
+    subagentContext: "\u4E0A\u4E0B\u6587",
+    subagentStatus: "\u72B6\u6001",
+    subagentStatusIdle: "\u7A7A\u95F2 \xB7 \u5F85\u547D\u6216\u5DF2\u5B8C\u6210",
+    subagentStatusRunning: "\u6B63\u5728\u8FD0\u884C",
+    subagentStatusWaitingUser: "\u7B49\u5F85\u7528\u6237\u8F93\u5165",
+    subagentStatusWaiting: "\u7B49\u5F85\u4E2D",
+    subagentStatusDone: "\u5DF2\u5B8C\u6210",
+    subagentStatusError: "\u6267\u884C\u51FA\u9519",
+    subagentStatusStopped: "\u5DF2\u505C\u6B62",
+    subagentStatusUnknown: "\u72B6\u6001\u672A\u77E5",
+    noSubagents: "\u6682\u672A\u8C03\u7528\u5B50\u4EE3\u7406",
+    loading: "\u8BFB\u53D6\u4E2D\u2026",
+    contextPlanner: "\u4E3B\u63A7\u5165\u53E3",
+    contextQuotaSplit: "\u89C4\u5212\u7528 Argon \u5468\u989D\u5EA6 \xB7 \u6267\u884C\u7528 Flash 5h \u989D\u5EA6",
+    contextMultiModelHint: "\u5F53\u524D\u4F1A\u8BDD\u91C7\u6837\u4E86\u591A\u4E2A\u6A21\u578B",
+    modelMixTitle: "\u591A\u6A21\u578B\u5206\u5E03",
+    modelMixMetricTotal: "\u603B\u7528\u91CF",
+    modelMixMetricOutput: "\u8F93\u51FA",
+    modelMixMetricCalls: "\u8BF7\u6C42\u6570",
+    modelMixScopeSession: "\u4EC5\u5F53\u524D\u4F1A\u8BDD",
+    modelMixScopeTask: "\u542B\u5B50\u4EE3\u7406",
+    modelRolePlan: "\u89C4\u5212",
+    modelRoleWorker: "\u6267\u884C",
+    modelRoleSubagent: "\u5B50\u4EE3\u7406",
+    modelRoleModel: "\u6A21\u578B",
+    modelCallsUnit: "\u6B21\u8BF7\u6C42",
+    modelCallsCount: "{count} \u6B21",
+    modelMixOther: "\u5176\u4ED6",
+    modelMixModelsCount: "{count} \u4E2A\u6A21\u578B",
+    timelineTitle: "\u6A21\u578B\u8C03\u7528\u65F6\u95F4\u6811",
+    timelinePrivacySummary: "\u4EC5\u672C\u5730\u7ED3\u6784\u8F68\u8FF9 \xB7 \u4E0D\u542B\u63D0\u793A\u8BCD\u3001\u8DEF\u5F84\u6216\u53C2\u6570",
+    timelineEnable: "\u5F00\u542F",
+    timelineDisable: "\u5173\u95ED",
+    timelineClear: "\u6E05\u9664",
+    timelineCleared: "\u5DF2\u6E05\u9664\u672C\u5730\u65F6\u95F4\u6811\u7F13\u5B58",
+    timelineEmpty: "\u7B49\u5F85\u8BB0\u5F55\u9996\u4E2A\u6A21\u578B\u8C03\u7528\u8F6E\u6B21",
+    timelineTruncated: "\u65E9\u671F\u4E8B\u4EF6\u5DF2\u538B\u7F29\uFF0C\u4EE5\u4FDD\u6301\u672C\u5730\u6709\u754C\u7F13\u5B58",
+    timelineSaveFailed: "\u65F6\u95F4\u6811\u5F00\u5173\u8BBE\u7F6E\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+    timelineClearFailed: "\u65F6\u95F4\u6811\u7F13\u5B58\u6E05\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+    timelineLanePlan: "\u89C4\u5212",
+    timelineLaneWorker: "\u6267\u884C",
+    timelineLaneToolsAgents: "\u5DE5\u5177\xB7\u4EE3\u7406",
+    timelineEventTurn: "\u8F6E\u6B21",
+    timelineEventPlan: "\u89C4\u5212",
+    timelineEventHandoff: "\u4EA4\u63A5",
+    timelineEventWorker: "\u6267\u884C",
+    timelineEventToolGroup: "\u5DE5\u5177\u7EC4",
+    timelineEventSubagent: "\u5B50\u4EE3\u7406",
+    timelineEventModelSwitch: "\u5207\u6362\u6A21\u578B",
+    timelineEventError: "\u9519\u8BEF"
+  };
 
-function classifySubagentStatus(raw) {
-  const rawText = typeof raw === 'string' && raw.trim() ? raw.trim() : '';
-  const norm = rawText.toUpperCase().replace(/^CASCADE_RUN_STATUS_/, '');
-  const match = norm ? SUBAGENT_STATUS_MAP[norm] : null;
-  const label = match
-    ? t(match.key)
-    : norm
-      ? norm.toLowerCase().replace(/_/g, ' ').replace(/^\w/, ch => ch.toUpperCase())
-      : t('subagentStatusUnknown');
-  return { raw: rawText, label, kind: match ? match.kind : 'unknown', running: Boolean(match?.running), error: Boolean(match?.error) };
-}
-
-function formatSubagentContext(ctx) {
-  const hasUsed = ctx && typeof ctx.usedTokens === 'number' && Number.isFinite(ctx.usedTokens);
-  const hasFraction = ctx && typeof ctx.usedFraction === 'number' && Number.isFinite(ctx.usedFraction) && typeof ctx.maxTokens === 'number' && Number.isFinite(ctx.maxTokens) && ctx.maxTokens > 0;
-  if (hasFraction) {
-    const pctText = percent(ctx.usedFraction);
-    const usedPct = (ctx.usedFraction * 100).toFixed(1);
-    const remainingPct = Math.max(0, 100 - ctx.usedFraction * 100).toFixed(1);
-    const tokText = t('contextTokens', { used: count(ctx.usedTokens), max: count(ctx.maxTokens) });
-    const clamped = Math.max(0, Math.min(1, ctx.usedFraction));
-    const dashoffset = String(Math.round((1 - clamped) * 1000) / 10);
-    const color = ctx.usedFraction >= 0.9 ? 'var(--pulse-danger)' : ctx.usedFraction >= 0.8 ? 'var(--pulse-warning)' : '';
-    const summary = `${t('contextUsed', { used: usedPct, remaining: remainingPct })} · ${tokText}`;
+  // src/ui/i18n/index.ts
+  var BACKEND_ERRORS = {
+    "\u8BF7\u5148\u6253\u5F00 Antigravity": "Open Antigravity to connect.",
+    "\u5F53\u524D\u91C7\u96C6\u9002\u914D\u5668\u652F\u6301 Windows": "This collector requires Windows.",
+    "\u68C0\u6D4B\u5230\u591A\u4E2A Antigravity \u5B9E\u4F8B\uFF0C\u8BF7\u4FDD\u7559\u4E00\u4E2A": "Multiple Antigravity instances detected. Keep one open.",
+    "\u672A\u627E\u5230 Antigravity \u684C\u9762\u540E\u53F0": "Antigravity desktop backend was not found.",
+    "\u5F53\u524D\u7248\u672C\u672A\u63D0\u4F9B\u53EF\u7528\u7684\u672C\u5730\u68C0\u6D4B\u51ED\u636E": "Local metrics credentials are unavailable in this version.",
+    "\u7B49\u5F85 Antigravity \u672C\u5730\u63A5\u53E3\u542F\u52A8": "Waiting for the local Antigravity API.",
+    "\u672A\u627E\u5230 Antigravity \u8BED\u8A00\u670D\u52A1\u65E5\u5FD7\uFF0C\u8BF7\u68C0\u67E5\u65E5\u5FD7\u8DEF\u5F84": "Antigravity language-server log was not found. Check the log path.",
+    "\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1": "No statistics are available for this conversation yet.",
+    "\u5B8C\u6574\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u6682\u4E0D\u53EF\u7528": "Complete conversation statistics are temporarily unavailable.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u5185\u5B58\u9884\u7B97": "Conversation statistics exceed the memory budget.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "Retained conversation statistics exceed the collection budget.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u5B57\u6BB5\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "A statistics field exceeds the collection budget.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u8BFB\u53D6\u8D85\u65F6": "Conversation statistics pagination timed out.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u6570\u91CF\u65E0\u6548": "Invalid conversation statistics page count.",
+    "\u4F1A\u8BDD\u7EDF\u8BA1\u5206\u9875\u683C\u5F0F\u65E0\u6548": "Invalid conversation statistics page format.",
+    "\u4F1A\u8BDD\u4ECD\u5728\u66F4\u65B0\uFF0C\u8BF7\u7B49\u5F85\u4E0B\u4E00\u6B21\u5237\u65B0": "The conversation is updating; waiting for the next refresh.",
+    "\u63A5\u53E3\u54CD\u5E94\u8D85\u8FC7\u91C7\u96C6\u4E0A\u9650": "The API response exceeds the collection budget.",
+    "Antigravity \u63A5\u53E3\u8FD4\u56DE\u4E86\u65E0\u6CD5\u89E3\u6790\u7684\u6570\u636E": "Antigravity returned an invalid response.",
+    "Antigravity \u672C\u5730\u63A5\u53E3\u8D85\u65F6": "The local Antigravity API timed out.",
+    "\u8FDC\u7A0B\u73AF\u5883\u4F11\u7720\u6216\u540C\u6B65\u8F83\u6162\uFF0C\u8BF7\u7A0D\u5019\u5237\u65B0": "Remote environment is hibernated or syncing slowly; please refresh shortly.",
+    "\u5F53\u524D\u767B\u5F55\u8D26\u53F7\u672A\u5F00\u542F\u8FDC\u7A0B Agent (Cloud Conversations) \u6743\u9650": "Cloud Conversations (Remote Agent) is not enabled for the signed-in account.",
+    "\u4F1A\u8BDD\u6807\u8BC6\u65E0\u6548": "Invalid conversation identifier.",
+    "\u7B49\u5F85 Antigrative Dashboard \u540E\u53F0\u542F\u52A8": "Waiting for the dashboard background process.",
+    "\u7B49\u5F85 Antigrative Dashboard \u91CD\u65B0\u8FDE\u63A5": "Waiting for the dashboard to reconnect.",
+    "\u7B49\u5F85 AG Pulse \u540E\u53F0\u542F\u52A8": "Waiting for the dashboard background process.",
+    "\u7B49\u5F85 AG Pulse \u91CD\u65B0\u8FDE\u63A5": "Waiting for the dashboard to reconnect."
+  };
+  var DICTIONARIES = {
+    en: EN_DICTIONARY,
+    "zh-CN": ZH_DICTIONARY
+  };
+  var isLanguageCode = (value) => value === "en" || value === "zh-CN";
+  function createDashboardI18n(initialLanguage) {
+    let language = initialLanguage === "zh-CN" ? "zh-CN" : "en";
+    const t = (key, args = {}) => {
+      const dict = DICTIONARIES[language];
+      const template = (Object.hasOwn(dict, key) ? dict[key] : void 0) || (Object.hasOwn(EN_DICTIONARY, key) ? EN_DICTIONARY[key] : void 0) || key;
+      return template.replace(/\{(\w+)\}/g, (_, name) => String(args[name] ?? ""));
+    };
+    function countdown2(at, now = Date.now(), compact2 = false) {
+      return countdown(at, now, compact2, language);
+    }
+    function elapsed2(value) {
+      return elapsed(value, language);
+    }
+    function resetDate2(value) {
+      return resetDate(value, language);
+    }
+    function errorMessage(value) {
+      if (!value) return "";
+      const key = Object.keys(EN_DICTIONARY).find(
+        (entry) => EN_DICTIONARY[entry] === value
+      );
+      if (key) return t(key);
+      if (language === "zh-CN") return value;
+      if (BACKEND_ERRORS[value]) return BACKEND_ERRORS[value];
+      const match = String(value).match(/^Antigravity 接口 (\w+) 返回 (\d+)$/);
+      return match ? `Antigravity ${match[1]} returned HTTP ${match[2]}.` : "Statistics are temporarily unavailable.";
+    }
+    function connectPreferences({
+      read,
+      write,
+      cache = () => {
+      },
+      changed = () => {
+      }
+    }) {
+      let epoch = 0;
+      let writes = 0;
+      let revision = -1;
+      let disposed = false;
+      let error = false;
+      let queue = Promise.resolve();
+      const notify = () => {
+        if (!disposed) changed();
+      };
+      const remember = () => {
+        try {
+          cache(language);
+        } catch {
+        }
+      };
+      const check = (value) => {
+        if (!value || "error" in value || !Object.hasOwn(value, "language") || value.language !== null && !isLanguageCode(value.language)) {
+          throw new Error("Invalid preference response");
+        }
+        return value;
+      };
+      function sync(value) {
+        if (disposed || writes) return;
+        try {
+          const checked = check(value);
+          const next = Number.isSafeInteger(checked.revision) ? checked.revision : 0;
+          if (next < revision) return;
+          if (error && epoch > 0 && checked.language !== language) return;
+          if (checked.language === null && epoch === 0 && isLanguageCode(initialLanguage)) {
+            void choose(initialLanguage);
+            return;
+          }
+          revision = next;
+          error = false;
+          if (isLanguageCode(checked.language) && language !== checked.language) {
+            language = checked.language;
+            remember();
+          }
+          notify();
+        } catch {
+          error = true;
+          notify();
+        }
+      }
+      function choose(value) {
+        if (disposed || !isLanguageCode(value)) return Promise.resolve();
+        const choice = ++epoch;
+        language = value;
+        writes++;
+        error = false;
+        remember();
+        notify();
+        const pending = queue.then(async () => {
+          try {
+            const saved = check(await write({ language: value }));
+            if (saved.language !== value) throw new Error("Preference acknowledgement differs");
+            revision = Math.max(revision, Number.isSafeInteger(saved.revision) ? saved.revision : 0);
+            if (choice === epoch) error = false;
+          } catch {
+            if (choice === epoch) error = true;
+          } finally {
+            writes--;
+            notify();
+          }
+        });
+        queue = pending;
+        return pending;
+      }
+      const ready = (async () => {
+        const started = epoch;
+        try {
+          const saved = check(await read());
+          if (disposed || epoch !== started) return;
+          if (saved.language === null && isLanguageCode(initialLanguage)) {
+            await choose(initialLanguage);
+          } else {
+            sync(saved);
+          }
+        } catch {
+          if (!disposed && epoch === started) {
+            error = true;
+            notify();
+          }
+        }
+      })();
+      return {
+        ready,
+        sync,
+        choose,
+        toggle: () => choose(language === "en" ? "zh-CN" : "en"),
+        get error() {
+          return error;
+        },
+        get pending() {
+          return writes > 0;
+        },
+        dispose() {
+          disposed = true;
+        }
+      };
+    }
+    function rateNote(speed) {
+      if (!speed) return t("waitingRequest");
+      if (speed.latestRateStatus === "legacy") return t("ratePending");
+      const basis = t(speed.rateBasis === "all-output" ? "allBasis" : "responseBasis");
+      if (speed.latestRateStatus === "generating" || /RUNNING/i.test(speed.status || "")) {
+        return `${t("running")} ${basis}`;
+      }
+      return basis;
+    }
     return {
-      available: true,
-      dashoffset,
-      color,
-      label: `${t('subagentContext')}: ${summary}`,
-      detail: `${pctText} · ${tokText}`
+      t,
+      rateNote,
+      countdown: countdown2,
+      elapsed: elapsed2,
+      resetDate: resetDate2,
+      errorMessage,
+      connectPreferences,
+      get language() {
+        return language;
+      },
+      setLanguage(value) {
+        language = value === "zh-CN" ? "zh-CN" : "en";
+      },
+      toggle() {
+        language = language === "en" ? "zh-CN" : "en";
+        return language;
+      }
     };
   }
-  const partialTokens = hasUsed ? t('contextTokens', { used: count(ctx.usedTokens), max: '—' }) : null;
-  return {
-    available: false,
-    dashoffset: '100',
-    color: '',
-    label: partialTokens ? `${t('subagentContext')}: ${t('contextUnknown')} · ${partialTokens}` : `${t('subagentContext')}: ${t('contextUnknown')}`,
-    detail: partialTokens || '—'
-  };
-}
 
-function createSubagentNodeElement() {
-  const nodeEl = document.createElement('div');
-  nodeEl.className = 'subagent-tree-node';
-  nodeEl.innerHTML = `<div class="subagent-item"><div class="subagent-summary" tabindex="0" role="button"><div class="subagent-left"><span class="tree-bullet">•</span><span class="subagent-name"></span><span class="subagent-status-dot" role="img"></span></div><div class="subagent-right"><span class="subagent-badge"></span><span class="subagent-tps"></span><span class="subagent-tokens"></span><span class="subagent-context-ring" role="img"><svg viewBox="0 0 16 16" aria-hidden="true"><circle class="subagent-context-track" cx="8" cy="8" r="5.3"></circle><circle class="subagent-context-fill" cx="8" cy="8" r="5.3" pathLength="100"></circle></svg></span><button class="detail-toggle-btn" type="button">ℹ</button></div></div><div class="subagent-detail" hidden><dl><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt>ID</dt><dd></dd></div></dl></div></div>`;
-  const itemEl = nodeEl.firstElementChild;
-  const summaryEl = itemEl.firstElementChild;
-  const leftEl = summaryEl.firstElementChild;
-  const rightEl = summaryEl.lastElementChild;
-  const detailEl = itemEl.lastElementChild;
-  const rows = [...detailEl.firstElementChild.children];
-  const contextRingEl = rightEl.children[3];
-  subagentRefs.set(nodeEl, {
-    itemEl, summaryEl, leftEl,
-    treeBtn: null, bullet: leftEl.children[0], nameEl: leftEl.children[1], statusDotEl: leftEl.children[2], childCountEl: null,
-    badgeEl: rightEl.children[0], tpsEl: rightEl.children[1], tokensEl: rightEl.children[2],
-    contextRingEl, contextRingFillEl: contextRingEl.firstElementChild.lastElementChild,
-    detailBtn: rightEl.children[4],
-    detailEl, childrenEl: null,
-    dts: rows.map(r => r.firstElementChild), dds: rows.map(r => r.lastElementChild)
-  });
-  return nodeEl;
-}
-
-function syncSubagentNode(nodeEl, node, depth, existingNodes) {
-  const refs = subagentRefs.get(nodeEl);
-  const id = String(node.id);
-  const hasChildren = Boolean(node.children?.length);
-  const isTreeExpanded = treeState.has(id) ? treeState.get(id) : depth <= 1;
-  const isDetailExpanded = detailState.has(id);
-  const shortId = node.id ? node.id.slice(0, 8) : 'agent';
-  const displayName = node.role || shortId;
-  const model = node.model || 'Gemini';
-  const tpsStr = node.tps !== null && node.tps !== undefined ? `${rate(node.tps)} tok/s` : '—';
-  const tokStr = node.totalTokens !== null && node.totalTokens !== undefined ? `${compact(node.totalTokens)} tok` : '—';
-  const latestTpsStr = node.latestRateStatus === 'unreliable' ? t('timingUnreliable') : node.latestRateStatus === 'legacy' ? t('ratePending') : node.latestTps !== null && node.latestTps !== undefined ? `${rate(node.latestTps)} tok/s` : '—';
-  const ctxInfo = formatSubagentContext(node.context);
-  const statusInfo = classifySubagentStatus(node.status);
-  const labels = subagentLabels();
-
-  nodeEl.dataset.id = id;
-  refs.itemEl.classList.toggle('is-running', statusInfo.running);
-  refs.itemEl.classList.toggle('is-error', statusInfo.error);
-  refs.statusDotEl.dataset.status = statusInfo.kind;
-  const statusTooltip = `${t('subagentStatus')}: ${statusInfo.label}${statusInfo.raw ? ` (${statusInfo.raw})` : ''}`;
-  setAttr(refs.statusDotEl, 'title', statusTooltip);
-  setAttr(refs.statusDotEl, 'aria-label', statusTooltip);
-  refs.summaryEl.dataset.id = id;
-  setAttr(refs.summaryEl, 'aria-expanded', String(isDetailExpanded));
-
-  if (hasChildren && !refs.treeBtn) {
-    const btn = document.createElement('button');
-    btn.className = 'tree-toggle-btn';
-    btn.type = 'button';
-    btn.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#chevron"/></svg>';
-    refs.bullet.replaceWith(btn);
-    refs.bullet = null;
-    refs.treeBtn = btn;
-  } else if (!hasChildren && refs.treeBtn) {
-    const bullet = document.createElement('span');
-    bullet.className = 'tree-bullet';
-    bullet.textContent = '•';
-    refs.treeBtn.replaceWith(bullet);
-    refs.treeBtn = null;
-    refs.bullet = bullet;
-  }
-
-  if (hasChildren) {
-    refs.treeBtn.dataset.id = id;
-    setAttr(refs.treeBtn, 'aria-expanded', String(isTreeExpanded));
-    setAttr(refs.treeBtn, 'title', isTreeExpanded ? labels.collapse : labels.expand);
-    setAttr(refs.treeBtn, 'aria-label', labels.toggleAria);
-    if (!refs.childCountEl) {
-      const span = document.createElement('span');
-      span.className = 'subagent-child-count';
-      refs.leftEl.appendChild(span);
-      refs.childCountEl = span;
+  // src/shared/color.ts
+  var LUMINANCE_WEIGHTS = [0.2126, 0.7152, 0.0722];
+  var HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+  var THEME_MODES = /* @__PURE__ */ new Set(["dark", "light", "system"]);
+  var THEME_SEED_KEYS = ["primary", "background", "foregroundOverride"];
+  function luminance(rgb) {
+    let sum = 0;
+    for (let i = 0; i < 3; i++) {
+      const channel = rgb[i] / 255;
+      const linear = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      sum += linear * LUMINANCE_WEIGHTS[i];
     }
-    setText(refs.childCountEl, labels.count(node.children.length));
-    setAttr(refs.childCountEl, 'title', labels.countTitle(node.children.length));
-  } else if (refs.childCountEl) {
-    refs.childCountEl.remove();
-    refs.childCountEl = null;
+    return sum;
   }
-
-  setText(refs.nameEl, displayName);
-  setAttr(refs.nameEl, 'title', node.role ? `${node.role} (${id})` : id);
-  setText(refs.badgeEl, model);
-  setAttr(refs.badgeEl, 'title', model);
-  setText(refs.tpsEl, tpsStr);
-  setText(refs.tokensEl, tokStr);
-  refs.contextRingEl.classList.toggle('is-unavailable', !ctxInfo.available);
-  setAttr(refs.contextRingEl, 'title', ctxInfo.label);
-  setAttr(refs.contextRingEl, 'aria-label', ctxInfo.label);
-  setStyle(refs.contextRingFillEl, 'strokeDashoffset', ctxInfo.dashoffset);
-  setStyle(refs.contextRingFillEl, 'stroke', ctxInfo.color);
-  refs.detailBtn.dataset.id = id;
-  setAttr(refs.detailBtn, 'title', labels.detailTitle);
-  setAttr(refs.detailBtn, 'aria-label', labels.detailAria);
-  setAttr(refs.detailBtn, 'aria-pressed', String(isDetailExpanded));
-
-  if (!panelMotion.has(refs.detailEl)) setHidden(refs.detailEl, !isDetailExpanded);
-  const dtTexts = [t('subagentModel'), t('subagentTPS'), t('latest'), t('subagentSteps'), t('subagentTokensDetail'), t('subagentContext'), t('subagentStatus')];
-  for (let i = 0; i < dtTexts.length; i++) setText(refs.dts[i], dtTexts[i]);
-  const ddTexts = [model, tpsStr, latestTpsStr, node.steps || 0, `${node.totalTokens !== null && node.totalTokens !== undefined ? count(node.totalTokens) : '—'} tok`, ctxInfo.detail, statusInfo.label, shortId];
-  for (let i = 0; i < ddTexts.length; i++) setText(refs.dds[i], ddTexts[i]);
-  setAttr(refs.dds[5], 'title', ctxInfo.label);
-  setAttr(refs.dds[6], 'title', statusInfo.raw || null);
-  setAttr(refs.dds[7], 'title', id);
-
-  if (hasChildren) {
-    if (!refs.childrenEl) {
-      const childrenDiv = document.createElement('div');
-      childrenDiv.className = 'subagent-children';
-      nodeEl.appendChild(childrenDiv);
-      refs.childrenEl = childrenDiv;
-    }
-    refs.childrenEl.dataset.parentId = id;
-    if (!panelMotion.has(refs.childrenEl)) setHidden(refs.childrenEl, !isTreeExpanded);
-    syncSubagentChildren(refs.childrenEl, node.children, depth + 1, existingNodes);
-  } else if (refs.childrenEl) {
-    refs.childrenEl.remove();
-    refs.childrenEl = null;
+  function contrastRatio(a, b) {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
   }
-}
-
-function syncSubagentChildren(containerEl, nodes, depth, existingNodes) {
-  const desiredIds = new Set(nodes.map(n => String(n.id)));
-  for (const child of [...containerEl.children]) {
-    if (!child.classList?.contains('subagent-tree-node') || !desiredIds.has(child.dataset?.id)) child.remove();
-  }
-  let cursor = containerEl.firstElementChild;
-  for (const node of nodes) {
-    const id = String(node.id);
-    let nodeEl = existingNodes.get(id);
-    if (nodeEl) existingNodes.delete(id);
-    else nodeEl = createSubagentNodeElement();
-    syncSubagentNode(nodeEl, node, depth, existingNodes);
-    if (nodeEl !== cursor) containerEl.insertBefore(nodeEl, cursor);
-    else cursor = cursor.nextElementSibling;
-  }
-}
-
-function toggleSubagentTree(id, animate = true) {
-  const list = $('subagents-list');
-  const escaped = CSS.escape(id);
-  const childDiv = list?.querySelector(`.subagent-children[data-parent-id="${escaped}"]`);
-  const btn = list?.querySelector(`.tree-toggle-btn[data-id="${escaped}"]`);
-  if (!childDiv || !btn) return;
-  const nextOpen = btn.getAttribute('aria-expanded') !== 'true';
-  treeState.set(id, nextOpen);
-  setExpandedState(childDiv, nextOpen, animate);
-  const labels = subagentLabels();
-  setAttr(btn, 'aria-expanded', String(nextOpen));
-  setAttr(btn, 'title', nextOpen ? labels.collapse : labels.expand);
-}
-
-function toggleSubagentDetail(id, animate = true) {
-  const list = $('subagents-list');
-  const detailBtn = list?.querySelector(`.detail-toggle-btn[data-id="${CSS.escape(id)}"]`);
-  const node = detailBtn?.closest('.subagent-tree-node');
-  const detail = node?.querySelector(':scope > .subagent-item > .subagent-detail');
-  const summary = node?.querySelector(':scope > .subagent-item > .subagent-summary');
-  if (!detail) return;
-  const nextOpen = !detailState.has(id);
-  if (nextOpen) detailState.add(id); else detailState.delete(id);
-  setExpandedState(detail, nextOpen, animate);
-  setAttr(summary, 'aria-expanded', String(nextOpen));
-  setAttr(detailBtn, 'aria-pressed', String(nextOpen));
-}
-
-const MODEL_COLORS = ['var(--pulse-accent)', 'var(--pulse-success)', 'var(--pulse-warning)', '#c084fc', '#38bdf8', '#fb7185'];
-function assignModelColors(models) {
-  const used = new Set(), map = new Map();
-  models.forEach((m, idx) => {
-    const key = typeof m === 'string' ? m : (m.name || m.id);
-    if (!key || map.has(key)) return;
-    const role = typeof m === 'string' ? null : m.role;
-    let cIdx = role === 'plan' ? 0 : role === 'worker' ? 1 : role === 'subagent' ? 2 : idx % MODEL_COLORS.length;
-    if (used.has(cIdx)) {
-      cIdx = MODEL_COLORS.findIndex((_, k) => !used.has(k));
-      if (cIdx < 0) cIdx = idx % MODEL_COLORS.length;
-    }
-    used.add(cIdx);
-    map.set(key, MODEL_COLORS[cIdx]);
-  });
-  return map;
-}
-function roleLabel(role) {
-  return role === 'plan' ? t('modelRolePlan')
-    : role === 'worker' ? t('modelRoleWorker')
-    : role === 'subagent' ? t('modelRoleSubagent')
-    : t('modelRoleModel');
-}
-function metricValueOf(model, metric) {
-  return metric === 'calls' ? (Number(model.requests) || 0)
-    : metric === 'output' ? (Number(model.outputTokens) || 0)
-    : (Number(model.totalTokens) || 0);
-}
-function updateModelMixFocus() {
-  const svg = $('model-mix-svg'), list = $('model-mix-list'), wrap = $('model-mix-ring-wrap');
-  if (!svg || !list) return;
-  const focusId = mixHoverId || mixActiveId;
-  const focused = focusId ? mixDisplayModels.find(m => m.id === focusId) : null;
-  svg.classList.toggle('has-focus', Boolean(focused));
-  for (const seg of svg.querySelectorAll('.model-mix-segment')) {
-    seg.classList.toggle('is-active', Boolean(focused && seg.dataset.modelId === focused.id));
-  }
-  for (const row of list.querySelectorAll('.model-mix-row')) {
-    const active = Boolean(focused && row.dataset.modelId === focused.id);
-    row.classList.toggle('is-active', active);
-    setAttr(row, 'aria-pressed', String(mixActiveId === row.dataset.modelId));
-  }
-  if (focused) {
-    const pctText = `${Math.round(focused.share * 100)}%`;
-    setText($('model-mix-center-value'), pctText);
-    setText($('model-mix-center-label'), mixMetric === 'calls' ? t('modelCallsCount', { count: focused.value }) : `${compact(focused.value)} · ${focused.name}`);
-    setAttr(wrap, 'title', `${focused.name} (${pctText})`);
-  } else {
-    const total = mixDisplayModels.reduce((sum, item) => sum + item.value, 0);
-    setText($('model-mix-center-value'), mixMetric === 'calls' ? count(total) : compact(total));
-    setText($('model-mix-center-label'), mixMetric === 'calls' ? t('modelCallsUnit') : t('modelMixModelsCount', { count: mixDisplayModels.length }));
-    setAttr(wrap, 'title', '');
-  }
-}
-function renderModelMix(speed) {
-  const mixSection = $('panel-model-mix');
-  if (!mixSection) return;
-  const sessionUsage = speed?.modelUsage;
-  const sessionModels = Array.isArray(sessionUsage?.models) ? sessionUsage.models : [];
-  const taskUsage = speed?.taskUsage?.modelUsage;
-  const taskModels = Array.isArray(taskUsage?.models) ? taskUsage.models : [];
-  if (sessionModels.length < 2 && taskModels.length < 2) {
-    setHidden(mixSection, true);
-    lastMixSig = null;
-    mixDisplayModels = [];
-    return;
-  }
-  setHidden(mixSection, false);
-  const hasSubagents = Boolean(speed?.taskUsage?.subagents > 0 && taskModels.length > 0);
-  const scopeGroup = $('model-mix-scope');
-  setHidden(scopeGroup, !hasSubagents);
-  const effectiveScope = !hasSubagents ? 'session' : mixScopeManual ? mixScope : (sessionModels.length < 2 && taskModels.length >= 2 ? 'task' : mixScope);
-  mixScope = effectiveScope;
-  for (const btn of mixSection.querySelectorAll('[data-mix-scope]')) setAttr(btn, 'aria-pressed', String(btn.dataset.mixScope === effectiveScope));
-  for (const btn of mixSection.querySelectorAll('[data-mix-metric]')) setAttr(btn, 'aria-pressed', String(btn.dataset.mixMetric === mixMetric));
-  const rawModels = (effectiveScope === 'task' && taskModels.length ? taskModels : sessionModels).slice();
-  rawModels.sort((a, b) => metricValueOf(b, mixMetric) - metricValueOf(a, mixMetric) || (b.totalTokens || 0) - (a.totalTokens || 0) || (b.requests || 0) - (a.requests || 0));
-  const capped = rawModels.length > 6
-    ? [...rawModels.slice(0, 5), rawModels.slice(5).reduce((acc, m) => ({
-      id: '__other__', name: t('modelMixOther'), role: 'model',
-      requests: acc.requests + (Number(m.requests) || 0),
-      outputTokens: acc.outputTokens + (Number(m.outputTokens) || 0),
-      totalTokens: acc.totalTokens + (Number(m.totalTokens) || 0)
-    }), { id: '__other__', name: t('modelMixOther'), role: 'model', requests: 0, outputTokens: 0, totalTokens: 0 })]
-    : rawModels;
-  const sig = `${language.language}|${mixMetric}|${effectiveScope}|${hasSubagents}|${capped.map(m => `${m.id}:${m.name}:${m.role}:${m.requests}:${m.outputTokens}:${m.totalTokens}`).join('|')}`;
-  if (sig === lastMixSig) { updateModelMixFocus(); return; }
-  lastMixSig = sig;
-  const colorMap = assignModelColors(capped);
-  const totalMetric = capped.reduce((sum, m) => sum + metricValueOf(m, mixMetric), 0);
-  mixDisplayModels = capped.map(m => {
-    const val = metricValueOf(m, mixMetric);
-    return { ...m, value: val, share: totalMetric > 0 ? val / totalMetric : 0, color: colorMap.get(m.name || m.id) || MODEL_COLORS[0] };
-  });
-  if (mixActiveId && !mixDisplayModels.some(m => m.id === mixActiveId)) mixActiveId = null;
-  if (mixHoverId && !mixDisplayModels.some(m => m.id === mixHoverId)) mixHoverId = null;
-  const segHost = $('model-mix-segments'), listHost = $('model-mix-list');
-  if (segHost) {
-    segHost.textContent = '';
-    let offset = 0;
-    for (const item of mixDisplayModels) {
-      if (item.share <= 0) continue;
-      const pct = item.share * 100;
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('class', 'model-mix-segment');
-      circle.setAttribute('cx', '19'); circle.setAttribute('cy', '19'); circle.setAttribute('r', '15.9154943');
-      circle.setAttribute('pathLength', '100');
-      circle.setAttribute('stroke', item.color);
-      circle.setAttribute('stroke-dasharray', `${pct.toFixed(3)} ${Math.max(0, 100 - pct).toFixed(3)}`);
-      circle.setAttribute('stroke-dashoffset', String(100 - offset));
-      circle.setAttribute('tabindex', '0'); circle.setAttribute('role', 'button');
-      circle.setAttribute('aria-label', `${item.name} (${Math.round(pct)}%)`);
-      circle.dataset.modelId = item.id;
-      segHost.appendChild(circle);
-      offset += pct;
-    }
-  }
-  if (listHost) {
-    listHost.textContent = '';
-    for (const item of mixDisplayModels) {
-      const pctText = `${Math.round(item.share * 100)}%`;
-      const row = document.createElement('button');
-      row.type = 'button'; row.className = 'model-mix-row'; row.dataset.modelId = item.id;
-      const statTok = mixMetric === 'output' ? item.outputTokens : item.totalTokens;
-      setAttr(row, 'title', `${item.name} · ${roleLabel(item.role)} · ${count(item.totalTokens)} tok / ${count(item.outputTokens)} out / ${t('modelCallsCount', { count: item.requests || 0 })}`);
-      const top = document.createElement('div'); top.className = 'model-mix-row-top';
-      const left = document.createElement('span'); left.className = 'model-mix-row-id';
-      const dot = document.createElement('span'); dot.className = 'model-mix-dot'; dot.style.background = item.color;
-      const name = document.createElement('span'); name.className = 'model-mix-name'; name.textContent = item.name;
-      const badge = document.createElement('span'); badge.className = 'model-mix-role'; badge.dataset.role = item.role || 'model'; badge.textContent = roleLabel(item.role);
-      left.append(dot, name, badge);
-      const share = document.createElement('span'); share.className = 'model-mix-share'; share.textContent = pctText;
-      top.append(left, share);
-      const stats = document.createElement('div'); stats.className = 'model-mix-stats';
-      stats.textContent = `${compact(statTok)} tok · ${t('modelCallsCount', { count: item.requests || 0 })}`;
-      row.append(top, stats);
-      listHost.appendChild(row);
-    }
-  }
-  updateModelMixFocus();
-}
-
-function renderTimelineStatus() {
-  const el = $('timeline-status');
-  if (!el) return;
-  if (!timelineNoticeKey) { setHidden(el, true); setText(el, ''); el.classList.remove('is-error'); return; }
-  setHidden(el, false);
-  el.classList.toggle('is-error', timelineNoticeIsError);
-  setText(el, t(timelineNoticeKey));
-}
-function formatDurationMs(ms) {
-  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return '';
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
-}
-function formatClock(iso) {
-  if (!iso) return '';
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString(language.language, { hour12: false }) : '';
-}
-function timelineEventLabel(node) {
-  if (node.event === 'model_switch') return t('timelineEventModelSwitch');
-  switch (node.kind) {
-    case 'turn': return t('timelineEventTurn');
-    case 'handoff': return t('timelineEventHandoff');
-    case 'tool_group': return t('timelineEventToolGroup');
-    case 'subagent': return t('timelineEventSubagent');
-    case 'error': return t('timelineEventError');
-    case 'phase':
-    case 'model_call': return node.role === 'plan' ? t('timelineEventPlan') : node.role === 'worker' ? t('timelineEventWorker') : roleLabel(node.role);
-    default: return node.event || node.kind || 'step';
-  }
-}
-function timelineNodeSummary(node) {
-  const meta = node.meta || {};
-  if (node.kind === 'turn') {
-    const turnPart = meta.turnIndex ? `#${meta.turnIndex}` : '';
-    const spanPart = meta.stepStart != null ? `#${meta.stepStart}${meta.stepEnd != null && meta.stepEnd !== meta.stepStart ? `–${meta.stepEnd}` : ''}` : '';
-    return [turnPart, spanPart].filter(Boolean).join(' · ') || node.event || '';
-  }
-  if (node.kind === 'handoff' || node.event === 'model_switch') {
-    return `${meta.fromModel || '?'} \u2192 ${meta.toModel || node.model || '?'}`;
-  }
-  if (node.kind === 'tool_group') {
-    const callsText = t('modelCallsCount', { count: meta.calls || 1 });
-    return meta.category ? `${meta.category} · ${callsText}` : callsText;
-  }
-  if (node.kind === 'subagent') {
-    const title = meta.role || node.model || '';
-    return meta.status ? `${title} · ${meta.status}` : title;
-  }
-  const stepPrefix = meta.stepIndex != null ? `#${meta.stepIndex} ` : '';
-  return `${stepPrefix}${node.model || node.event || ''}`.trim();
-}
-function showSwimlaneTip(idx) {
-  const tip = $('timeline-lane-tip'), swimHost = $('timeline-swimlanes');
-  if (swimHost) {
-    for (const segEl of swimHost.querySelectorAll('.timeline-seg')) {
-      segEl.classList.toggle('is-active', Number(segEl.dataset.segIdx) === idx);
-    }
-  }
-  if (!tip) return;
-  if (idx < 0 || idx >= lastTimelineRender.length) { setHidden(tip, true); setText(tip, ''); return; }
-  const seg = lastTimelineRender[idx];
-  const stepLabel = seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `–${seg.stepEnd}` : ''}` : '';
-  const durLabel = formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0));
-  const callsLabel = seg.calls > 0 ? t('modelCallsCount', { count: seg.calls }) : '';
-  setText(tip, [seg.model || seg.label, stepLabel, durLabel, callsLabel].filter(Boolean).join(' · '));
-  setHidden(tip, false);
-}
-function createChevronSvg() {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('class', 'icon');
-  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-  use.setAttribute('href', '#chevron');
-  svg.appendChild(use);
-  return svg;
-}
-function buildTimelineTreeNode(node, depth) {
-  const el = document.createElement('div');
-  el.className = 'timeline-node';
-  el.dataset.kind = node.kind || 'step';
-  el.dataset.nodeId = node.id || '';
-  if (node.meta?.stepStart != null) el.dataset.stepStart = String(node.meta.stepStart);
-  if (node.meta?.stepEnd != null) el.dataset.stepEnd = String(node.meta.stepEnd);
-  if (node.meta?.stepIndex != null) el.dataset.stepIndex = String(node.meta.stepIndex);
-  const children = Array.isArray(node.children) ? node.children : [];
-  const hasChildren = children.length > 0;
-  const collapsed = hasChildren && (timelineToggled.has(node.id) ? timelineToggled.get(node.id) : depth >= 2);
-  const row = document.createElement('div');
-  row.className = 'timeline-node-row';
-  if (hasChildren) {
-    const toggleBtn = document.createElement('button');
-    toggleBtn.type = 'button'; toggleBtn.className = 'timeline-toggle-btn';
-    toggleBtn.dataset.nodeId = node.id;
-    setAttr(toggleBtn, 'aria-expanded', String(!collapsed));
-    setAttr(toggleBtn, 'aria-label', timelineEventLabel(node));
-    toggleBtn.appendChild(createChevronSvg());
-    row.appendChild(toggleBtn);
-  } else {
-    const bullet = document.createElement('span'); bullet.className = 'timeline-bullet'; bullet.textContent = '·';
-    row.appendChild(bullet);
-  }
-  const eventBadge = document.createElement('span');
-  eventBadge.className = 'timeline-event-badge';
-  eventBadge.textContent = timelineEventLabel(node);
-  const main = document.createElement('div'); main.className = 'timeline-node-main';
-  const summary = document.createElement('span'); summary.className = 'timeline-node-summary';
-  const summaryText = timelineNodeSummary(node);
-  summary.textContent = summaryText;
-  if (summaryText) setAttr(summary, 'title', summaryText);
-  main.append(eventBadge, summary);
-  const badges = document.createElement('div'); badges.className = 'timeline-node-badges';
-  if (node.model && node.kind !== 'handoff' && !summaryText.includes(node.model)) {
-    const mChip = document.createElement('span'); mChip.className = 'timeline-chip'; mChip.textContent = node.model; setAttr(mChip, 'title', node.model); badges.appendChild(mChip);
-  }
-  const tokTotal = node.tokens?.totalTokens || node.tokens?.outputTokens || 0;
-  if (tokTotal > 0) {
-    const tChip = document.createElement('span'); tChip.className = 'timeline-chip'; tChip.textContent = `${compact(tokTotal)} tok`; badges.appendChild(tChip);
-  }
-  const dur = formatDurationMs(node.durationMs);
-  if (dur) {
-    const dChip = document.createElement('span'); dChip.className = 'timeline-chip'; dChip.textContent = dur; badges.appendChild(dChip);
-  }
-  const clk = formatClock(node.time);
-  if (clk) {
-    const cChip = document.createElement('span'); cChip.className = 'timeline-chip is-time'; cChip.textContent = clk; badges.appendChild(cChip);
-  }
-  row.append(main, badges);
-  el.appendChild(row);
-  if (hasChildren) {
-    const kidsEl = document.createElement('div');
-    kidsEl.className = 'timeline-children';
-    kidsEl.hidden = collapsed;
-    for (const child of children) kidsEl.appendChild(buildTimelineTreeNode(child, depth + 1));
-    el.appendChild(kidsEl);
-  }
-  return el;
-}
-function renderTimeline(speed) {
-  const offBar = $('timeline-off-bar'), panel = $('timeline-panel');
-  const swimWrap = $('timeline-swimlanes-wrap'), swimEl = $('timeline-swimlanes'), treeEl = $('timeline-tree');
-  if (!offBar || !panel || !swimEl || !treeEl) return;
-  for (const btnId of ['timeline-enable-btn', 'timeline-disable-btn', 'timeline-clear-btn']) {
-    const btn = $(btnId);
-    if (btn) btn.disabled = timelineBusy;
-  }
-  renderTimelineStatus();
-  if (!timelineEnabled) {
-    setHidden(offBar, false);
-    setHidden(panel, true);
-    if (swimEl.children.length) swimEl.textContent = '';
-    if (treeEl.children.length) treeEl.textContent = '';
-    lastTimelineRender = [];
-    lastTimelineSig = null;
-    return;
-  }
-  setHidden(offBar, true);
-  setHidden(panel, false);
-  const tl = speed?.modelTimeline || null;
-  const nodes = Array.isArray(tl?.nodes) ? tl.nodes : [];
-  const swimlanes = Array.isArray(tl?.swimlanes) ? tl.swimlanes : [];
-  const countEl = $('timeline-count');
-  setText(countEl, String(nodes.length));
-  setHidden(countEl, nodes.length === 0);
-  setHidden($('timeline-truncated'), !tl?.truncated);
-  setHidden($('timeline-empty'), nodes.length > 0 || swimlanes.length > 0);
-  setHidden(swimWrap, swimlanes.length === 0);
-  const sig = `${language.language}|${tl?.cascadeId || ''}|${tl?.savedAt || ''}|${Boolean(tl?.truncated)}|${JSON.stringify(swimlanes)}|${JSON.stringify(nodes)}`;
-  if (sig === lastTimelineSig) return;
-  lastTimelineSig = sig;
-  const colorModels = [...(speed?.modelUsage?.models || []), ...swimlanes.map(s => ({ name: s.model || s.label, role: s.kind === 'plan' || s.kind === 'worker' || s.kind === 'subagent' ? s.kind : 'model' }))];
-  const colorMap = assignModelColors(colorModels);
-  swimEl.textContent = '';
-  lastTimelineRender = [];
-  showSwimlaneTip(-1);
-  if (swimlanes.length > 0) {
-    const tracks = [
-      { key: 'plan', label: t('timelineLanePlan'), match: s => s.kind === 'plan' },
-      { key: 'worker', label: t('timelineLaneWorker'), match: s => s.kind === 'worker' },
-      { key: 'tools', label: t('timelineLaneToolsAgents'), match: s => s.kind === 'tool' || s.kind === 'subagent' || s.kind === 'handoff' }
+  function mixRgb(a, b, amount) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * amount),
+      Math.round(a[1] + (b[1] - a[1]) * amount),
+      Math.round(a[2] + (b[2] - a[2]) * amount)
     ];
-    for (const trackDef of tracks) {
-      const lane = document.createElement('div'); lane.className = 'timeline-lane'; lane.dataset.lane = trackDef.key;
-      const lbl = document.createElement('span'); lbl.className = 'timeline-lane-label'; lbl.textContent = trackDef.label; setAttr(lbl, 'title', trackDef.label);
-      const track = document.createElement('div'); track.className = 'timeline-track';
-      for (const seg of swimlanes.filter(trackDef.match)) {
-        const idx = lastTimelineRender.length;
-        lastTimelineRender.push(seg);
-        const leftPct = Math.min(98.5, Math.max(0, (Number(seg.startRatio) || 0) * 100));
-        const widthPct = Math.min(100 - leftPct, Math.max(1.5, (Number(seg.widthRatio) || 0.02) * 100));
-        const btn = document.createElement('button');
-        btn.type = 'button'; btn.className = 'timeline-seg';
-        btn.dataset.segIdx = String(idx); btn.dataset.kind = seg.kind || 'step';
-        btn.style.left = `${leftPct.toFixed(2)}%`;
-        btn.style.width = `${widthPct.toFixed(2)}%`;
-        btn.style.background = seg.kind === 'handoff' ? 'var(--pulse-warning)' : (colorMap.get(seg.model || seg.label) || MODEL_COLORS[idx % MODEL_COLORS.length]);
-        const tipLabel = [seg.model || seg.label, seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `–${seg.stepEnd}` : ''}` : '', formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0))].filter(Boolean).join(' · ');
-        setAttr(btn, 'title', tipLabel);
-        setAttr(btn, 'aria-label', tipLabel);
-        track.appendChild(btn);
+  }
+  function rgbToCss(color) {
+    return `rgb(${color[0]} ${color[1]} ${color[2]})`;
+  }
+  function readableColor(color, surfaces, minContrast = 4.5) {
+    const isReadable = (values) => surfaces.every((surface) => contrastRatio(values, surface) >= minContrast);
+    if (isReadable(color)) return rgbToCss(color);
+    const white = [255, 255, 255];
+    const black = [0, 0, 0];
+    const score = (values) => Math.min(...surfaces.map((surface) => contrastRatio(values, surface)));
+    const end = score(white) >= score(black) ? white : black;
+    for (let step = 1; step <= 100; step++) {
+      const mixed = mixRgb(color, end, step / 100);
+      if (isReadable(mixed)) return rgbToCss(mixed);
+    }
+    return rgbToCss(end);
+  }
+  function normalizeHexColor(value) {
+    if (typeof value !== "string" || !HEX_COLOR_RE.test(value)) return null;
+    if (value.length === 4) {
+      return ("#" + value[1] + value[1] + value[2] + value[2] + value[3] + value[3]).toLowerCase();
+    }
+    return value.toLowerCase();
+  }
+  function normalizeHostTheme(value) {
+    const result = {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+    const raw = value;
+    if (typeof raw.mode === "string" && THEME_MODES.has(raw.mode)) {
+      result.mode = raw.mode;
+    }
+    for (const mode of ["dark", "light"]) {
+      const rawPalette = raw[mode];
+      if (!rawPalette || typeof rawPalette !== "object" || Array.isArray(rawPalette)) {
+        continue;
       }
-      lane.append(lbl, track);
-      swimEl.appendChild(lane);
+      const paletteObj = rawPalette;
+      for (const key of THEME_SEED_KEYS) {
+        const normalized = normalizeHexColor(paletteObj[key]);
+        if (!normalized) continue;
+        (result[mode] ??= {})[key] = normalized;
+      }
+    }
+    return result;
+  }
+
+  // src/ui/theme/palettes.ts
+  var PALETTES = {
+    dark: {
+      scheme: "dark",
+      page: "#121315",
+      background: "#1c1d1f",
+      card: "#2a2c2f",
+      "card-end": "#303235",
+      foreground: "#e1e3e7",
+      chip: "#aaaeb6",
+      muted: "#adb2ba",
+      subtle: "#a3aab5",
+      label: "#b8bdc5",
+      hover: "#292b2e",
+      "hover-text": "#d9dce2",
+      accent: "#85a8ff",
+      emphasis: "#dbe5ff",
+      border: "#41454d",
+      separator: "#ffffff15",
+      track: "#ffffff15",
+      control: "#383b3f",
+      "control-text": "#c2c7d1",
+      menu: "#303338",
+      selected: "#444950",
+      ring: "#9fadc7",
+      "ring-track": "#565c67",
+      dot: "#777c84",
+      success: "#8bb19b",
+      warning: "#d7b079",
+      danger: "#e99b9b",
+      shadow: "#0005"
+    },
+    light: {
+      scheme: "light",
+      page: "#f5f6f8",
+      background: "#ffffff",
+      card: "#ffffff",
+      "card-end": "#f5f7fa",
+      foreground: "#202631",
+      chip: "#485261",
+      muted: "#596575",
+      subtle: "#626d7c",
+      label: "#515c6b",
+      hover: "#e9edf3",
+      "hover-text": "#172333",
+      accent: "#315fc4",
+      emphasis: "#284e9b",
+      border: "#ccd3df",
+      separator: "#18253b20",
+      track: "#dce2ec",
+      control: "#e8edf4",
+      "control-text": "#354255",
+      menu: "#ffffff",
+      selected: "#e4ebf6",
+      ring: "#4667a0",
+      "ring-track": "#c5cedd",
+      dot: "#707b8a",
+      success: "#347451",
+      warning: "#8b601b",
+      danger: "#b13c3c",
+      shadow: "#14234026"
+    }
+  };
+  function declarations(theme) {
+    return Object.entries(PALETTES[theme]).map(([key, value]) => `--pulse-${key}:${value}`).join(";");
+  }
+  function css(selector) {
+    return `${selector}{${declarations("dark")}}${selector}[data-pulse-theme="light"]{${declarations("light")}}@media(prefers-color-scheme:light){${selector}:not([data-pulse-theme]){${declarations("light")}}}`;
+  }
+  function shadowCss() {
+    return `:host{${declarations("dark")}}:host([data-pulse-theme="light"]){${declarations("light")}}`;
+  }
+  function explicitTheme(element) {
+    if (!element) return null;
+    for (const key of ["data-theme", "data-color-mode", "data-theme-mode", "data-vscode-theme-kind"]) {
+      const value = element.getAttribute(key)?.toLowerCase() ?? "";
+      if (/^(light|light-theme|vs|vscode-light|hc-light)$/.test(value)) return "light";
+      if (/^(dark|dark-theme|vs-dark|vscode-dark|hc-black|hc-dark)$/.test(value)) return "dark";
+    }
+    const classes = element.classList;
+    const light = ["light", "light-theme", "theme-light", "vscode-light", "vs"].some(
+      (value) => classes.contains(value)
+    );
+    const dark = ["dark", "dark-theme", "theme-dark", "vscode-dark", "vs-dark", "hc-black"].some(
+      (value) => classes.contains(value)
+    );
+    return light === dark ? null : light ? "light" : "dark";
+  }
+
+  // src/ui/theme/index.ts
+  function createAgPulseTheme() {
+    function attach(target, { embedded = false } = {}) {
+      const media = window.matchMedia("(prefers-color-scheme: dark)");
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      let stopped = false;
+      let hostTheme = {};
+      function rgb(color) {
+        if (!color || !context || !CSS.supports("color", color)) return null;
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = "transparent";
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+        if (a < 250) return null;
+        return [r, g, b];
+      }
+      function fromColor(color) {
+        const values = rgb(color);
+        return values ? 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2] >= 145 ? "light" : "dark" : null;
+      }
+      function resolve() {
+        const root = document.documentElement;
+        const declared = explicitTheme(document.body) || explicitTheme(root);
+        if (declared) return declared;
+        const sdk = fromColor(getComputedStyle(root).getPropertyValue("--background").trim());
+        if (sdk) return sdk;
+        if (embedded) {
+          for (let element = target.parentElement; element; element = element.parentElement) {
+            const theme = explicitTheme(element) || fromColor(getComputedStyle(element).backgroundColor);
+            if (theme) return theme;
+          }
+          const scheme = getComputedStyle(root).colorScheme;
+          if (scheme === "light" || scheme === "dark") return scheme;
+        }
+        if (hostTheme.mode === "light" || hostTheme.mode === "dark") return hostTheme.mode;
+        return media.matches ? "dark" : "light";
+      }
+      function hostColor(tokens) {
+        const elements2 = embedded ? [target.parentElement, document.body, document.documentElement] : [document.documentElement, document.body];
+        for (const element of elements2.filter((el) => Boolean(el))) {
+          const style = getComputedStyle(element);
+          for (const token of tokens) {
+            const value = style.getPropertyValue(token).trim();
+            if (!value) continue;
+            const color = rgb(value) || rgb(`hsl(${value})`);
+            if (color) return color;
+          }
+        }
+        return null;
+      }
+      function surfaceColors(theme) {
+        let background = hostColor(["--background", "--color-background"]) || rgb(hostTheme[theme]?.background);
+        if (!background && embedded) {
+          for (let element = target.parentElement; element; element = element.parentElement) {
+            background = rgb(getComputedStyle(element).backgroundColor);
+            if (background) break;
+          }
+        }
+        if (!background) return {};
+        const bg = background;
+        const dark = luminance(bg) < 0.35;
+        const end = dark ? [255, 255, 255] : [0, 0, 0];
+        let card = hostColor(["--popover", "--card", "--color-card"]) || mixRgb(bg, end, dark ? 0.05 : 0.015);
+        const commonContrast = (candidate) => Math.max(
+          ...[
+            [255, 255, 255],
+            [0, 0, 0]
+          ].map((fg) => Math.min(contrastRatio(fg, bg), contrastRatio(fg, candidate)))
+        );
+        if (commonContrast(card) < 4.5) card = mixRgb(bg, end, dark ? 0.05 : 0.015);
+        const hover = mixRgb(card, end, 0.06);
+        const control = mixRgb(card, end, 0.08);
+        const selected = mixRgb(card, end, 0.12);
+        const surfaces = [bg, card, hover, control, selected];
+        const foreground = hostColor(["--foreground", "--color-foreground"]) || rgb(hostTheme[theme]?.foregroundOverride) || rgb(PALETTES[dark ? "dark" : "light"].foreground);
+        const text = foreground ? rgb(readableColor(foreground, surfaces)) : null;
+        const resolvedText = text ?? (dark ? [255, 255, 255] : [0, 0, 0]);
+        const values = {
+          page: bg,
+          background: bg,
+          card,
+          "card-end": card,
+          menu: card,
+          hover,
+          control,
+          selected,
+          foreground: resolvedText,
+          chip: mixRgb(card, resolvedText, 0.8),
+          muted: mixRgb(card, resolvedText, 0.75),
+          subtle: mixRgb(card, resolvedText, 0.7),
+          label: mixRgb(card, resolvedText, 0.8),
+          "hover-text": resolvedText,
+          "control-text": mixRgb(card, resolvedText, 0.85),
+          border: mixRgb(card, resolvedText, 0.24),
+          separator: mixRgb(card, resolvedText, 0.14),
+          track: mixRgb(card, resolvedText, 0.14),
+          "ring-track": mixRgb(card, resolvedText, 0.24),
+          dot: mixRgb(card, resolvedText, 0.6)
+        };
+        for (const key of ["chip", "muted", "subtle", "label", "control-text"]) {
+          const readable = rgb(readableColor(values[key], surfaces));
+          if (readable) values[key] = readable;
+        }
+        return Object.fromEntries(
+          Object.entries(values).map(([key, value]) => [key, rgbToCss(value)])
+        );
+      }
+      function update() {
+        if (stopped) return void 0;
+        const theme = resolve();
+        if (target.dataset.pulseTheme !== theme) target.dataset.pulseTheme = theme;
+        const values = surfaceColors(theme);
+        const surfaces = [
+          values.card || PALETTES[theme].card,
+          values.background || PALETTES[theme].background,
+          values.control || PALETTES[theme].control
+        ].map(rgb).filter((item) => item !== null);
+        const primary = hostColor(["--primary", "--color-primary"]) || rgb(hostTheme[theme]?.primary);
+        if (primary) {
+          values.accent = rgbToCss(primary);
+          values.ring = rgbToCss(primary);
+        }
+        if (primary || values.card) {
+          const seed = primary || rgb(PALETTES[theme].emphasis);
+          if (seed) values.emphasis = readableColor(seed, surfaces);
+        }
+        if (values.card) {
+          for (const key of ["success", "warning", "danger"]) {
+            const seed = rgb(PALETTES[theme][key]);
+            if (seed) values[key] = readableColor(seed, surfaces);
+          }
+        }
+        for (const key of Object.keys(PALETTES[theme])) {
+          const property = `--pulse-${key}`;
+          const value = values[key];
+          if (value) {
+            if (target.style.getPropertyValue(property) !== value) {
+              target.style.setProperty(property, value);
+            }
+          } else if (target.style.getPropertyValue(property)) {
+            target.style.removeProperty(property);
+          }
+        }
+        return theme;
+      }
+      const observer = new MutationObserver(update);
+      const attributes = [
+        "class",
+        "style",
+        "data-theme",
+        "data-color-mode",
+        "data-theme-mode",
+        "data-vscode-theme-kind"
+      ];
+      const elements = /* @__PURE__ */ new Set([document.documentElement, document.body]);
+      if (embedded) {
+        for (let element = target.parentElement; element; element = element.parentElement) {
+          elements.add(element);
+        }
+      }
+      for (const element of elements) {
+        if (element) observer.observe(element, { attributes: true, attributeFilter: attributes });
+      }
+      if (document.head) {
+        observer.observe(document.head, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["href", "media", "disabled"]
+        });
+      }
+      media.addEventListener("change", update);
+      const timer = setInterval(update, 1500);
+      update();
+      return {
+        update,
+        setHostTheme(value) {
+          hostTheme = normalizeHostTheme(value);
+          return update();
+        },
+        dispose() {
+          stopped = true;
+          observer.disconnect();
+          media.removeEventListener("change", update);
+          clearInterval(timer);
+        }
+      };
+    }
+    return { css, shadowCss, attach, normalizeHostTheme };
+  }
+
+  // src/ui/panel-webview/dom-motion.ts
+  var panelMotion = /* @__PURE__ */ new WeakMap();
+  var reducedMotionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function isMotionReduced() {
+    return Boolean(
+      reducedMotionQuery?.matches || document.documentElement.classList.contains("motion-reduced") || document.body.classList.contains("motion-reduced") || document.querySelector(".widget")?.classList.contains("motion-reduced")
+    );
+  }
+  function clearMotionProps(el) {
+    el.style.maxHeight = "";
+    el.style.opacity = "";
+    el.style.overflow = "";
+  }
+  function setExpandedState(el, expanded, animate = true) {
+    if (!el) return;
+    const prev = panelMotion.get(el);
+    const isVisible = !el.hidden && !(prev && !prev.expanding);
+    if (!prev && isVisible === expanded) return;
+    let fromHeight = null;
+    let fromOpacity = null;
+    if (prev) {
+      fromHeight = el.getBoundingClientRect().height;
+      fromOpacity = parseFloat(getComputedStyle(el).opacity);
+      prev.anim?.cancel();
+      clearMotionProps(el);
+      panelMotion.delete(el);
+      if (isVisible === expanded) {
+        el.hidden = !expanded;
+        return;
+      }
+    }
+    if (!animate || isMotionReduced() || typeof el.animate !== "function") {
+      el.hidden = !expanded;
+      return;
+    }
+    el.hidden = false;
+    const cssMax = parseFloat(getComputedStyle(el).maxHeight);
+    const fullHeight = Number.isFinite(cssMax) && cssMax > 0 ? Math.min(el.scrollHeight, cssMax) : el.scrollHeight;
+    if (fullHeight <= 0) {
+      el.hidden = !expanded;
+      return;
+    }
+    const startHeight = fromHeight !== null ? fromHeight : expanded ? 0 : fullHeight;
+    const endHeight = expanded ? fullHeight : 0;
+    const startOpacity = fromOpacity !== null && Number.isFinite(fromOpacity) ? fromOpacity : expanded ? 0 : 1;
+    const endOpacity = expanded ? 1 : 0;
+    el.style.overflow = "hidden";
+    const anim = el.animate(
+      [
+        { maxHeight: `${startHeight}px`, opacity: startOpacity },
+        { maxHeight: `${endHeight}px`, opacity: endOpacity }
+      ],
+      { duration: expanded ? 180 : 160, easing: "cubic-bezier(.22,1,.36,1)" }
+    );
+    panelMotion.set(el, { anim, expanding: expanded });
+    const settle = (cancelled) => {
+      if (panelMotion.get(el)?.anim !== anim) return;
+      clearMotionProps(el);
+      panelMotion.delete(el);
+      if (!cancelled && !expanded) el.hidden = true;
+    };
+    anim.onfinish = () => settle(false);
+    anim.oncancel = () => settle(true);
+  }
+  function createDomLookup() {
+    const domCache = /* @__PURE__ */ new Map();
+    return (id) => {
+      let el = domCache.get(id);
+      if (!el || !el.isConnected) {
+        el = document.getElementById(id) ?? void 0;
+        if (el) domCache.set(id, el);
+      }
+      return el ?? null;
+    };
+  }
+  function createCardSwitcher(ctx) {
+    const chips = [...document.querySelectorAll("[data-card]")];
+    const cardScroll = /* @__PURE__ */ new Map();
+    let cardMotion = null;
+    const showCard = (name, animate = false) => {
+      if (name !== "speed" && name !== "cache" && name !== "context") return;
+      const prev = ctx.state.selectedCard;
+      const changed = prev !== name;
+      if (changed) {
+        const prevEl = ctx.$(`${prev}-card`);
+        if (prevEl) cardScroll.set(prev, prevEl.scrollTop);
+      }
+      ctx.state.selectedCard = name;
+      cardMotion?.cancel();
+      cardMotion = null;
+      for (const chip of chips) {
+        const selected = chip.dataset.card === name;
+        setAttr(chip, "aria-selected", String(selected));
+        chip.tabIndex = selected ? 0 : -1;
+      }
+      for (const key of ["speed", "cache", "context"]) {
+        setHidden(ctx.$(`${key}-card`), name !== key);
+      }
+      const card = ctx.$(`${name}-card`);
+      if (card && changed) card.scrollTop = cardScroll.get(name) ?? 0;
+      if (changed && animate && !isMotionReduced() && card?.animate) {
+        cardMotion = card.animate(
+          [
+            { opacity: 0.55, transform: "translateY(4px)" },
+            { opacity: 1, transform: "translateY(0)" }
+          ],
+          { duration: 160, easing: "cubic-bezier(.22,1,.36,1)" }
+        );
+      }
+    };
+    for (const chip of chips) {
+      chip.addEventListener("click", (event) => showCard(chip.dataset.card, event.detail > 0));
+      chip.addEventListener("keydown", (event) => {
+        const current = chips.indexOf(chip);
+        let next;
+        if (event.key === "ArrowRight") next = (current + 1) % chips.length;
+        else if (event.key === "ArrowLeft") next = (current + chips.length - 1) % chips.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = chips.length - 1;
+        else return;
+        event.preventDefault();
+        showCard(chips[next].dataset.card, true);
+        chips[next].focus();
+      });
+    }
+    return showCard;
+  }
+
+  // src/ui/shared/model-donut.ts
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  var ROLE_COLORS = {
+    plan: "var(--pulse-accent)",
+    worker: "var(--pulse-success)",
+    subagent: "var(--pulse-warning)"
+  };
+  var PANEL_MIX_PALETTE = [
+    "var(--pulse-accent)",
+    "var(--pulse-success)",
+    "var(--pulse-warning)",
+    "#c084fc",
+    "#38bdf8",
+    "#fb7185"
+  ];
+  function metricValueOf(model, metric = "total") {
+    if (!model) return 0;
+    if (metric === "calls") return Number(model.requests) || 0;
+    if (metric === "output") return Number(model.outputTokens) || 0;
+    return Number(model.totalTokens) || 0;
+  }
+  function assignModelColors(models, palette = PANEL_MIX_PALETTE) {
+    const used = /* @__PURE__ */ new Set();
+    const map = /* @__PURE__ */ new Map();
+    models.forEach((entry, idx) => {
+      const key = typeof entry === "string" ? entry : entry.name || entry.id;
+      if (!key || map.has(key)) return;
+      const role = typeof entry === "string" ? null : entry.role ?? null;
+      const preferred = role ? ROLE_COLORS[role] : void 0;
+      let chosen;
+      if (preferred && !used.has(preferred)) {
+        chosen = preferred;
+      } else {
+        chosen = palette.find((c) => !used.has(c)) ?? palette[idx % palette.length];
+      }
+      used.add(chosen);
+      map.set(key, chosen);
+    });
+    return map;
+  }
+  function partitionModelSlices(models, options) {
+    const metric = options.metric ?? "total";
+    const sorted = [...models].sort(
+      (a, b) => metricValueOf(b, metric) - metricValueOf(a, metric) || (Number(b?.totalTokens) || 0) - (Number(a?.totalTokens) || 0) || (Number(b?.requests) || 0) - (Number(a?.requests) || 0)
+    );
+    const capped = sorted.length > options.maxVisible ? [
+      ...sorted.slice(0, options.headCount),
+      sorted.slice(options.headCount).reduce(
+        (acc, m) => ({
+          id: "__other__",
+          name: options.otherLabel,
+          role: "model",
+          requests: acc.requests + (Number(m?.requests) || 0),
+          outputTokens: acc.outputTokens + (Number(m?.outputTokens) || 0),
+          totalTokens: acc.totalTokens + (Number(m?.totalTokens) || 0)
+        }),
+        { id: "__other__", name: options.otherLabel, role: "model", requests: 0, outputTokens: 0, totalTokens: 0 }
+      )
+    ] : sorted;
+    const palette = options.palette ?? PANEL_MIX_PALETTE;
+    const colorMap = assignModelColors(capped, palette);
+    const totalMetric = capped.reduce((sum, m) => sum + Math.max(0, metricValueOf(m, metric)), 0);
+    return capped.map((m, idx) => {
+      const id = String(m?.id || m?.name || idx);
+      const name = String(m?.name || m?.id || "\u2014");
+      const val = Math.max(0, metricValueOf(m, metric));
+      const resolvedColor = id === "__other__" && options.otherColor ? options.otherColor : colorMap.get(m?.name || m?.id || name) || palette[idx % palette.length];
+      return {
+        id,
+        name,
+        role: String(m?.role || "model"),
+        requests: Number(m?.requests) || 0,
+        outputTokens: Number(m?.outputTokens) || 0,
+        totalTokens: Number(m?.totalTokens) || 0,
+        value: val,
+        share: totalMetric > 0 ? val / totalMetric : 0,
+        color: resolvedColor
+      };
+    });
+  }
+  function createDonutSegment(opts, doc = document) {
+    const circle = doc.createElementNS(SVG_NS, "circle");
+    circle.setAttribute("class", opts.className);
+    circle.setAttribute("cx", String(opts.cx));
+    circle.setAttribute("cy", String(opts.cy));
+    circle.setAttribute("r", String(opts.r));
+    if (opts.pathLength != null) circle.setAttribute("pathLength", String(opts.pathLength));
+    circle.setAttribute("stroke-dasharray", opts.dasharray);
+    circle.setAttribute("stroke-dashoffset", opts.dashoffset);
+    circle.dataset.modelId = opts.modelId;
+    circle.style.setProperty("stroke", opts.color);
+    if (opts.tabIndex != null) circle.setAttribute("tabindex", String(opts.tabIndex));
+    if (opts.role) circle.setAttribute("role", opts.role);
+    if (opts.ariaLabel) circle.setAttribute("aria-label", opts.ariaLabel);
+    return circle;
+  }
+  function formatQuotaGroupLabel(group, fallback = "") {
+    const name = group?.name || "";
+    if (/gemini/i.test(name)) return "Gemini";
+    if (/claude|gpt/i.test(name)) return "Claude / GPT";
+    return name || fallback;
+  }
+  function selectPreferredQuotaGroup(groups, chosenId, modelName) {
+    const model = String(modelName || "").toLowerCase();
+    return groups.find((g) => g.id === chosenId) ?? groups.find(
+      (g) => /gemini/.test(model) ? /gemini/i.test(g.id) : /claude|gpt/.test(model) ? /3p|claude|gpt/i.test(g.id) : false
+    ) ?? groups[0];
+  }
+
+  // src/ui/panel-webview/model-mix.ts
+  function roleLabel(ctx, role) {
+    const t = ctx.language.t;
+    if (role === "plan") return t("modelRolePlan");
+    if (role === "worker") return t("modelRoleWorker");
+    if (role === "subagent") return t("modelRoleSubagent");
+    return t("modelRoleModel");
+  }
+  function updateModelMixFocus(ctx) {
+    const { $, state, language } = ctx;
+    const t = language.t;
+    const svg = $("model-mix-svg");
+    const list = $("model-mix-list");
+    const wrap = $("model-mix-ring-wrap");
+    if (!svg || !list) return;
+    const focusId = state.mixHoverId || state.mixActiveId;
+    const focused = focusId ? state.mixDisplayModels.find((m) => m.id === focusId) : null;
+    svg.classList.toggle("has-focus", Boolean(focused));
+    for (const seg of svg.querySelectorAll(".model-mix-segment")) {
+      seg.classList.toggle("is-active", Boolean(focused && seg.dataset.modelId === focused.id));
+    }
+    for (const row of list.querySelectorAll(".model-mix-row")) {
+      const active = Boolean(focused && row.dataset.modelId === focused.id);
+      row.classList.toggle("is-active", active);
+      setAttr(row, "aria-pressed", String(state.mixActiveId === row.dataset.modelId));
+    }
+    if (focused) {
+      const pctText = `${Math.round(focused.share * 100)}%`;
+      setText($("model-mix-center-value"), pctText);
+      setText(
+        $("model-mix-center-label"),
+        state.mixMetric === "calls" ? t("modelCallsCount", { count: focused.value }) : `${compact(focused.value)} \xB7 ${focused.name}`
+      );
+      setAttr(wrap, "title", `${focused.name} (${pctText})`);
+    } else {
+      const total = state.mixDisplayModels.reduce((sum, item) => sum + item.value, 0);
+      setText($("model-mix-center-value"), state.mixMetric === "calls" ? count(total) : compact(total));
+      setText(
+        $("model-mix-center-label"),
+        state.mixMetric === "calls" ? t("modelCallsUnit") : t("modelMixModelsCount", { count: state.mixDisplayModels.length })
+      );
+      setAttr(wrap, "title", "");
     }
   }
-  treeEl.textContent = '';
-  for (const node of nodes) treeEl.appendChild(buildTimelineTreeNode(node, 0));
-}
+  function renderModelMix(ctx, speed) {
+    const { $, state, language } = ctx;
+    const t = language.t;
+    const mixSection = $("panel-model-mix");
+    if (!mixSection) return;
+    const sessionModels = Array.isArray(speed?.modelUsage?.models) ? speed.modelUsage.models : [];
+    const taskModels = Array.isArray(speed?.taskUsage?.modelUsage?.models) ? speed.taskUsage.modelUsage.models : [];
+    if (sessionModels.length < 2 && taskModels.length < 2) {
+      setHidden(mixSection, true);
+      state.lastMixSig = null;
+      state.mixDisplayModels = [];
+      return;
+    }
+    setHidden(mixSection, false);
+    const hasSubagents = Boolean((speed?.taskUsage?.subagents ?? 0) > 0 && taskModels.length > 0);
+    const scopeGroup = $("model-mix-scope");
+    setHidden(scopeGroup, !hasSubagents);
+    const effectiveScope = !hasSubagents ? "session" : state.mixScopeManual ? state.mixScope : sessionModels.length < 2 && taskModels.length >= 2 ? "task" : state.mixScope;
+    state.mixScope = effectiveScope;
+    for (const btn of mixSection.querySelectorAll("[data-mix-scope]")) {
+      setAttr(btn, "aria-pressed", String(btn.dataset.mixScope === effectiveScope));
+    }
+    for (const btn of mixSection.querySelectorAll("[data-mix-metric]")) {
+      setAttr(btn, "aria-pressed", String(btn.dataset.mixMetric === state.mixMetric));
+    }
+    const rawModels = effectiveScope === "task" && taskModels.length ? taskModels : sessionModels;
+    const display = partitionModelSlices(rawModels, {
+      metric: state.mixMetric,
+      maxVisible: 6,
+      headCount: 5,
+      otherLabel: t("modelMixOther")
+    });
+    const sig = `${language.language}|${state.mixMetric}|${effectiveScope}|${hasSubagents}|${display.map((m) => `${m.id}:${m.name}:${m.role}:${m.requests}:${m.outputTokens}:${m.totalTokens}`).join("|")}`;
+    if (sig === state.lastMixSig) {
+      updateModelMixFocus(ctx);
+      return;
+    }
+    state.lastMixSig = sig;
+    state.mixDisplayModels = display;
+    if (state.mixActiveId && !display.some((m) => m.id === state.mixActiveId)) state.mixActiveId = null;
+    if (state.mixHoverId && !display.some((m) => m.id === state.mixHoverId)) state.mixHoverId = null;
+    const segHost = $("model-mix-segments");
+    const listHost = $("model-mix-list");
+    if (segHost) {
+      segHost.textContent = "";
+      let offset = 0;
+      for (const item of display) {
+        if (item.share <= 0) continue;
+        const pct = item.share * 100;
+        segHost.appendChild(
+          createDonutSegment({
+            cx: 19,
+            cy: 19,
+            r: 15.9154943,
+            pathLength: 100,
+            className: "model-mix-segment",
+            color: item.color,
+            dasharray: `${pct.toFixed(3)} ${Math.max(0, 100 - pct).toFixed(3)}`,
+            dashoffset: String(100 - offset),
+            modelId: item.id,
+            tabIndex: 0,
+            role: "button",
+            ariaLabel: `${item.name} (${Math.round(pct)}%)`
+          })
+        );
+        offset += pct;
+      }
+    }
+    if (listHost) {
+      listHost.textContent = "";
+      for (const item of display) {
+        const pctText = `${Math.round(item.share * 100)}%`;
+        const row = createEl("button", {
+          type: "button",
+          class: "model-mix-row",
+          "data-model-id": item.id
+        });
+        const statTok = state.mixMetric === "output" ? item.outputTokens : item.totalTokens;
+        setAttr(
+          row,
+          "title",
+          `${item.name} \xB7 ${roleLabel(ctx, item.role)} \xB7 ${count(item.totalTokens)} tok / ${count(item.outputTokens)} out / ${t("modelCallsCount", { count: item.requests || 0 })}`
+        );
+        const top = createEl("div", { class: "model-mix-row-top" });
+        const left = createEl("span", { class: "model-mix-row-id" });
+        const dot = createEl("span", { class: "model-mix-dot" });
+        dot.style.background = item.color;
+        const name = createEl("span", { class: "model-mix-name", text: item.name });
+        const badge = createEl("span", {
+          class: "model-mix-role",
+          "data-role": item.role || "model",
+          text: roleLabel(ctx, item.role)
+        });
+        left.append(dot, name, badge);
+        const share = createEl("span", { class: "model-mix-share", text: pctText });
+        top.append(left, share);
+        const stats = createEl("div", {
+          class: "model-mix-stats",
+          text: `${compact(statTok)} tok \xB7 ${t("modelCallsCount", { count: item.requests || 0 })}`
+        });
+        row.append(top, stats);
+        listHost.appendChild(row);
+      }
+    }
+    updateModelMixFocus(ctx);
+  }
+  function bindModelMixEvents(ctx, rerender) {
+    const { $, state } = ctx;
+    const mixCard = $("panel-model-mix");
+    mixCard?.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const scopeBtn = target.closest("[data-mix-scope]");
+      if (scopeBtn) {
+        state.mixScope = scopeBtn.dataset.mixScope || "session";
+        state.mixScopeManual = true;
+        state.lastMixSig = null;
+        rerender();
+        return;
+      }
+      const metricBtn = target.closest("[data-mix-metric]");
+      if (metricBtn) {
+        state.mixMetric = metricBtn.dataset.mixMetric || "total";
+        state.lastMixSig = null;
+        rerender();
+        return;
+      }
+      const modelTarget = target.closest("[data-model-id]");
+      if (modelTarget?.dataset.modelId) {
+        const id = modelTarget.dataset.modelId;
+        state.mixActiveId = state.mixActiveId === id ? null : id;
+        updateModelMixFocus(ctx);
+      }
+    });
+    mixCard?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target instanceof Element ? event.target : null;
+      const seg = target?.closest(".model-mix-segment[data-model-id]");
+      if (!seg?.dataset.modelId) return;
+      event.preventDefault();
+      const id = seg.dataset.modelId;
+      state.mixActiveId = state.mixActiveId === id ? null : id;
+      updateModelMixFocus(ctx);
+    });
+    for (const focusHost of [$("model-mix-segments"), $("model-mix-list")]) {
+      focusHost?.addEventListener("pointerover", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const item = target?.closest("[data-model-id]");
+        if (!item?.dataset.modelId || state.mixHoverId === item.dataset.modelId) return;
+        state.mixHoverId = item.dataset.modelId;
+        updateModelMixFocus(ctx);
+      });
+      focusHost?.addEventListener("pointerleave", () => {
+        if (!state.mixHoverId) return;
+        state.mixHoverId = null;
+        updateModelMixFocus(ctx);
+      });
+      focusHost?.addEventListener("focusin", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const item = target?.closest("[data-model-id]");
+        if (!item?.dataset.modelId) return;
+        state.mixHoverId = item.dataset.modelId;
+        updateModelMixFocus(ctx);
+      });
+      focusHost?.addEventListener("focusout", (event) => {
+        if (focusHost.contains(event.relatedTarget)) return;
+        if (state.mixHoverId) {
+          state.mixHoverId = null;
+          updateModelMixFocus(ctx);
+        }
+      });
+    }
+  }
 
-function render() {
-  if (!snapshot) return;
-  const groups = snapshot.groups || [], speed = snapshot.speed;
-  group = chooseGroup(groups, speed);
-  const optionsKey = `${language.language}:${groups.map(g => g.id).join('|')}`;
-  const select = $('quota-group');
-  if (select.dataset.options !== optionsKey) {
-    select.replaceChildren(...(groups.length ? groups.map(g => new Option(groupLabel(g),g.id)) : [new Option(t('unavailableQuota'),'')]));
-    select.dataset.options = optionsKey;
+  // src/ui/panel-webview/timeline-helpers.ts
+  function renderTimelineStatus(ctx) {
+    const { $, state, language } = ctx;
+    const el = $("timeline-status");
+    if (!el) return;
+    if (!state.timelineNoticeKey) {
+      setHidden(el, true);
+      setText(el, "");
+      el.classList.remove("is-error");
+      return;
+    }
+    setHidden(el, false);
+    el.classList.toggle("is-error", state.timelineNoticeIsError);
+    setText(el, language.t(state.timelineNoticeKey));
   }
-  if (group && select.value !== group.id) select.value = group.id;
-  const groupText = group ? groupLabel(group) : '—';
-  for (const element of groupNameNodes) setText(element, groupText);
-  renderQuota('5h','five'); renderQuota('weekly','week');
-  setText($('strip-tps'), rate(speed?.tps));
-  setAttr($('speed-tab'), 'title', rate(speed?.tps)+' tok/s');
-  setText($('session-tps'), speed?.latestRateStatus==='legacy'?t('ratePending'):`${rate(speed?.tps)} tok/s`);
-  const latestDisplay = speed?.latestRateStatus === 'unreliable' ? t('timingUnreliable') : speed?.latestRateStatus === 'legacy' ? t('ratePending') : speed?.latestTps !== null && speed?.latestTps !== undefined ? `${rate(speed.latestTps)} tok/s` : '—';
-  setText($('latest-tps'), latestDisplay);
-  setText($('request-count'), t('sampleCount',{n:speed?.measuredRequests??0}));
-  setText($('session-steps'), speed ? t('rounds',{rounds:speed.rounds,steps:speed.steps}).replace(/\s*·\s*$/, '') : '');
-  const planModel = speed?.planModel || null;
-  const activeModel = speed?.activeModel || null;
-  const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
-  const modelText = isHybrid ? `${planModel} \u2192 ${activeModel}` : (speed?.model || t('waitingRequest'));
-  setText($('strip-model'), modelText);
-  setAttr($('strip-model'), 'title', modelText);
-  setText($('model-time'), language.elapsed(speed?.modelSeconds));
-  setText($('tool-time'), language.elapsed(speed?.toolSeconds));
-  setText($('ttft'), language.elapsed(speed?.ttftSeconds));
-  setText($('token-detail'), speed ? `${count(speed.counts.responseOutput)} / ${count(speed.counts.thinkingOutput)} tok` : '—');
-  const savedNote=speed?.restoredFromHistory?' '+t('savedStats',{time:speed.savedAt?language.resetDate(speed.savedAt):'—'}):'';
-  const saveWarning=snapshot.persistenceError?' '+t('saveFailed'):'';
-  setText($('speed-basis'), language.rateNote(speed)+savedNote+saveWarning);
-  setHidden($('speed-basis'), true);
-  const cache=speed?.cache;
-  const context=speed?.context,hasCapacity=typeof context?.usedFraction==='number';
-  setText($('strip-context'), hasCapacity?`${Math.round(context.usedFraction*100)}%`:'—');
-  setText($('strip-context-size'), context?`${compact(context.usedTokens)} / ${context.maxTokens===null?'—':compact(context.maxTokens)}`:'—');
-  setAttr($('context-tab'), 'title', context?t('contextTokens',{used:count(context.usedTokens),max:context.maxTokens===null?'—':count(context.maxTokens)}):t('contextUnknown'));
-  setText($('context-summary'), hasCapacity?t('contextUsed',{used:Math.round(context.usedFraction*100),remaining:Math.round(context.remainingFraction*100)}):t('contextUnknown'));
-  setText($('context-tokens'), context?t('contextTokens',{used:compact(context.usedTokens),max:context.maxTokens===null?'—':compact(context.maxTokens)}):'—');
-  setText($('context-model'), context?.model||activeModel||'—');
-  const sessionModelCount = speed?.modelUsage?.models?.length || 0;
-  const showOrchContext = isHybrid || sessionModelCount >= 2;
-  setHidden($('context-orchestrator-row'), !showOrchContext);
-  setHidden($('context-orchestrator-note'), !showOrchContext);
-  if (showOrchContext) {
-    setText($('context-orchestrator'), planModel || t('modelMixModelsCount', { count: sessionModelCount }));
-    setText($('context-orchestrator-note'), t(isHybrid ? 'contextQuotaSplit' : 'contextMultiModelHint'));
+  function formatDurationMs(ms) {
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "";
+    return ms < 1e3 ? `${Math.round(ms)}ms` : `${(ms / 1e3).toFixed(ms >= 1e4 ? 0 : 1)}s`;
   }
-  const ctxFill = $('context-fill'), ctxTrack = $('context-track');
-  setStyle(ctxFill, 'width', hasCapacity?`${Math.min(1,Math.max(0,context.usedFraction))*100}%`:'0%');
-  setStyle(ctxFill, 'background', hasCapacity&&context.usedFraction>=.9?'var(--pulse-danger)':'');
-  if(hasCapacity){setAttr(ctxTrack,'aria-valuenow',String(Math.min(100,context.usedFraction*100)));setAttr(ctxTrack,'aria-valuemin','0');setAttr(ctxTrack,'aria-valuemax','100');}else setAttr(ctxTrack,'aria-valuenow',null);
-  setText($('strip-cache'), percent(cache?.hitRate));
-  setText($('cache-rate'), percent(cache?.hitRate));
-  const tokens=speed?.tokens || cache;
-  // Coverage remains available in raw statistics and documented separately.
-  const hasTotal=tokens?.measuredRequests&&Number.isSafeInteger(tokens.totalTokens)&&tokens.totalTokens>=0;
-  setText($('strip-cache-total'), hasTotal?`${compact(tokens.totalTokens)} tok`:'— tok');
-  const inputCoverage={uncachedTokens:'uncachedRequests',cachedTokens:'cachedRequests',cacheWriteTokens:'cacheWriteRequests'};
-  for(const [field,id]of[['cachedTokens','cache-read'],['uncachedTokens','cache-miss'],['cacheWriteTokens','cache-write'],['outputTokens','cache-output']]) {
-    const available=field==='outputTokens'?(tokens?.outputAvailable??(tokens?.outputRequests??tokens?.measuredRequests)):(tokens?.[inputCoverage[field]]??tokens?.inputRequests??tokens?.measuredRequests);
-    const known=Number.isSafeInteger(tokens?.[field])&&tokens[field]>=0;
-    setText($(id), available&&known?`${count(tokens[field])} tok`:'—');
+  function formatClock(ctx, iso) {
+    if (!iso) return "";
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString(ctx.language.language, { hour12: false }) : "";
   }
-  setText($('cache-coverage'), hasTotal?`${count(tokens.totalTokens)} tok`:'— tok');
-  setHidden($('cache-write-row'), !(tokens?.cacheWriteTokens>0));
-  const task=speed?.taskUsage;
-  if(task&&task.subagents>0){
-    setHidden($('panel-task-tokens-row'), false);
-    setHidden($('panel-subagent-tokens-row'), false);
-    setText($('panel-task-total-tokens'), `${count(task.tokens?.totalTokens)} tok${task.state==='loading'?' ('+t('loading')+')':''}`);
-    setText($('panel-subagent-tokens'), `${count(task.subagentTokens)} tok`);
-    setText($('panel-subagent-tokens-label'), t('taskTokensSubagents',{count:task.subagents}));
-  } else {
-    setHidden($('panel-task-tokens-row'), true);
-    setHidden($('panel-subagent-tokens-row'), true);
+  function timelineEventLabel(ctx, node) {
+    const t = ctx.language.t;
+    if (node.event === "model_switch") return t("timelineEventModelSwitch");
+    switch (node.kind) {
+      case "turn":
+        return t("timelineEventTurn");
+      case "handoff":
+        return t("timelineEventHandoff");
+      case "tool_group":
+        return t("timelineEventToolGroup");
+      case "subagent":
+        return t("timelineEventSubagent");
+      case "error":
+        return t("timelineEventError");
+      case "phase":
+      case "model_call":
+        return node.role === "plan" ? t("timelineEventPlan") : node.role === "worker" ? t("timelineEventWorker") : roleLabel(ctx, node.role);
+      default:
+        return node.event || node.kind || "step";
+    }
   }
-  const activeConvId = speed?.modelTimeline?.cascadeId || speed?.conversationId || snapshot?.conversationId || null;
-  if (activeConvId && activeConvId !== lastTaskId) {
-    treeState.clear();
-    detailState.clear();
-    timelineToggled.clear();
-    mixScopeManual = false;
-    mixActiveId = null;
-    mixHoverId = null;
-    lastTaskId = activeConvId;
-    lastSubagentsSig = null;
-    lastMixSig = null;
-    lastTimelineSig = null;
+  function timelineNodeSummary(ctx, node) {
+    const t = ctx.language.t;
+    const meta = node.meta || {};
+    if (node.kind === "turn") {
+      const turnPart = meta.turnIndex ? `#${meta.turnIndex}` : "";
+      const spanPart = meta.stepStart != null ? `#${meta.stepStart}${meta.stepEnd != null && meta.stepEnd !== meta.stepStart ? `\u2013${meta.stepEnd}` : ""}` : "";
+      return [turnPart, spanPart].filter(Boolean).join(" \xB7 ") || node.event || "";
+    }
+    if (node.kind === "handoff" || node.event === "model_switch") {
+      return `${meta.fromModel || "?"} \u2192 ${meta.toModel || node.model || "?"}`;
+    }
+    if (node.kind === "tool_group") {
+      const callsText = t("modelCallsCount", { count: meta.calls || 1 });
+      return meta.category ? `${meta.category} \xB7 ${callsText}` : callsText;
+    }
+    if (node.kind === "subagent") {
+      const title = String(meta.role || node.model || "");
+      return meta.status ? `${title} \xB7 ${meta.status}` : title;
+    }
+    const stepPrefix = meta.stepIndex != null ? `#${meta.stepIndex} ` : "";
+    return `${stepPrefix}${node.model || node.event || ""}`.trim();
   }
-  renderModelMix(speed);
-  const subSection=$('subagents-section');
-  if(subSection){
-    if(task&&task.subagents>0){
+  function showSwimlaneTip(ctx, idx) {
+    const { $, state, language } = ctx;
+    const tip = $("timeline-lane-tip");
+    const swimHost = $("timeline-swimlanes");
+    if (swimHost) {
+      for (const segEl of swimHost.querySelectorAll(".timeline-seg")) {
+        segEl.classList.toggle("is-active", Number(segEl.dataset.segIdx) === idx);
+      }
+    }
+    if (!tip) return;
+    if (idx < 0 || idx >= state.lastTimelineRender.length) {
+      setHidden(tip, true);
+      setText(tip, "");
+      return;
+    }
+    const seg = state.lastTimelineRender[idx];
+    const stepLabel = seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `\u2013${seg.stepEnd}` : ""}` : "";
+    const durLabel = formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0));
+    const callsLabel = (seg.calls ?? 0) > 0 ? language.t("modelCallsCount", { count: seg.calls ?? 0 }) : "";
+    setText(tip, [seg.model || seg.label, stepLabel, durLabel, callsLabel].filter(Boolean).join(" \xB7 "));
+    setHidden(tip, false);
+  }
+  function createChevronSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#chevron");
+    svg.appendChild(use);
+    return svg;
+  }
+
+  // src/ui/panel-webview/swimlane-timeline.ts
+  function buildTimelineTreeNode(ctx, node, depth) {
+    const el = document.createElement("div");
+    el.className = "timeline-node";
+    el.dataset.kind = node.kind || "step";
+    el.dataset.nodeId = node.id || "";
+    const meta = node.meta || {};
+    if (meta.stepStart != null) el.dataset.stepStart = String(meta.stepStart);
+    if (meta.stepEnd != null) el.dataset.stepEnd = String(meta.stepEnd);
+    if (meta.stepIndex != null) el.dataset.stepIndex = String(meta.stepIndex);
+    const children = Array.isArray(node.children) ? node.children : [];
+    const hasChildren = children.length > 0;
+    const collapsed = hasChildren && (ctx.state.timelineToggled.has(node.id) ? Boolean(ctx.state.timelineToggled.get(node.id)) : depth >= 2);
+    const row = document.createElement("div");
+    row.className = "timeline-node-row";
+    if (hasChildren) {
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "timeline-toggle-btn";
+      toggleBtn.dataset.nodeId = node.id;
+      setAttr(toggleBtn, "aria-expanded", String(!collapsed));
+      setAttr(toggleBtn, "aria-label", timelineEventLabel(ctx, node));
+      toggleBtn.appendChild(createChevronSvg());
+      row.appendChild(toggleBtn);
+    } else {
+      const bullet = document.createElement("span");
+      bullet.className = "timeline-bullet";
+      bullet.textContent = "\xB7";
+      row.appendChild(bullet);
+    }
+    const eventBadge = document.createElement("span");
+    eventBadge.className = "timeline-event-badge";
+    eventBadge.textContent = timelineEventLabel(ctx, node);
+    const main = document.createElement("div");
+    main.className = "timeline-node-main";
+    const summary = document.createElement("span");
+    summary.className = "timeline-node-summary";
+    const summaryText = timelineNodeSummary(ctx, node);
+    summary.textContent = summaryText;
+    if (summaryText) setAttr(summary, "title", summaryText);
+    main.append(eventBadge, summary);
+    const badges = document.createElement("div");
+    badges.className = "timeline-node-badges";
+    if (node.model && node.kind !== "handoff" && !summaryText.includes(node.model)) {
+      const mChip = document.createElement("span");
+      mChip.className = "timeline-chip";
+      mChip.textContent = node.model;
+      setAttr(mChip, "title", node.model);
+      badges.appendChild(mChip);
+    }
+    const tokTotal = node.tokens?.totalTokens || node.tokens?.outputTokens || 0;
+    if (tokTotal > 0) {
+      const tChip = document.createElement("span");
+      tChip.className = "timeline-chip";
+      tChip.textContent = `${compact(tokTotal)} tok`;
+      badges.appendChild(tChip);
+    }
+    const dur = formatDurationMs(node.durationMs);
+    if (dur) {
+      const dChip = document.createElement("span");
+      dChip.className = "timeline-chip";
+      dChip.textContent = dur;
+      badges.appendChild(dChip);
+    }
+    const clk = formatClock(ctx, node.time);
+    if (clk) {
+      const cChip = document.createElement("span");
+      cChip.className = "timeline-chip is-time";
+      cChip.textContent = clk;
+      badges.appendChild(cChip);
+    }
+    row.append(main, badges);
+    el.appendChild(row);
+    if (hasChildren) {
+      const kidsEl = document.createElement("div");
+      kidsEl.className = "timeline-children";
+      kidsEl.hidden = collapsed;
+      for (const child of children) kidsEl.appendChild(buildTimelineTreeNode(ctx, child, depth + 1));
+      el.appendChild(kidsEl);
+    }
+    return el;
+  }
+  function renderTimeline(ctx, speed) {
+    const { $, state, language } = ctx;
+    const t = language.t;
+    const offBar = $("timeline-off-bar");
+    const panel = $("timeline-panel");
+    const swimWrap = $("timeline-swimlanes-wrap");
+    const swimEl = $("timeline-swimlanes");
+    const treeEl = $("timeline-tree");
+    if (!offBar || !panel || !swimEl || !treeEl) return;
+    for (const btnId of ["timeline-enable-btn", "timeline-disable-btn", "timeline-clear-btn"]) {
+      const btn = $(btnId);
+      if (btn) btn.disabled = state.timelineBusy;
+    }
+    renderTimelineStatus(ctx);
+    if (!state.timelineEnabled) {
+      setHidden(offBar, false);
+      setHidden(panel, true);
+      if (swimEl.children.length) swimEl.textContent = "";
+      if (treeEl.children.length) treeEl.textContent = "";
+      state.lastTimelineRender = [];
+      state.lastTimelineSig = null;
+      return;
+    }
+    setHidden(offBar, true);
+    setHidden(panel, false);
+    const tl = speed?.modelTimeline || null;
+    const nodes = Array.isArray(tl?.nodes) ? tl.nodes : [];
+    const swimlanes = Array.isArray(tl?.swimlanes) ? tl.swimlanes : [];
+    const countEl = $("timeline-count");
+    setText(countEl, String(nodes.length));
+    setHidden(countEl, nodes.length === 0);
+    setHidden($("timeline-truncated"), !tl?.truncated);
+    setHidden($("timeline-empty"), nodes.length > 0 || swimlanes.length > 0);
+    setHidden(swimWrap, swimlanes.length === 0);
+    const sig = `${language.language}|${tl?.cascadeId || ""}|${tl?.savedAt || ""}|${Boolean(tl?.truncated)}|${JSON.stringify(swimlanes)}|${JSON.stringify(nodes)}`;
+    if (sig === state.lastTimelineSig) return;
+    state.lastTimelineSig = sig;
+    const colorModels = [
+      ...speed?.modelUsage?.models || [],
+      ...swimlanes.map((s) => ({
+        name: s.model || s.label,
+        role: s.kind === "plan" || s.kind === "worker" || s.kind === "subagent" ? s.kind : "model"
+      }))
+    ];
+    const colorMap = assignModelColors(colorModels);
+    swimEl.textContent = "";
+    state.lastTimelineRender = [];
+    showSwimlaneTip(ctx, -1);
+    if (swimlanes.length > 0) {
+      const tracks = [
+        { key: "plan", label: t("timelineLanePlan"), match: (s) => s.kind === "plan" },
+        { key: "worker", label: t("timelineLaneWorker"), match: (s) => s.kind === "worker" },
+        { key: "tools", label: t("timelineLaneToolsAgents"), match: (s) => s.kind === "tool" || s.kind === "subagent" || s.kind === "handoff" }
+      ];
+      for (const trackDef of tracks) {
+        const lane = document.createElement("div");
+        lane.className = "timeline-lane";
+        lane.dataset.lane = trackDef.key;
+        const lbl = document.createElement("span");
+        lbl.className = "timeline-lane-label";
+        lbl.textContent = trackDef.label;
+        setAttr(lbl, "title", trackDef.label);
+        const track = document.createElement("div");
+        track.className = "timeline-track";
+        for (const seg of swimlanes.filter(trackDef.match)) {
+          const idx = state.lastTimelineRender.length;
+          state.lastTimelineRender.push(seg);
+          const leftPct = Math.min(98.5, Math.max(0, (Number(seg.startRatio) || 0) * 100));
+          const widthPct = Math.min(100 - leftPct, Math.max(1.5, (Number(seg.widthRatio) || 0.02) * 100));
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "timeline-seg";
+          btn.dataset.segIdx = String(idx);
+          btn.dataset.kind = seg.kind || "step";
+          btn.style.left = `${leftPct.toFixed(2)}%`;
+          btn.style.width = `${widthPct.toFixed(2)}%`;
+          btn.style.background = seg.kind === "handoff" ? "var(--pulse-warning)" : colorMap.get(seg.model || seg.label) || PANEL_MIX_PALETTE[idx % PANEL_MIX_PALETTE.length];
+          const tipLabel = [
+            seg.model || seg.label,
+            seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `\u2013${seg.stepEnd}` : ""}` : "",
+            formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0))
+          ].filter(Boolean).join(" \xB7 ");
+          setAttr(btn, "title", tipLabel);
+          setAttr(btn, "aria-label", tipLabel);
+          track.appendChild(btn);
+        }
+        lane.append(lbl, track);
+        swimEl.appendChild(lane);
+      }
+    }
+    treeEl.textContent = "";
+    for (const node of nodes) treeEl.appendChild(buildTimelineTreeNode(ctx, node, 0));
+  }
+  function focusTimelineNodeByStep(ctx, stepStart) {
+    const treeEl = ctx.$("timeline-tree");
+    if (!treeEl || stepStart == null) return;
+    let targetNode = null;
+    for (const el of treeEl.querySelectorAll(".timeline-node")) {
+      const row = el.querySelector(":scope > .timeline-node-row");
+      if (row) row.classList.remove("is-active");
+      const idx = el.dataset.stepIndex != null ? Number(el.dataset.stepIndex) : null;
+      const s = el.dataset.stepStart != null ? Number(el.dataset.stepStart) : null;
+      const e = el.dataset.stepEnd != null ? Number(el.dataset.stepEnd) : null;
+      if (idx === stepStart || s != null && s === stepStart || s != null && e != null && stepStart >= s && stepStart <= e) {
+        if (!targetNode || idx === stepStart || s === stepStart) targetNode = el;
+      }
+    }
+    if (!targetNode) return;
+    let cur = targetNode.parentElement;
+    while (cur && cur !== treeEl) {
+      if (cur.classList.contains("timeline-children")) {
+        cur.hidden = false;
+        const parentNode = cur.closest(".timeline-node");
+        if (parentNode?.dataset.nodeId) {
+          ctx.state.timelineToggled.set(parentNode.dataset.nodeId, false);
+          const btn = parentNode.querySelector(":scope > .timeline-node-row > .timeline-toggle-btn");
+          setAttr(btn ?? null, "aria-expanded", "true");
+        }
+      }
+      cur = cur.parentElement;
+    }
+    const activeRow = targetNode.querySelector(":scope > .timeline-node-row");
+    if (activeRow) {
+      activeRow.classList.add("is-active");
+      activeRow.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  // src/ui/panel-webview/polling.ts
+  function createPanelController(ctx, handlers) {
+    const { $, state, language, host } = ctx;
+    const t = language.t;
+    const i18nTextNodes = [...document.querySelectorAll("[data-i18n]")];
+    const i18nAriaNodes = [...document.querySelectorAll("[data-i18n-aria]")];
+    const i18nTitleNodes = [...document.querySelectorAll("[data-i18n-aria][title]")];
+    const preferenceRequest = async (input) => {
+      const transport = host?.fetch ? host.fetch.bind(host) : fetch;
+      const response = await transport(
+        "/api/preferences",
+        input ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) } : { cache: "no-store" }
+      );
+      if (!response.ok) throw new Error("Preferences unavailable");
+      return response.json();
+    };
+    const localize = () => {
+      const locKey = `${language.language}|${Boolean(ctx.preferences.error)}`;
+      if (locKey === state.lastLocalizedKey) return;
+      state.lastLocalizedKey = locKey;
+      state.lastMixSig = null;
+      state.lastTimelineSig = null;
+      setAttr(document.documentElement, "lang", language.language);
+      for (const e of i18nTextNodes) {
+        if (!e.isConnected) continue;
+        if (e.dataset.i18n === "taskTokensSubagents" && (state.snapshot?.speed?.taskUsage?.subagents ?? 0) > 0) continue;
+        setText(e, e.dataset.i18n ? t(e.dataset.i18n) : "");
+      }
+      for (const e of i18nAriaNodes) {
+        if (e.dataset.i18nAria) setAttr(e, "aria-label", t(e.dataset.i18nAria));
+      }
+      for (const e of i18nTitleNodes) {
+        if (e.id === "language-toggle" || !e.dataset.i18nAria) continue;
+        const ariaTitle = t(e.dataset.i18nAria);
+        if (e.title !== ariaTitle) e.title = ariaTitle;
+      }
+      const privacyEl = $("timeline-privacy-text");
+      if (privacyEl) setAttr(privacyEl, "title", t("timelinePrivacySummary"));
+      renderTimelineStatus(ctx);
+      const toggle = $("language-toggle");
+      if (toggle) {
+        setText(toggle, language.language === "en" ? "EN" : "\u4E2D");
+        const nextTitle = t("switchLanguage") + (ctx.preferences.error ? ` \xB7 ${t("languageSaveFailed")}` : "");
+        if (toggle.title !== nextTitle) toggle.title = nextTitle;
+        setAttr(toggle, "data-save-failed", String(ctx.preferences.error));
+      }
+    };
+    const connectPreferences = () => language.connectPreferences({
+      read: () => preferenceRequest(),
+      write: preferenceRequest,
+      cache: (value) => ctx.localSet("ag-pulse-language", value),
+      changed: () => {
+        localize();
+        if (!state.syncingFromRefresh) {
+          handlers.render();
+          handlers.updateCountdowns();
+        }
+      }
+    });
+    const refreshBusy = (busy) => {
+      const button = $("refresh-button");
+      if (!button) return;
+      setAttr(button, "aria-busy", String(busy));
+      setAttr(button, "aria-disabled", String(busy));
+      button.dataset.i18nAria = busy ? "refreshing" : "refreshStats";
+      button.title = t(button.dataset.i18nAria);
+      setAttr(button, "aria-label", button.title);
+    };
+    const refresh = (force = false) => {
+      if (state.pending && state.refreshRequest) return state.refreshRequest;
+      state.pending = true;
+      const reqTimelineEpoch = state.timelineEpoch;
+      state.refreshRequest = (async () => {
+        try {
+          const params = new URLSearchParams();
+          if (host?.conversationId) params.set("conversationId", host.conversationId);
+          if (force) params.set("force", "1");
+          const transport = host?.fetch ? host.fetch.bind(host) : fetch;
+          const response = await transport(`/api/metrics?${params}`, { cache: "no-store" });
+          if (!response.ok) throw new Error(t("panelUnavailable"));
+          const value = await response.json();
+          if (!["live", "stale", "offline"].includes(value.connection)) throw new Error(t("invalidData"));
+          state.snapshot = value;
+          if (Object.hasOwn(value, "theme")) {
+            const themeKey = JSON.stringify(value.theme ?? null);
+            if (themeKey !== state.lastThemeKey) {
+              state.lastThemeKey = themeKey;
+              ctx.themeController.setHostTheme(value.theme ?? null);
+            }
+          }
+          if (value.preferences) {
+            if (reqTimelineEpoch === state.timelineEpoch && "modelTimelineEnabled" in value.preferences) {
+              const nextTl = value.preferences.modelTimelineEnabled === true;
+              if (nextTl !== state.timelineEnabled) {
+                state.timelineEnabled = nextTl;
+                state.lastTimelineSig = null;
+              }
+            }
+            state.syncingFromRefresh = true;
+            try {
+              ctx.preferences.sync(value.preferences);
+            } finally {
+              state.syncingFromRefresh = false;
+            }
+          }
+          if (state.timelineNoticeKey === "timelineCleared" && (value.speed?.modelTimeline?.nodes?.length ?? 0) > 0 && Date.now() - state.lastTimelineClearAt > 1200) {
+            state.timelineNoticeKey = null;
+            state.timelineNoticeIsError = false;
+          }
+          state.serverOffset = Date.parse(value.serverTime) - Date.now();
+          if (!Number.isFinite(state.serverOffset)) state.serverOffset = 0;
+          handlers.render();
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (state.snapshot) {
+            state.snapshot.connection = "stale";
+            state.snapshot.error = msg;
+            handlers.render();
+          } else {
+            const note = $("health-note");
+            setText(note, language.errorMessage(msg));
+            note?.classList.add("warning");
+          }
+        } finally {
+          state.pending = false;
+          state.refreshRequest = null;
+          if (state.timer) clearTimeout(state.timer);
+          state.timer = setTimeout(() => void refresh(), document.hidden ? 1e4 : 2200);
+        }
+      })();
+      return state.refreshRequest;
+    };
+    const refreshManually = () => {
+      if (state.manualRequest) return;
+      refreshBusy(true);
+      const started = performance.now();
+      state.manualRequest = (async () => {
+        try {
+          if (state.pending && state.refreshRequest) await state.refreshRequest;
+          await refresh(true);
+        } finally {
+          const remaining = 250 - (performance.now() - started);
+          if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+          refreshBusy(false);
+          state.manualRequest = null;
+        }
+      })();
+    };
+    const setTimelineEnabled = async (next) => {
+      if (state.timelineBusy) return;
+      state.timelineBusy = true;
+      state.timelineNoticeKey = null;
+      state.timelineNoticeIsError = false;
+      const myEpoch = ++state.timelineEpoch;
+      renderTimeline(ctx, state.snapshot?.speed);
+      try {
+        const updated = await preferenceRequest({ modelTimelineEnabled: Boolean(next) });
+        if (myEpoch !== state.timelineEpoch) return;
+        const updatedEnabled = updated && "modelTimelineEnabled" in updated ? updated.modelTimelineEnabled : next;
+        state.timelineEnabled = Boolean(updatedEnabled);
+        if (state.snapshot?.preferences && "modelTimelineEnabled" in state.snapshot.preferences) {
+          state.snapshot.preferences.modelTimelineEnabled = state.timelineEnabled;
+        }
+        if (!state.timelineEnabled) state.timelineToggled.clear();
+        state.lastTimelineSig = null;
+        state.timelineBusy = false;
+        renderTimeline(ctx, state.snapshot?.speed);
+        if (state.pending && state.refreshRequest) await state.refreshRequest;
+        await refresh(true);
+      } catch {
+        state.timelineBusy = false;
+        state.timelineNoticeKey = "timelineSaveFailed";
+        state.timelineNoticeIsError = true;
+        renderTimeline(ctx, state.snapshot?.speed);
+      }
+    };
+    const clearTimelineData = async () => {
+      if (state.timelineBusy) return;
+      state.timelineBusy = true;
+      state.timelineNoticeKey = null;
+      state.timelineNoticeIsError = false;
+      ++state.timelineEpoch;
+      renderTimeline(ctx, state.snapshot?.speed);
+      const rawConvId = host?.conversationId || state.snapshot?.speed?.modelTimeline?.cascadeId || state.snapshot?.speed?.conversationId || null;
+      const guidConvId = typeof rawConvId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawConvId) ? rawConvId : null;
+      const payload = guidConvId ? { conversationId: guidConvId } : {};
+      try {
+        const panelWin = window;
+        if (typeof panelWin.agPulseHost?.clearTimeline === "function") {
+          const clearRes = await panelWin.agPulseHost.clearTimeline(payload);
+          if (clearRes && typeof clearRes === "object" && clearRes.error) throw new Error(clearRes.error);
+        } else {
+          const transport = host?.fetch ? host.fetch.bind(host) : fetch;
+          const res = await transport("/api/timeline/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error("Clear failed");
+        }
+        state.lastTimelineClearAt = Date.now();
+        state.timelineToggled.clear();
+        if (state.snapshot?.speed) {
+          const prevTl = state.snapshot.speed.modelTimeline;
+          state.snapshot.speed.modelTimeline = {
+            enabled: prevTl?.enabled ?? true,
+            cascadeId: prevTl?.cascadeId ?? "",
+            planModel: prevTl?.planModel ?? null,
+            activeModel: prevTl?.activeModel ?? null,
+            startedAt: prevTl?.startedAt ?? null,
+            endedAt: prevTl?.endedAt ?? null,
+            durationMs: prevTl?.durationMs ?? 0,
+            savedAt: prevTl?.savedAt ?? null,
+            swimlanes: [],
+            nodes: [],
+            truncated: false
+          };
+        }
+        state.lastTimelineSig = null;
+        state.timelineNoticeKey = "timelineCleared";
+        state.timelineNoticeIsError = false;
+        state.timelineBusy = false;
+        renderTimeline(ctx, state.snapshot?.speed);
+        setTimeout(() => {
+          if (state.timelineNoticeKey === "timelineCleared") {
+            state.timelineNoticeKey = null;
+            renderTimelineStatus(ctx);
+          }
+        }, 2800);
+        if (state.pending && state.refreshRequest) await state.refreshRequest;
+        await refresh(true);
+      } catch {
+        state.timelineBusy = false;
+        state.timelineNoticeKey = "timelineClearFailed";
+        state.timelineNoticeIsError = true;
+        renderTimeline(ctx, state.snapshot?.speed);
+      }
+    };
+    return {
+      localize,
+      connectPreferences,
+      refresh,
+      refreshManually,
+      setTimelineEnabled,
+      clearTimelineData
+    };
+  }
+
+  // src/ui/panel-webview/quota-section.ts
+  function chooseGroup(ctx, groups, speed) {
+    return selectPreferredQuotaGroup(
+      groups,
+      ctx.state.selectedGroup,
+      speed?.activeModel || speed?.model
+    ) ?? null;
+  }
+  function groupLabel(value) {
+    return formatQuotaGroupLabel(value, value.name);
+  }
+  var quotaColor = (remaining) => typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-danger)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-warning)" : "";
+  function applyQuotaFill(fill, remaining) {
+    setStyle(
+      fill,
+      "width",
+      typeof remaining === "number" ? `${Math.min(100, Math.max(0, remaining * 100))}%` : "0%"
+    );
+    setStyle(fill, "background", quotaColor(remaining));
+  }
+  function renderQuota(ctx, windowName, prefix) {
+    const { $, state, language } = ctx;
+    const t = language.t;
+    const bucket = state.group?.windows?.[windowName];
+    const availableBucket = bucket?.available ? bucket : null;
+    const remaining = availableBucket?.remaining ?? null;
+    setText($(`${prefix}-balance`), percent(remaining));
+    const fill = $(`${prefix}-fill`);
+    const track = $(`${prefix}-track`);
+    applyQuotaFill(fill, remaining);
+    if (typeof remaining === "number") {
+      setAttr(track, "aria-valuenow", String(remaining * 100));
+      setAttr(track, "aria-valuemin", "0");
+      setAttr(track, "aria-valuemax", "100");
+    } else {
+      setAttr(track, "aria-valuenow", null);
+    }
+    setText($(`${prefix}-reset`), language.resetDate(availableBucket?.resetAt));
+    setText(
+      $(`${prefix}-note`),
+      !bucket?.available ? t("noQuota") : availableBucket?.disabled ? t("disabledQuota") : remaining === null ? t("noFraction") : `${t("sharedQuota")} ${t("quotaSource")}`
+    );
+  }
+  function renderQuotaAndSpeedSections(ctx, value) {
+    const { $, state, language } = ctx;
+    const t = language.t;
+    const groups = value.groups || [];
+    const speed = value.speed;
+    state.group = chooseGroup(ctx, groups, speed);
+    const optionsKey = `${language.language}:${groups.map((g) => g.id).join("|")}`;
+    const select = $("quota-group");
+    if (select && select.dataset.options !== optionsKey) {
+      select.replaceChildren(
+        ...groups.length ? groups.map((g) => new Option(groupLabel(g), g.id)) : [new Option(t("unavailableQuota"), "")]
+      );
+      select.dataset.options = optionsKey;
+    }
+    if (select && state.group && select.value !== state.group.id) {
+      select.value = state.group.id;
+    }
+    const groupText = state.group ? groupLabel(state.group) : "\u2014";
+    for (const element of ctx.groupNameNodes) setText(element, groupText);
+    renderQuota(ctx, "5h", "five");
+    renderQuota(ctx, "weekly", "week");
+    setText($("strip-tps"), rate(speed?.tps));
+    setAttr($("speed-tab"), "title", `${rate(speed?.tps)} tok/s`);
+    setText($("session-tps"), speed?.latestRateStatus === "legacy" ? t("ratePending") : `${rate(speed?.tps)} tok/s`);
+    const latestDisplay = speed?.latestRateStatus === "unreliable" ? t("timingUnreliable") : speed?.latestRateStatus === "legacy" ? t("ratePending") : speed?.latestTps !== null && speed?.latestTps !== void 0 ? `${rate(speed.latestTps)} tok/s` : "\u2014";
+    setText($("latest-tps"), latestDisplay);
+    setText($("request-count"), t("sampleCount", { n: speed?.measuredRequests ?? 0 }));
+    setText(
+      $("session-steps"),
+      speed ? t("rounds", { rounds: speed.rounds, steps: speed.steps }).replace(/\s*·\s*$/, "") : ""
+    );
+    const planModel = speed?.planModel || null;
+    const activeModel = speed?.activeModel || null;
+    const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
+    const modelText = isHybrid ? `${planModel} \u2192 ${activeModel}` : speed?.model || t("waitingRequest");
+    setText($("strip-model"), modelText);
+    setAttr($("strip-model"), "title", modelText);
+    setText($("model-time"), language.elapsed(speed?.modelSeconds));
+    setText($("tool-time"), language.elapsed(speed?.toolSeconds));
+    setText($("ttft"), language.elapsed(speed?.ttftSeconds));
+    setText(
+      $("token-detail"),
+      speed ? `${count(speed.counts.responseOutput)} / ${count(speed.counts.thinkingOutput)} tok` : "\u2014"
+    );
+    const savedNote = speed?.restoredFromHistory ? ` ${t("savedStats", { time: speed.savedAt ? language.resetDate(speed.savedAt) : "\u2014" })}` : "";
+    const saveWarning = value.persistenceError ? ` ${t("saveFailed")}` : "";
+    setText($("speed-basis"), language.rateNote(speed) + savedNote + saveWarning);
+    setHidden($("speed-basis"), true);
+    renderContextAndCacheCards(ctx, speed, value);
+  }
+  function renderContextAndCacheCards(ctx, speed, value) {
+    const { $, language } = ctx;
+    const t = language.t;
+    const cache = speed?.cache;
+    const context = speed?.context;
+    const hasCapacity = typeof context?.usedFraction === "number";
+    const planModel = speed?.planModel || null;
+    const activeModel = speed?.activeModel || null;
+    const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
+    setText($("strip-context"), hasCapacity && context.usedFraction != null ? `${Math.round(context.usedFraction * 100)}%` : "\u2014");
+    setText(
+      $("strip-context-size"),
+      context ? `${compact(context.usedTokens)} / ${context.maxTokens === null ? "\u2014" : compact(context.maxTokens)}` : "\u2014"
+    );
+    setAttr(
+      $("context-tab"),
+      "title",
+      context ? t("contextTokens", {
+        used: count(context.usedTokens),
+        max: context.maxTokens === null ? "\u2014" : count(context.maxTokens)
+      }) : t("contextUnknown")
+    );
+    setText(
+      $("context-summary"),
+      hasCapacity && context.usedFraction != null ? t("contextUsed", {
+        used: Math.round(context.usedFraction * 100),
+        remaining: Math.round((context.remainingFraction ?? 0) * 100)
+      }) : t("contextUnknown")
+    );
+    setText(
+      $("context-tokens"),
+      context ? t("contextTokens", {
+        used: compact(context.usedTokens),
+        max: context.maxTokens === null ? "\u2014" : compact(context.maxTokens)
+      }) : "\u2014"
+    );
+    setText($("context-model"), context?.model || activeModel || "\u2014");
+    const sessionModelCount = speed?.modelUsage?.models?.length || 0;
+    const showOrchContext = isHybrid || sessionModelCount >= 2;
+    setHidden($("context-orchestrator-row"), !showOrchContext);
+    setHidden($("context-orchestrator-note"), !showOrchContext);
+    if (showOrchContext) {
+      setText($("context-orchestrator"), planModel || t("modelMixModelsCount", { count: sessionModelCount }));
+      setText($("context-orchestrator-note"), t(isHybrid ? "contextQuotaSplit" : "contextMultiModelHint"));
+    }
+    const ctxFill = $("context-fill");
+    const ctxTrack = $("context-track");
+    setStyle(
+      ctxFill,
+      "width",
+      hasCapacity && context.usedFraction != null ? `${Math.min(1, Math.max(0, context.usedFraction)) * 100}%` : "0%"
+    );
+    setStyle(
+      ctxFill,
+      "background",
+      hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? "var(--pulse-danger)" : ""
+    );
+    if (hasCapacity && context.usedFraction != null) {
+      setAttr(ctxTrack, "aria-valuenow", String(Math.min(100, context.usedFraction * 100)));
+      setAttr(ctxTrack, "aria-valuemin", "0");
+      setAttr(ctxTrack, "aria-valuemax", "100");
+    } else {
+      setAttr(ctxTrack, "aria-valuenow", null);
+    }
+    setText($("strip-cache"), percent(cache?.hitRate));
+    setText($("cache-rate"), percent(cache?.hitRate));
+    const tokens = speed?.tokens || cache;
+    const hasTotal = Boolean(
+      tokens?.measuredRequests && typeof tokens.totalTokens === "number" && Number.isSafeInteger(tokens.totalTokens) && tokens.totalTokens >= 0
+    );
+    setText($("strip-cache-total"), hasTotal ? `${compact(tokens?.totalTokens)} tok` : "\u2014 tok");
+    const tokenRows = [
+      ["cachedTokens", "cache-read", "cachedRequests"],
+      ["uncachedTokens", "cache-miss", "uncachedRequests"],
+      ["cacheWriteTokens", "cache-write", "cacheWriteRequests"],
+      ["outputTokens", "cache-output", null]
+    ];
+    for (const [field, id, reqField] of tokenRows) {
+      const available = field === "outputTokens" ? tokens?.outputAvailable ?? tokens?.outputRequests ?? tokens?.measuredRequests : (reqField ? tokens?.[reqField] : null) ?? tokens?.inputRequests ?? tokens?.measuredRequests;
+      const numVal = tokens?.[field];
+      const known = typeof numVal === "number" && Number.isSafeInteger(numVal) && numVal >= 0;
+      setText($(id), available && known ? `${count(numVal)} tok` : "\u2014");
+    }
+    setText($("cache-coverage"), hasTotal ? `${count(tokens?.totalTokens)} tok` : "\u2014 tok");
+    setHidden($("cache-write-row"), !((tokens?.cacheWriteTokens ?? 0) > 0));
+    const task = speed?.taskUsage;
+    if (task && task.subagents > 0) {
+      setHidden($("panel-task-tokens-row"), false);
+      setHidden($("panel-subagent-tokens-row"), false);
+      setText(
+        $("panel-task-total-tokens"),
+        `${count(task.tokens?.totalTokens)} tok${task.state === "loading" ? ` (${t("loading")})` : ""}`
+      );
+      setText($("panel-subagent-tokens"), `${count(task.subagentTokens)} tok`);
+      setText($("panel-subagent-tokens-label"), t("taskTokensSubagents", { count: task.subagents }));
+    } else {
+      setHidden($("panel-task-tokens-row"), true);
+      setHidden($("panel-subagent-tokens-row"), true);
+    }
+    void value;
+  }
+  function updateCountdowns(ctx, onExpiredRefresh) {
+    const { $, state, language } = ctx;
+    const now = Date.now() + state.serverOffset;
+    for (const [windowName, prefix] of [["5h", "five"], ["weekly", "week"]]) {
+      const bucket = state.group?.windows?.[windowName];
+      const avail = bucket?.available ? bucket : null;
+      setText($(`${prefix}-countdown`), language.countdown(avail?.resetAt, now));
+      setText($(`${prefix}-summary-countdown`), language.countdown(avail?.resetAt, now, true));
+      setText($(`${prefix}-summary-balance`), percent(avail?.remaining));
+      applyQuotaFill($(`${prefix}-summary-fill`), avail?.remaining);
+      if (avail?.resetAt && Date.parse(avail.resetAt) <= now && state.snapshot?.connection === "live" && now - state.lastExpiredRefresh > 3e4) {
+        state.lastExpiredRefresh = now;
+        onExpiredRefresh();
+      }
+    }
+  }
+
+  // src/ui/panel-webview/subagent-helpers.ts
+  var SUBAGENT_STATUS_MAP = {
+    IDLE: { kind: "idle", key: "subagentStatusIdle" },
+    DONE: { kind: "done", key: "subagentStatusDone" },
+    COMPLETED: { kind: "done", key: "subagentStatusDone" },
+    COMPLETE: { kind: "done", key: "subagentStatusDone" },
+    FINISHED: { kind: "done", key: "subagentStatusDone" },
+    SUCCEEDED: { kind: "done", key: "subagentStatusDone" },
+    RUNNING: { kind: "running", key: "subagentStatusRunning", running: true },
+    WORKING: { kind: "running", key: "subagentStatusRunning", running: true },
+    IN_PROGRESS: { kind: "running", key: "subagentStatusRunning", running: true },
+    WAITING_FOR_USER: { kind: "waiting", key: "subagentStatusWaitingUser" },
+    WAITING: { kind: "waiting", key: "subagentStatusWaiting" },
+    PENDING: { kind: "waiting", key: "subagentStatusWaiting" },
+    QUEUED: { kind: "waiting", key: "subagentStatusWaiting" },
+    ERROR: { kind: "error", key: "subagentStatusError", error: true },
+    FAILED: { kind: "error", key: "subagentStatusError", error: true },
+    CANCELLED: { kind: "stopped", key: "subagentStatusStopped" },
+    CANCELED: { kind: "stopped", key: "subagentStatusStopped" },
+    ABORTED: { kind: "stopped", key: "subagentStatusStopped" },
+    STOPPED: { kind: "stopped", key: "subagentStatusStopped" },
+    UNSPECIFIED: { kind: "unknown", key: "subagentStatusUnknown" }
+  };
+  function subagentLabels(ctx) {
+    return ctx.language.language === "zh-CN" ? {
+      expand: "\u5C55\u5F00\u5B50\u4EE3\u7406",
+      collapse: "\u6298\u53E0\u5B50\u4EE3\u7406",
+      toggleAria: "\u5207\u6362\u5B50\u4EE3\u7406\u5217\u8868",
+      detailTitle: "\u67E5\u770B\u6307\u6807\u660E\u7EC6",
+      detailAria: "\u5207\u6362\u8BE6\u60C5",
+      count: (n) => String(n),
+      countTitle: (n) => `${n} \u4E2A\u5B50\u4EE3\u7406`
+    } : {
+      expand: "Expand subagents",
+      collapse: "Collapse subagents",
+      toggleAria: "Toggle subagents",
+      detailTitle: "View metric details",
+      detailAria: "Toggle details",
+      count: (n) => String(n),
+      countTitle: (n) => `${n} ${n === 1 ? "subagent" : "subagents"}`
+    };
+  }
+  function buildSubagentTree(items) {
+    const map = /* @__PURE__ */ new Map();
+    const roots = [];
+    for (const item of items) map.set(item.id, { ...item, children: [] });
+    const hasAncestor = (childId, ancestorId) => {
+      let curr = map.get(ancestorId);
+      while (curr && curr.parentId) {
+        if (curr.parentId === childId) return true;
+        curr = map.get(curr.parentId);
+      }
+      return false;
+    };
+    for (const node of map.values()) {
+      if (node.parentId && map.has(node.parentId) && node.parentId !== node.id && !hasAncestor(node.id, node.parentId)) {
+        map.get(node.parentId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    return roots;
+  }
+  function classifySubagentStatus(ctx, raw) {
+    const t = ctx.language.t;
+    const rawText = typeof raw === "string" && raw.trim() ? raw.trim() : "";
+    const norm = rawText.toUpperCase().replace(/^CASCADE_RUN_STATUS_/, "");
+    const match = norm ? SUBAGENT_STATUS_MAP[norm] : null;
+    const label = match ? t(match.key) : norm ? norm.toLowerCase().replace(/_/g, " ").replace(/^\w/, (ch) => ch.toUpperCase()) : t("subagentStatusUnknown");
+    return { raw: rawText, label, kind: match ? match.kind : "unknown", running: Boolean(match?.running), error: Boolean(match?.error) };
+  }
+  function formatSubagentContext(ctx, sctx) {
+    const t = ctx.language.t;
+    const hasUsed = sctx && typeof sctx.usedTokens === "number" && Number.isFinite(sctx.usedTokens);
+    const hasFraction = Boolean(
+      sctx && typeof sctx.usedFraction === "number" && Number.isFinite(sctx.usedFraction) && typeof sctx.maxTokens === "number" && Number.isFinite(sctx.maxTokens) && sctx.maxTokens > 0
+    );
+    if (hasFraction && sctx && typeof sctx.usedFraction === "number") {
+      const pctText = percent(sctx.usedFraction);
+      const usedPct = (sctx.usedFraction * 100).toFixed(1);
+      const remainingPct = Math.max(0, 100 - sctx.usedFraction * 100).toFixed(1);
+      const tokText = t("contextTokens", { used: count(sctx.usedTokens), max: count(sctx.maxTokens) });
+      const clamped = Math.max(0, Math.min(1, sctx.usedFraction));
+      const dashoffset = String(Math.round((1 - clamped) * 1e3) / 10);
+      const color = sctx.usedFraction >= 0.9 ? "var(--pulse-danger)" : sctx.usedFraction >= 0.8 ? "var(--pulse-warning)" : "";
+      const summary = `${t("contextUsed", { used: usedPct, remaining: remainingPct })} \xB7 ${tokText}`;
+      return { available: true, dashoffset, color, label: `${t("subagentContext")}: ${summary}`, detail: `${pctText} \xB7 ${tokText}` };
+    }
+    const partialTokens = hasUsed && sctx ? t("contextTokens", { used: count(sctx.usedTokens), max: "\u2014" }) : null;
+    return {
+      available: false,
+      dashoffset: "100",
+      color: "",
+      label: partialTokens ? `${t("subagentContext")}: ${t("contextUnknown")} \xB7 ${partialTokens}` : `${t("subagentContext")}: ${t("contextUnknown")}`,
+      detail: partialTokens || "\u2014"
+    };
+  }
+  var subagentRefs = /* @__PURE__ */ new WeakMap();
+  function createSubagentNodeElement() {
+    const nodeEl = document.createElement("div");
+    nodeEl.className = "subagent-tree-node";
+    nodeEl.innerHTML = `<div class="subagent-item"><div class="subagent-summary" tabindex="0" role="button"><div class="subagent-left"><span class="tree-bullet">\u2022</span><span class="subagent-name"></span><span class="subagent-status-dot" role="img"></span></div><div class="subagent-right"><span class="subagent-badge"></span><span class="subagent-tps"></span><span class="subagent-tokens"></span><span class="subagent-context-ring" role="img"><svg viewBox="0 0 16 16" aria-hidden="true"><circle class="subagent-context-track" cx="8" cy="8" r="5.3"></circle><circle class="subagent-context-fill" cx="8" cy="8" r="5.3" pathLength="100"></circle></svg></span><button class="detail-toggle-btn" type="button">\u2139</button></div></div><div class="subagent-detail" hidden><dl><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt></dt><dd></dd></div><div><dt>ID</dt><dd></dd></div></dl></div></div>`;
+    const itemEl = nodeEl.firstElementChild;
+    const summaryEl = itemEl.firstElementChild;
+    const leftEl = summaryEl.firstElementChild;
+    const rightEl = summaryEl.lastElementChild;
+    const detailEl = itemEl.lastElementChild;
+    const rows = [...detailEl.firstElementChild.children];
+    const contextRingEl = rightEl.children[3];
+    subagentRefs.set(nodeEl, {
+      itemEl,
+      summaryEl,
+      leftEl,
+      treeBtn: null,
+      bullet: leftEl.children[0],
+      nameEl: leftEl.children[1],
+      statusDotEl: leftEl.children[2],
+      childCountEl: null,
+      badgeEl: rightEl.children[0],
+      tpsEl: rightEl.children[1],
+      tokensEl: rightEl.children[2],
+      contextRingEl,
+      contextRingFillEl: contextRingEl.firstElementChild.lastElementChild,
+      detailBtn: rightEl.children[4],
+      detailEl,
+      childrenEl: null,
+      dts: rows.map((r) => r.firstElementChild),
+      dds: rows.map((r) => r.lastElementChild)
+    });
+    return nodeEl;
+  }
+
+  // src/ui/panel-webview/subagent-tree.ts
+  function syncSubagentNode(ctx, nodeEl, node, depth, existingNodes) {
+    const { state, language } = ctx;
+    const t = language.t;
+    const refs = subagentRefs.get(nodeEl);
+    const id = String(node.id);
+    const hasChildren = Boolean(node.children?.length);
+    const isTreeExpanded = state.treeState.has(id) ? state.treeState.get(id) : depth <= 1;
+    const isDetailExpanded = state.detailState.has(id);
+    const shortId = node.id ? node.id.slice(0, 8) : "agent";
+    const displayName = node.role || shortId;
+    const model = node.model || "Gemini";
+    const tpsStr = node.tps !== null && node.tps !== void 0 ? `${rate(node.tps)} tok/s` : "\u2014";
+    const tokStr = node.totalTokens !== null && node.totalTokens !== void 0 ? `${compact(node.totalTokens)} tok` : "\u2014";
+    const latestTpsStr = node.latestRateStatus === "unreliable" ? t("timingUnreliable") : node.latestRateStatus === "legacy" ? t("ratePending") : node.latestTps !== null && node.latestTps !== void 0 ? `${rate(node.latestTps)} tok/s` : "\u2014";
+    const ctxInfo = formatSubagentContext(ctx, node.context);
+    const statusInfo = classifySubagentStatus(ctx, node.status);
+    const labels = subagentLabels(ctx);
+    nodeEl.dataset.id = id;
+    refs.itemEl.classList.toggle("is-running", statusInfo.running);
+    refs.itemEl.classList.toggle("is-error", statusInfo.error);
+    refs.statusDotEl.dataset.status = statusInfo.kind;
+    const statusTooltip = `${t("subagentStatus")}: ${statusInfo.label}${statusInfo.raw ? ` (${statusInfo.raw})` : ""}`;
+    setAttr(refs.statusDotEl, "title", statusTooltip);
+    setAttr(refs.statusDotEl, "aria-label", statusTooltip);
+    refs.summaryEl.dataset.id = id;
+    setAttr(refs.summaryEl, "aria-expanded", String(isDetailExpanded));
+    if (hasChildren && !refs.treeBtn && refs.bullet) {
+      const btn = document.createElement("button");
+      btn.className = "tree-toggle-btn";
+      btn.type = "button";
+      btn.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#chevron"/></svg>';
+      refs.bullet.replaceWith(btn);
+      refs.bullet = null;
+      refs.treeBtn = btn;
+    } else if (!hasChildren && refs.treeBtn) {
+      const bullet = document.createElement("span");
+      bullet.className = "tree-bullet";
+      bullet.textContent = "\u2022";
+      refs.treeBtn.replaceWith(bullet);
+      refs.treeBtn = null;
+      refs.bullet = bullet;
+    }
+    if (hasChildren && refs.treeBtn) {
+      refs.treeBtn.dataset.id = id;
+      setAttr(refs.treeBtn, "aria-expanded", String(isTreeExpanded));
+      setAttr(refs.treeBtn, "title", isTreeExpanded ? labels.collapse : labels.expand);
+      setAttr(refs.treeBtn, "aria-label", labels.toggleAria);
+      if (!refs.childCountEl) {
+        const span = document.createElement("span");
+        span.className = "subagent-child-count";
+        refs.leftEl.appendChild(span);
+        refs.childCountEl = span;
+      }
+      setText(refs.childCountEl, labels.count(node.children.length));
+      setAttr(refs.childCountEl, "title", labels.countTitle(node.children.length));
+    } else if (refs.childCountEl) {
+      refs.childCountEl.remove();
+      refs.childCountEl = null;
+    }
+    setText(refs.nameEl, displayName);
+    setAttr(refs.nameEl, "title", node.role ? `${node.role} (${id})` : id);
+    setText(refs.badgeEl, model);
+    setAttr(refs.badgeEl, "title", model);
+    setText(refs.tpsEl, tpsStr);
+    setText(refs.tokensEl, tokStr);
+    refs.contextRingEl.classList.toggle("is-unavailable", !ctxInfo.available);
+    setAttr(refs.contextRingEl, "title", ctxInfo.label);
+    setAttr(refs.contextRingEl, "aria-label", ctxInfo.label);
+    setStyle(refs.contextRingFillEl, "strokeDashoffset", ctxInfo.dashoffset);
+    setStyle(refs.contextRingFillEl, "stroke", ctxInfo.color);
+    refs.detailBtn.dataset.id = id;
+    setAttr(refs.detailBtn, "title", labels.detailTitle);
+    setAttr(refs.detailBtn, "aria-label", labels.detailAria);
+    setAttr(refs.detailBtn, "aria-pressed", String(isDetailExpanded));
+    if (!panelMotion.has(refs.detailEl)) setHidden(refs.detailEl, !isDetailExpanded);
+    const dtTexts = [t("subagentModel"), t("subagentTPS"), t("latest"), t("subagentSteps"), t("subagentTokensDetail"), t("subagentContext"), t("subagentStatus")];
+    for (let i = 0; i < dtTexts.length; i++) setText(refs.dts[i], dtTexts[i]);
+    const ddTexts = [model, tpsStr, latestTpsStr, node.steps || 0, `${node.totalTokens !== null && node.totalTokens !== void 0 ? count(node.totalTokens) : "\u2014"} tok`, ctxInfo.detail, statusInfo.label, shortId];
+    for (let i = 0; i < ddTexts.length; i++) setText(refs.dds[i], ddTexts[i]);
+    setAttr(refs.dds[5], "title", ctxInfo.label);
+    setAttr(refs.dds[6], "title", statusInfo.raw || null);
+    setAttr(refs.dds[7], "title", id);
+    if (hasChildren) {
+      if (!refs.childrenEl) {
+        const childrenDiv = document.createElement("div");
+        childrenDiv.className = "subagent-children";
+        nodeEl.appendChild(childrenDiv);
+        refs.childrenEl = childrenDiv;
+      }
+      refs.childrenEl.dataset.parentId = id;
+      if (!panelMotion.has(refs.childrenEl)) setHidden(refs.childrenEl, !isTreeExpanded);
+      syncSubagentChildren(ctx, refs.childrenEl, node.children, depth + 1, existingNodes);
+    } else if (refs.childrenEl) {
+      refs.childrenEl.remove();
+      refs.childrenEl = null;
+    }
+  }
+  function syncSubagentChildren(ctx, containerEl, nodes, depth, existingNodes) {
+    const desiredIds = new Set(nodes.map((n) => String(n.id)));
+    for (const child of [...containerEl.children]) {
+      if (!child.classList?.contains("subagent-tree-node") || !desiredIds.has(child.dataset?.id || "")) {
+        child.remove();
+      }
+    }
+    let cursor = containerEl.firstElementChild;
+    for (const node of nodes) {
+      const id = String(node.id);
+      let nodeEl = existingNodes.get(id);
+      if (nodeEl) existingNodes.delete(id);
+      else nodeEl = createSubagentNodeElement();
+      syncSubagentNode(ctx, nodeEl, node, depth, existingNodes);
+      if (nodeEl !== cursor) containerEl.insertBefore(nodeEl, cursor);
+      else cursor = cursor.nextElementSibling;
+    }
+  }
+  function renderSubagentsSection(ctx, snapshot) {
+    const { $, state, language } = ctx;
+    const subSection = $("subagents-section");
+    if (!subSection) return;
+    const speed = snapshot.speed;
+    const task = speed?.taskUsage;
+    if (task && task.subagents > 0) {
       setHidden(subSection, false);
-      setText($('subagents-count'), String(task.subagents));
-      const list=$('subagents-list');
-      const items=Array.isArray(task.items)?task.items:[];
-      const currentConvId=speed?.conversationId||snapshot?.conversationId;
-      const nextSig = items.length
-        ? `${currentConvId || ''}|${language.language}|${items.map(i => `${i.id}\u0001${i.parentId ?? ''}\u0001${i.role ?? ''}\u0001${i.model ?? ''}\u0001${i.tps ?? ''}\u0001${i.latestTps ?? ''}\u0001${i.latestRateStatus ?? ''}\u0001${i.steps ?? 0}\u0001${i.totalTokens ?? ''}\u0001${i.context?.usedTokens ?? ''}\u0001${i.context?.maxTokens ?? ''}\u0001${i.context?.usedFraction ?? ''}\u0001${i.status ?? ''}`).join('\u0002')}`
-        : `EMPTY|${language.language}`;
-      if (nextSig !== lastSubagentsSig || list.children.length === 0) {
-        lastSubagentsSig = nextSig;
+      setText($("subagents-count"), String(task.subagents));
+      const list = $("subagents-list");
+      if (!list) return;
+      const items = Array.isArray(task.items) ? task.items : [];
+      const currentConvId = speed?.conversationId || snapshot.conversationId;
+      const nextSig = items.length ? `${currentConvId || ""}|${language.language}|${items.map((i) => `${i.id}${i.parentId ?? ""}${i.role ?? ""}${i.model ?? ""}${i.tps ?? ""}${i.latestTps ?? ""}${i.latestRateStatus ?? ""}${i.steps ?? 0}${i.totalTokens ?? ""}${i.context?.usedTokens ?? ""}${i.context?.maxTokens ?? ""}${i.context?.usedFraction ?? ""}${i.status ?? ""}`).join("")}` : `EMPTY|${language.language}`;
+      if (nextSig !== state.lastSubagentsSig || list.children.length === 0) {
+        state.lastSubagentsSig = nextSig;
         if (items.length) {
-          const container = $('subagents-container');
+          const container = $("subagents-container");
           const savedScroll = container ? container.scrollTop : 0;
-          const existingNodes = new Map();
-          for (const el of list.querySelectorAll('.subagent-tree-node[data-id]')) existingNodes.set(el.dataset.id, el);
-          syncSubagentChildren(list, buildSubagentTree(items), 1, existingNodes);
+          const existingNodes = /* @__PURE__ */ new Map();
+          for (const el of list.querySelectorAll(".subagent-tree-node[data-id]")) {
+            if (el.dataset.id) existingNodes.set(el.dataset.id, el);
+          }
+          syncSubagentChildren(ctx, list, buildSubagentTree(items), 1, existingNodes);
           if (container) container.scrollTop = savedScroll;
         } else {
-          list.innerHTML = `<div class="subagent-empty">${escapeHtml(t('transcriptLoading'))}</div>`;
+          list.innerHTML = `<div class="subagent-empty">${escapeHtml(language.t("transcriptLoading"))}</div>`;
         }
       }
-    }else{
-      setHidden(subSection, true);
-      lastSubagentsSig = null;
-    }
-  }
-  renderTimeline(speed);
-  setHidden($('cache-note'), true);
-  const dot = $('connection-dot');
-  const dotClass = `connection-dot ${snapshot.connection}`;
-  if (dot && dot.className !== dotClass) dot.className = dotClass;
-  setAttr(dot, 'title', t(snapshot.connection === 'live'?'live':snapshot.connection === 'stale'?'stale':'offline'));
-  const timestamp = snapshot.quotaUpdatedAt ? new Date(snapshot.quotaUpdatedAt).toLocaleTimeString(language.language,{hour12:false}) : null;
-  const healthNote = $('health-note');
-  setText(healthNote, language.errorMessage(snapshot.error||snapshot.sessionError) || (timestamp ? t('health',{time:timestamp}) : t('firstUpdate')));
-  healthNote.classList.toggle('warning', snapshot.connection !== 'live' || !!snapshot.sessionError);
-  const integration = snapshot.integration;
-  setText($('integration-note'), integration && !['mounted','disabled'].includes(integration.state)
-    ? (language.language === 'zh-CN' ? '内嵌栏正在自动重连；此面板仍可查看统计。' : 'Inline widget is reconnecting automatically; statistics remain available in this panel.') : '');
-  updateCountdowns();
-}
-
-function updateCountdowns() {
-  const now = Date.now() + serverOffset;
-  for (const [window,prefix] of [['5h','five'],['weekly','week']]) {
-    const bucket = group?.windows?.[window];
-    setText($(`${prefix}-countdown`), language.countdown(bucket?.resetAt,now));
-    setText($(`${prefix}-summary-countdown`), language.countdown(bucket?.resetAt,now,true));
-    setText($(`${prefix}-summary-balance`), percent(bucket?.remaining));
-    applyQuotaFill($(`${prefix}-summary-fill`), bucket?.remaining);
-    if (bucket?.resetAt && Date.parse(bucket.resetAt) <= now && snapshot?.connection === 'live' && now - lastExpiredRefresh > 30000) {
-      lastExpiredRefresh = now; setTimeout(() => refresh(true),0);
-    }
-  }
-}
-
-function refreshBusy(busy){
-  const button=$('refresh-button');setAttr(button,'aria-busy',String(busy));setAttr(button,'aria-disabled',String(busy));
-  button.dataset.i18nAria=busy?'refreshing':'refreshStats';button.title=t(button.dataset.i18nAria);setAttr(button,'aria-label',button.title);
-}
-function refreshManually(){
-  if(manualRequest)return;
-  refreshBusy(true);const started=performance.now();
-  manualRequest=(async()=>{
-    try{if(pending)await refreshRequest;await refresh(true);}
-    finally{
-      const remaining=250-(performance.now()-started);
-      if(remaining>0)await new Promise(resolve=>setTimeout(resolve,remaining));
-      refreshBusy(false);manualRequest=null;
-    }
-  })();
-}
-function refresh(force = false) {
-  if (pending) return refreshRequest;
-  pending = true;
-  const reqTimelineEpoch = timelineEpoch;
-  refreshRequest=(async()=>{
-  try {
-    const params = new URLSearchParams();
-    if (host?.conversationId) params.set('conversationId',host.conversationId);
-    if (force) params.set('force','1');
-    const transport = host?.fetch ? host.fetch.bind(host) : fetch;
-    const response = await transport(`/api/metrics?${params}`,{cache:'no-store'});
-    if (!response.ok) throw new Error(t('panelUnavailable'));
-    const value = await response.json();
-    if (!['live','stale','offline'].includes(value.connection)) throw new Error(t('invalidData'));
-    snapshot = value;
-    if (Object.hasOwn(value,'theme')) {
-      const themeKey = JSON.stringify(value.theme ?? null);
-      if (themeKey !== lastThemeKey) { lastThemeKey = themeKey; themeController.setHostTheme(value.theme); }
-    }
-    if (value.preferences) {
-      if (reqTimelineEpoch === timelineEpoch) {
-        const nextTl = value.preferences.modelTimelineEnabled === true;
-        if (nextTl !== timelineEnabled) {
-          timelineEnabled = nextTl;
-          lastTimelineSig = null;
-        }
-      }
-      syncingFromRefresh = true;
-      try { preferences.sync(value.preferences); } finally { syncingFromRefresh = false; }
-    }
-    if (timelineNoticeKey === 'timelineCleared' && value.speed?.modelTimeline?.nodes?.length > 0 && Date.now() - lastTimelineClearAt > 1200) {
-      timelineNoticeKey = null; timelineNoticeIsError = false;
-    }
-    serverOffset = Date.parse(value.serverTime) - Date.now();
-    if (!Number.isFinite(serverOffset)) serverOffset = 0;
-    render();
-  } catch (error) {
-    if (snapshot) { snapshot.connection = 'stale'; snapshot.error = error.message; render(); }
-    else { setText($('health-note'), language.errorMessage(error.message)); $('health-note').classList.add('warning'); }
-  } finally {
-    pending = false; refreshRequest=null;
-    clearTimeout(timer); timer = setTimeout(refresh, document.hidden ? 10000 : 2200);
-  }
-  })();
-  return refreshRequest;
-}
-async function setTimelineEnabled(next) {
-  if (timelineBusy) return;
-  timelineBusy = true;
-  timelineNoticeKey = null; timelineNoticeIsError = false;
-  const myEpoch = ++timelineEpoch;
-  renderTimeline(snapshot?.speed);
-  try {
-    const updated = await preferenceRequest({ modelTimelineEnabled: Boolean(next) });
-    if (myEpoch !== timelineEpoch) return;
-    timelineEnabled = Boolean(updated?.modelTimelineEnabled ?? next);
-    if (snapshot?.preferences) snapshot.preferences.modelTimelineEnabled = timelineEnabled;
-    if (!timelineEnabled) timelineToggled.clear();
-    lastTimelineSig = null;
-    timelineBusy = false;
-    renderTimeline(snapshot?.speed);
-    if (pending && refreshRequest) await refreshRequest;
-    await refresh(true);
-  } catch {
-    timelineBusy = false;
-    timelineNoticeKey = 'timelineSaveFailed'; timelineNoticeIsError = true;
-    renderTimeline(snapshot?.speed);
-  }
-}
-async function clearTimelineData() {
-  if (timelineBusy) return;
-  timelineBusy = true;
-  timelineNoticeKey = null; timelineNoticeIsError = false;
-  ++timelineEpoch;
-  renderTimeline(snapshot?.speed);
-  const rawConvId = host?.conversationId || snapshot?.speed?.modelTimeline?.cascadeId || snapshot?.speed?.conversationId || null;
-  const guidConvId = typeof rawConvId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawConvId) ? rawConvId : null;
-  const payload = guidConvId ? { conversationId: guidConvId } : {};
-  try {
-    if (typeof window.agPulseHost?.clearTimeline === 'function') {
-      const clearRes = await window.agPulseHost.clearTimeline(payload);
-      if (clearRes && typeof clearRes === 'object' && clearRes.error) throw new Error(clearRes.error);
     } else {
-      const transport = host?.fetch ? host.fetch.bind(host) : fetch;
-      const res = await transport('/api/timeline/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error('Clear failed');
-    }
-    lastTimelineClearAt = Date.now();
-    timelineToggled.clear();
-    if (snapshot?.speed) snapshot.speed.modelTimeline = { ...(snapshot.speed.modelTimeline || {}), swimlanes: [], nodes: [], truncated: false };
-    lastTimelineSig = null;
-    timelineNoticeKey = 'timelineCleared'; timelineNoticeIsError = false;
-    timelineBusy = false;
-    renderTimeline(snapshot?.speed);
-    setTimeout(() => {
-      if (timelineNoticeKey === 'timelineCleared') { timelineNoticeKey = null; renderTimelineStatus(); }
-    }, 2800);
-    if (pending && refreshRequest) await refreshRequest;
-    await refresh(true);
-  } catch {
-    timelineBusy = false;
-    timelineNoticeKey = 'timelineClearFailed'; timelineNoticeIsError = true;
-    renderTimeline(snapshot?.speed);
-  }
-}
-function focusTimelineNodeByStep(stepStart) {
-  const treeEl = $('timeline-tree');
-  if (!treeEl || stepStart == null) return;
-  let targetNode = null;
-  for (const el of treeEl.querySelectorAll('.timeline-node')) {
-    const row = el.querySelector(':scope > .timeline-node-row');
-    if (row) row.classList.remove('is-active');
-    const idx = el.dataset.stepIndex != null ? Number(el.dataset.stepIndex) : null;
-    const s = el.dataset.stepStart != null ? Number(el.dataset.stepStart) : null;
-    const e = el.dataset.stepEnd != null ? Number(el.dataset.stepEnd) : null;
-    if (idx === stepStart || (s != null && s === stepStart) || (s != null && e != null && stepStart >= s && stepStart <= e)) {
-      if (!targetNode || idx === stepStart || s === stepStart) targetNode = el;
+      setHidden(subSection, true);
+      state.lastSubagentsSig = null;
     }
   }
-  if (!targetNode) return;
-  let cur = targetNode.parentElement;
-  while (cur && cur !== treeEl) {
-    if (cur.classList.contains('timeline-children')) {
-      cur.hidden = false;
-      const parentNode = cur.closest('.timeline-node');
-      if (parentNode?.dataset.nodeId) {
-        timelineToggled.set(parentNode.dataset.nodeId, false);
-        const btn = parentNode.querySelector(':scope > .timeline-node-row > .timeline-toggle-btn');
-        setAttr(btn, 'aria-expanded', 'true');
+  function bindSubagentEvents(ctx) {
+    const { $, state } = ctx;
+    const toggleSubagentTree = (id, animate = true) => {
+      const list = $("subagents-list");
+      const escaped = CSS.escape(id);
+      const childDiv = list?.querySelector(`.subagent-children[data-parent-id="${escaped}"]`);
+      const btn = list?.querySelector(`.tree-toggle-btn[data-id="${escaped}"]`);
+      if (!childDiv || !btn) return;
+      const nextOpen = btn.getAttribute("aria-expanded") !== "true";
+      state.treeState.set(id, nextOpen);
+      setExpandedState(childDiv, nextOpen, animate);
+      const labels = subagentLabels(ctx);
+      setAttr(btn, "aria-expanded", String(nextOpen));
+      setAttr(btn, "title", nextOpen ? labels.collapse : labels.expand);
+    };
+    const toggleSubagentDetail = (id, animate = true) => {
+      const list = $("subagents-list");
+      const detailBtn = list?.querySelector(`.detail-toggle-btn[data-id="${CSS.escape(id)}"]`);
+      const node = detailBtn?.closest(".subagent-tree-node");
+      const detail = node?.querySelector(":scope > .subagent-item > .subagent-detail");
+      const summary = node?.querySelector(":scope > .subagent-item > .subagent-summary");
+      if (!detail) return;
+      const nextOpen = !state.detailState.has(id);
+      if (nextOpen) state.detailState.add(id);
+      else state.detailState.delete(id);
+      setExpandedState(detail, nextOpen, animate);
+      setAttr(summary ?? null, "aria-expanded", String(nextOpen));
+      setAttr(detailBtn ?? null, "aria-pressed", String(nextOpen));
+    };
+    $("subagents-toggle")?.addEventListener("click", () => {
+      const toggle = $("subagents-toggle");
+      const container = $("subagents-container");
+      if (!toggle || !container) return;
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      setAttr(toggle, "aria-expanded", String(expanded));
+      setExpandedState(container, expanded, true);
+    });
+    const subList = $("subagents-list");
+    subList?.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const treeBtn = target.closest(".tree-toggle-btn");
+      if (treeBtn?.dataset.id) {
+        event.stopPropagation();
+        toggleSubagentTree(treeBtn.dataset.id, true);
+        return;
       }
-    }
-    cur = cur.parentElement;
+      const detailBtn = target.closest(".detail-toggle-btn");
+      if (detailBtn?.dataset.id) {
+        event.stopPropagation();
+        toggleSubagentDetail(detailBtn.dataset.id, true);
+        return;
+      }
+      const summary = target.closest(".subagent-summary");
+      if (!summary?.dataset.id) return;
+      if (summary.querySelector(".tree-toggle-btn")) toggleSubagentTree(summary.dataset.id, true);
+      else toggleSubagentDetail(summary.dataset.id, true);
+    });
+    subList?.addEventListener("dblclick", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || target.closest("button")) return;
+      const summary = target.closest(".subagent-summary");
+      if (!summary?.dataset.id) return;
+      event.stopPropagation();
+      toggleSubagentDetail(summary.dataset.id, true);
+    });
+    subList?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target instanceof Element ? event.target : null;
+      const summary = target?.closest(".subagent-summary");
+      if (!summary?.dataset.id || target !== summary) return;
+      event.preventDefault();
+      if (summary.querySelector(".tree-toggle-btn")) toggleSubagentTree(summary.dataset.id, true);
+      else toggleSubagentDetail(summary.dataset.id, true);
+    });
   }
-  const activeRow = targetNode.querySelector(':scope > .timeline-node-row');
-  if (activeRow) { activeRow.classList.add('is-active'); activeRow.scrollIntoView({ block: 'nearest' }); }
-}
-$('quota-group').addEventListener('change', event => { selectedGroup = event.target.value; localSet('ag-pulse-group',selectedGroup); render(); });
-$('subagents-toggle')?.addEventListener('click',()=>{
-  const toggle=$('subagents-toggle'),container=$('subagents-container');
-  if(!toggle||!container)return;
-  const expanded=toggle.getAttribute('aria-expanded')!=='true';
-  setAttr(toggle,'aria-expanded',String(expanded));
-  setExpandedState(container,expanded,true);
-});
-const subList=$('subagents-list');
-subList?.addEventListener('click',e=>{
-  const treeBtn=e.target.closest('.tree-toggle-btn');
-  if(treeBtn){e.stopPropagation();toggleSubagentTree(treeBtn.dataset.id,true);return;}
-  const detailBtn=e.target.closest('.detail-toggle-btn');
-  if(detailBtn){e.stopPropagation();toggleSubagentDetail(detailBtn.dataset.id,true);return;}
-  const summary=e.target.closest('.subagent-summary');
-  if(!summary)return;
-  if(summary.querySelector('.tree-toggle-btn'))toggleSubagentTree(summary.dataset.id,true);
-  else toggleSubagentDetail(summary.dataset.id,true);
-});
-subList?.addEventListener('dblclick',e=>{
-  if(e.target.closest('button'))return;
-  const summary=e.target.closest('.subagent-summary');
-  if(!summary)return;
-  e.stopPropagation();
-  toggleSubagentDetail(summary.dataset.id,true);
-});
-subList?.addEventListener('keydown',e=>{
-  if(e.key!=='Enter'&&e.key!==' ')return;
-  const summary=e.target.closest('.subagent-summary');
-  if(!summary||e.target!==summary)return;
-  e.preventDefault();
-  if(summary.querySelector('.tree-toggle-btn'))toggleSubagentTree(summary.dataset.id,true);
-  else toggleSubagentDetail(summary.dataset.id,true);
-});
-const mixCard = $('panel-model-mix');
-mixCard?.addEventListener('click', e => {
-  const scopeBtn = e.target.closest('[data-mix-scope]');
-  if (scopeBtn) { mixScope = scopeBtn.dataset.mixScope; mixScopeManual = true; lastMixSig = null; render(); return; }
-  const metricBtn = e.target.closest('[data-mix-metric]');
-  if (metricBtn) { mixMetric = metricBtn.dataset.mixMetric; lastMixSig = null; render(); return; }
-  const modelTarget = e.target.closest('[data-model-id]');
-  if (modelTarget) {
-    const id = modelTarget.dataset.modelId;
-    mixActiveId = mixActiveId === id ? null : id;
-    updateModelMixFocus();
+
+  // src/ui/panel-webview/index.ts
+  function initPanel() {
+    const panelWin = window;
+    if (!document.querySelector(".widget") || panelWin.__agPulsePanelInstalled) return;
+    panelWin.__agPulsePanelInstalled = true;
+    const theme = createAgPulseTheme();
+    let themeController = theme.attach(document.documentElement);
+    const localGet = (key) => {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    };
+    const localSet = (key, value) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch {
+      }
+    };
+    const language = createDashboardI18n(localGet("ag-pulse-language"));
+    const t = language.t;
+    const host = panelWin.sidecar;
+    if (!host) document.body.classList.add("standalone");
+    const state = {
+      snapshot: null,
+      selectedGroup: localGet("ag-pulse-group"),
+      group: null,
+      pending: false,
+      timer: null,
+      serverOffset: 0,
+      lastExpiredRefresh: 0,
+      selectedCard: "speed",
+      refreshRequest: null,
+      manualRequest: null,
+      syncingFromRefresh: false,
+      lastThemeKey: null,
+      lastLocalizedKey: null,
+      mixMetric: "total",
+      mixScope: "session",
+      mixScopeManual: false,
+      mixActiveId: null,
+      mixHoverId: null,
+      lastMixSig: null,
+      mixDisplayModels: [],
+      timelineEnabled: false,
+      timelineEpoch: 0,
+      timelineBusy: false,
+      timelineNoticeKey: null,
+      timelineNoticeIsError: false,
+      lastTimelineSig: null,
+      lastTimelineRender: [],
+      lastTimelineClearAt: 0,
+      pinnedSwimlaneIdx: -1,
+      lastTaskId: null,
+      lastSubagentsSig: null,
+      treeState: /* @__PURE__ */ new Map(),
+      detailState: /* @__PURE__ */ new Set(),
+      timelineToggled: /* @__PURE__ */ new Map()
+    };
+    let ctx;
+    let controller;
+    const render = () => {
+      const snapshot = state.snapshot;
+      if (!snapshot) return;
+      const speed = snapshot.speed;
+      renderQuotaAndSpeedSections(ctx, snapshot);
+      const activeConvId = speed?.modelTimeline?.cascadeId || speed?.conversationId || snapshot.conversationId || null;
+      if (activeConvId && activeConvId !== state.lastTaskId) {
+        state.treeState.clear();
+        state.detailState.clear();
+        state.timelineToggled.clear();
+        state.mixScopeManual = false;
+        state.mixActiveId = null;
+        state.mixHoverId = null;
+        state.lastTaskId = activeConvId;
+        state.lastSubagentsSig = null;
+        state.lastMixSig = null;
+        state.lastTimelineSig = null;
+      }
+      renderModelMix(ctx, speed);
+      renderSubagentsSection(ctx, snapshot);
+      renderTimeline(ctx, speed);
+      setHidden(ctx.$("cache-note"), true);
+      const dot = ctx.$("connection-dot");
+      const dotClass = `connection-dot ${snapshot.connection}`;
+      if (dot && dot.className !== dotClass) dot.className = dotClass;
+      setAttr(dot, "title", t(snapshot.connection === "live" ? "live" : snapshot.connection === "stale" ? "stale" : "offline"));
+      const timestamp = snapshot.quotaUpdatedAt ? new Date(snapshot.quotaUpdatedAt).toLocaleTimeString(language.language, { hour12: false }) : null;
+      const healthNote = ctx.$("health-note");
+      setText(
+        healthNote,
+        language.errorMessage(snapshot.error || snapshot.sessionError) || (timestamp ? t("health", { time: timestamp }) : t("firstUpdate"))
+      );
+      healthNote?.classList.toggle("warning", snapshot.connection !== "live" || Boolean(snapshot.sessionError));
+      const integration = snapshot.integration;
+      setText(
+        ctx.$("integration-note"),
+        integration && !["mounted", "disabled"].includes(integration.state) ? language.language === "zh-CN" ? "\u5185\u5D4C\u680F\u6B63\u5728\u81EA\u52A8\u91CD\u8FDE\uFF1B\u6B64\u9762\u677F\u4ECD\u53EF\u67E5\u770B\u7EDF\u8BA1\u3002" : "Inline widget is reconnecting automatically; statistics remain available in this panel." : ""
+      );
+      handleUpdateCountdowns();
+    };
+    const handleUpdateCountdowns = () => {
+      updateCountdowns(ctx, () => {
+        setTimeout(() => void controller.refresh(true), 0);
+      });
+    };
+    ctx = {
+      state,
+      language,
+      preferences: null,
+      themeController,
+      setThemeController: (next) => {
+        themeController = next;
+        ctx.themeController = next;
+      },
+      setPreferences: (next) => {
+        ctx.preferences = next;
+      },
+      host,
+      $: createDomLookup(),
+      localGet,
+      localSet,
+      groupNameNodes: [...document.querySelectorAll(".group-name")]
+    };
+    controller = createPanelController(ctx, { render, updateCountdowns: handleUpdateCountdowns });
+    ctx.preferences = controller.connectPreferences();
+    const showCard = createCardSwitcher(ctx);
+    bindSubagentEvents(ctx);
+    bindModelMixEvents(ctx, render);
+    ctx.$("quota-group")?.addEventListener("change", (event) => {
+      state.selectedGroup = event.target.value;
+      localSet("ag-pulse-group", state.selectedGroup);
+      render();
+    });
+    ctx.$("timeline-enable-btn")?.addEventListener("click", () => {
+      void controller.setTimelineEnabled(true);
+    });
+    ctx.$("timeline-disable-btn")?.addEventListener("click", () => {
+      state.pinnedSwimlaneIdx = -1;
+      void controller.setTimelineEnabled(false);
+    });
+    ctx.$("timeline-clear-btn")?.addEventListener("click", () => {
+      state.pinnedSwimlaneIdx = -1;
+      void controller.clearTimelineData();
+    });
+    const swimlanesEl = ctx.$("timeline-swimlanes");
+    swimlanesEl?.addEventListener("pointerover", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const seg = target?.closest(".timeline-seg[data-seg-idx]");
+      if (seg) showSwimlaneTip(ctx, Number(seg.dataset.segIdx));
+    });
+    swimlanesEl?.addEventListener("pointerleave", () => showSwimlaneTip(ctx, state.pinnedSwimlaneIdx));
+    swimlanesEl?.addEventListener("focusin", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const seg = target?.closest(".timeline-seg[data-seg-idx]");
+      if (seg) showSwimlaneTip(ctx, Number(seg.dataset.segIdx));
+    });
+    swimlanesEl?.addEventListener("focusout", (event) => {
+      if (!swimlanesEl.contains(event.relatedTarget)) showSwimlaneTip(ctx, state.pinnedSwimlaneIdx);
+    });
+    swimlanesEl?.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const segEl = target?.closest(".timeline-seg[data-seg-idx]");
+      if (!segEl) return;
+      const idx = Number(segEl.dataset.segIdx);
+      state.pinnedSwimlaneIdx = state.pinnedSwimlaneIdx === idx ? -1 : idx;
+      showSwimlaneTip(ctx, state.pinnedSwimlaneIdx >= 0 ? state.pinnedSwimlaneIdx : idx);
+      const segData = state.lastTimelineRender[idx];
+      if (segData?.stepStart != null) focusTimelineNodeByStep(ctx, segData.stepStart);
+    });
+    ctx.$("timeline-tree")?.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target?.closest(".timeline-node-row");
+      const nodeEl = row?.closest(".timeline-node");
+      const btn = row?.querySelector(":scope > .timeline-toggle-btn");
+      const kids = nodeEl?.querySelector(":scope > .timeline-children");
+      if (!btn || !kids || !nodeEl?.dataset.nodeId) return;
+      const expanded = btn.getAttribute("aria-expanded") !== "true";
+      state.timelineToggled.set(nodeEl.dataset.nodeId, !expanded);
+      setAttr(btn, "aria-expanded", String(expanded));
+      kids.hidden = !expanded;
+    });
+    ctx.$("refresh-button")?.addEventListener("click", controller.refreshManually);
+    ctx.$("language-toggle")?.addEventListener("click", () => {
+      void ctx.preferences.toggle();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) void controller.refresh();
+    });
+    window.addEventListener("pagehide", () => {
+      ctx.themeController.dispose();
+      ctx.preferences.dispose();
+    });
+    window.addEventListener("pageshow", (event) => {
+      if (!event.persisted) return;
+      ctx.setThemeController(theme.attach(document.documentElement));
+      ctx.setPreferences(controller.connectPreferences());
+    });
+    setInterval(handleUpdateCountdowns, 1e3);
+    controller.localize();
+    showCard("speed");
+    void controller.refresh();
   }
-});
-mixCard?.addEventListener('keydown', e => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const seg = e.target.closest('.model-mix-segment[data-model-id]');
-  if (!seg) return;
-  e.preventDefault();
-  const id = seg.dataset.modelId;
-  mixActiveId = mixActiveId === id ? null : id;
-  updateModelMixFocus();
-});
-for (const focusHost of [$('model-mix-segments'), $('model-mix-list')]) {
-  focusHost?.addEventListener('pointerover', e => {
-    const item = e.target.closest('[data-model-id]');
-    if (!item || mixHoverId === item.dataset.modelId) return;
-    mixHoverId = item.dataset.modelId;
-    updateModelMixFocus();
-  });
-  focusHost?.addEventListener('pointerleave', () => {
-    if (!mixHoverId) return;
-    mixHoverId = null;
-    updateModelMixFocus();
-  });
-  focusHost?.addEventListener('focusin', e => {
-    const item = e.target.closest('[data-model-id]');
-    if (!item) return;
-    mixHoverId = item.dataset.modelId;
-    updateModelMixFocus();
-  });
-  focusHost?.addEventListener('focusout', e => {
-    if (focusHost.contains(e.relatedTarget)) return;
-    if (mixHoverId) { mixHoverId = null; updateModelMixFocus(); }
-  });
-}
-let pinnedSwimlaneIdx = -1;
-$('timeline-enable-btn')?.addEventListener('click', () => { void setTimelineEnabled(true); });
-$('timeline-disable-btn')?.addEventListener('click', () => { pinnedSwimlaneIdx = -1; void setTimelineEnabled(false); });
-$('timeline-clear-btn')?.addEventListener('click', () => { pinnedSwimlaneIdx = -1; void clearTimelineData(); });
-const swimlanesEl = $('timeline-swimlanes');
-swimlanesEl?.addEventListener('pointerover', e => {
-  const seg = e.target.closest('.timeline-seg[data-seg-idx]');
-  if (seg) showSwimlaneTip(Number(seg.dataset.segIdx));
-});
-swimlanesEl?.addEventListener('pointerleave', () => showSwimlaneTip(pinnedSwimlaneIdx));
-swimlanesEl?.addEventListener('focusin', e => {
-  const seg = e.target.closest('.timeline-seg[data-seg-idx]');
-  if (seg) showSwimlaneTip(Number(seg.dataset.segIdx));
-});
-swimlanesEl?.addEventListener('focusout', e => {
-  if (!swimlanesEl.contains(e.relatedTarget)) showSwimlaneTip(pinnedSwimlaneIdx);
-});
-swimlanesEl?.addEventListener('click', e => {
-  const segEl = e.target.closest('.timeline-seg[data-seg-idx]');
-  if (!segEl) return;
-  const idx = Number(segEl.dataset.segIdx);
-  pinnedSwimlaneIdx = pinnedSwimlaneIdx === idx ? -1 : idx;
-  showSwimlaneTip(pinnedSwimlaneIdx >= 0 ? pinnedSwimlaneIdx : idx);
-  const segData = lastTimelineRender[idx];
-  if (segData?.stepStart != null) focusTimelineNodeByStep(segData.stepStart);
-});
-$('timeline-tree')?.addEventListener('click', e => {
-  const row = e.target.closest('.timeline-node-row');
-  const nodeEl = row?.closest('.timeline-node');
-  const btn = row?.querySelector(':scope > .timeline-toggle-btn');
-  const kids = nodeEl?.querySelector(':scope > .timeline-children');
-  if (!btn || !kids || !nodeEl?.dataset.nodeId) return;
-  const expanded = btn.getAttribute('aria-expanded') !== 'true';
-  timelineToggled.set(nodeEl.dataset.nodeId, !expanded);
-  setAttr(btn, 'aria-expanded', String(expanded));
-  kids.hidden = !expanded;
-});
-$('refresh-button').addEventListener('click', refreshManually);
-$('language-toggle').addEventListener('click',()=>{void preferences.toggle();});
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-window.addEventListener('pagehide',()=>preferences.dispose());
-window.addEventListener('pageshow',event=>{if(event.persisted)preferences=connectPreferences();});
-setInterval(updateCountdowns,1000);
-localize();
-showCard('speed');
-refresh();
-}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initPanel,{once:true});
-else initPanel();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initPanel, { once: true });
+  else initPanel();
+})();

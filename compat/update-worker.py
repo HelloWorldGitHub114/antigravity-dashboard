@@ -35,7 +35,7 @@ class RollbackError(RuntimeError):
     pass
 
 
-PRIVATE = {'data', 'history-v1', 'usage-v1', 'sdk'}
+PRIVATE = {'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'}
 REQUIRED = ('plugin.json', 'compat/inline-widget.cjs', 'compat/runtime-ui.mjs',
             'compat/i18n.cjs', 'compat/theme.cjs', 'sidecars/panel/main.mjs',
             'sidecars/panel/metrics.mjs', 'sidecars/panel/history.mjs', 'assets/logo.svg')
@@ -43,10 +43,19 @@ MAX_ZIP = 64 * 1024 * 1024
 MAX_EXPANDED = 256 * 1024 * 1024
 
 
+VERSION_RE = re.compile(
+    r'(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})'
+    r'(?:-((?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d{0,5}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?'
+)
+
+
 def version(value):
-    if not isinstance(value, str) or not re.fullmatch(r'(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})\.(?:0|[1-9]\d{0,5})', value):
+    match = VERSION_RE.fullmatch(value) if isinstance(value, str) and len(value) <= 64 else None
+    if not match:
         raise ValueError('Invalid stable version')
-    return tuple(map(int, value.split('.')))
+    major, minor, patch, suffix = match.groups()
+    prerelease = tuple((0, int(part)) if part.isdigit() else (1, part) for part in suffix.split('.')) if suffix else ()
+    return (int(major), int(minor), int(patch), 0 if suffix else 1, prerelease)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

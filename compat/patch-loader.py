@@ -145,6 +145,11 @@ def main():
     if args.check:
         print('Dry run only. No application files modified.')
         return
+    if os.environ.get('AG_PULSE_ALLOW_LEGACY_ASAR') != '1':
+        raise RuntimeError(
+            'Legacy app.asar active injection is retired in runtime mode. '
+            'Use runtime installation instead (manage.mjs install), or run --restore to revert a legacy patch.'
+        )
     if current==patched:
         print('Antigrative Dashboard adapter is already current.')
         return

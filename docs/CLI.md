@@ -18,9 +18,11 @@ Install `agy` using the [official instructions](https://antigravity.google/docs/
 
 ```sh
 node cli/statusline.mjs --preview --language en --no-color
-python manage.py install-cli
-python manage.py status-cli
+node manage.mjs install-cli
+node manage.mjs status-cli
 ```
+
+(`python manage.py install-cli` / `python3 manage.py install-cli` remains supported as a compatible wrapper.)
 
 Reopen `agy`. Installation copies a standalone runtime into `~/.gemini/antigravity-cli/antigrative-dashboard/` and updates only `statusLine` in `~/.gemini/antigravity-cli/settings.json`. Desktop installation is not required; desktop uninstall does not remove the CLI adapter. The runtime lives in a user directory and survives CLI binary updates. Future incompatible payload/invocation changes may still require adaptation.
 
@@ -90,11 +92,11 @@ Linux's third Sonnet request supplied input 182 and read 18,287 (99.0%); its thi
 ```sh
 # 示例数据预览，不写入统计
 node cli/statusline.mjs --preview --language zh-CN --no-color
-# 默认跟随桌面版保存的语言
-python manage.py install-cli
+# 默认跟随桌面版保存的语言（也可使用 python manage.py install-cli）
+node manage.mjs install-cli
 # 或单独固定中文
-python manage.py install-cli --language zh-CN
-python manage.py status-cli
+node manage.mjs install-cli --language zh-CN
+node manage.mjs status-cli
 ```
 
 重新打开 `agy` 后，第一行突出上下文占用和缓存率（青色/紫色加粗），读取量作为辅助，状态显示在末尾。Gemini、Claude/GPT 额度各一行，同行排列 5h 与周额度；当前模型所属组优先展示。额度数字与进度条统一按剩余量变色：≥70% 绿色、30%≤剩余<70% 黄色、<30% 红色；红色额度附 `!`。上下文不低于 60% 变黄、不低于 90% 变红并附 `!`。进度条辅助扫读，`↻` 表示重置倒计时，作为次要文字显示。

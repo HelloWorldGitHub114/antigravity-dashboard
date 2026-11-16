@@ -6,12 +6,14 @@ import {join,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import {PreferencesStore} from '../compat/preferences.mjs';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
-const directory=await mkdtemp(join(tmpdir(),'pulse-guide-')),file=join(directory,'preferences.json');
 const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(f=>readFile(join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const install=`window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});(${extract(sources[2])})();`;
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const html=await readFile(join(repo,'sidecars/panel/toolbar-preview.html'),'utf8');
+export async function runCheck() {
+const directory=await mkdtemp(join(tmpdir(),'pulse-guide-')),file=join(directory,'preferences.json');
 let failWrites=false;
 async function serve(){
  const store=new PreferencesStore({file});
@@ -29,8 +31,7 @@ async function serve(){
  server.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
  return {store,url:`http://127.0.0.1:${server.address().port}`,close:()=>new Promise(r=>server.close(r))};
 }
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[];let server,context,page;
 async function fresh(){await context?.close();context=await browser.newContext({viewport:{width:1100,height:850},deviceScaleFactor:2});page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(server.url+'/fixture');return page.locator('#ag-pulse-status-bar');}
 const out=join(repo,'.data','issue6');await mkdir(out,{recursive:true});
@@ -65,4 +66,6 @@ try{
  await page.waitForFunction(async()=>((await (await fetch('/api/preferences')).json()).languageGuideDismissed===true));
  assert.equal((await server.store.get()).language,'en','Selecting current English also completes onboarding');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({firstUse:true,noFocusTheft:true,threeIcons:true,guidedChineseChoice:true,newOriginAndBackend:true,dismissWithoutLanguage:true,failedSaveRetry:true,explicitEnglishChoice:true,pageErrors:errors},null,2));
-}finally{await browser.close();await server?.close();await rm(directory,{recursive:true,force:true});}
+}finally{await context?.close().catch(()=>{});await browser.close();await server?.close();await rm(directory,{recursive:true,force:true});}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

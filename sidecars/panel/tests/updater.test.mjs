@@ -106,3 +106,26 @@ test('stderr progress parsing tolerates chunks and ignores unbounded or unrelate
  assert.deepEqual(await runUpdateWorker('worker.py',['apply'],{spawnImpl,onProgress:value=>received.push(value)}),{verified:true});
  assert.deepEqual(received,[{phase:'download',received:5,total:10}]);
 });
+
+test('updater accepts semver pre-release suffixes for installed and target versions while rejecting malformed suffixes',async t=>{
+ let fixture;
+ fixture=await setup(t,async(_worker,args)=>{
+  if(args[0]==='check')return {host:'app',currentVersion:'0.11.0-beta.2',latestVersion:'0.11.0',hasUpdate:true};
+  await writeFile(join(fixture.directory,'plugin.json'),JSON.stringify({name:'antigravity-pulse',version:'0.11.0'}));
+  return {version:'0.11.0',verified:true};
+ });
+ await writeFile(join(fixture.directory,'plugin.json'),JSON.stringify({name:'antigravity-pulse',version:'0.11.0-beta.2'}));
+ const checked=await fixture.service.check();
+ assert.equal(checked.state,'available');
+ assert.equal(checked.currentVersion,'0.11.0-beta.2');
+ assert.equal(checked.latestVersion,'0.11.0');
+ await fixture.service.apply('0.11.0');
+ await fixture.service.job;
+ assert.equal(fixture.service.publicState().state,'installed');
+ assert.equal(fixture.service.publicState().currentVersion,'0.11.0');
+
+ for(const invalid of ['0.11.0-','0.11.0-01','0.11.0-beta..1','0.11.0/../evil']){
+  await writeFile(join(fixture.directory,'plugin.json'),JSON.stringify({name:'antigravity-pulse',version:invalid}));
+  await assert.rejects(()=>fixture.service.current(),/verification/);
+ }
+});

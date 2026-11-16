@@ -4,15 +4,17 @@ import {readFile,mkdir} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const sources=await Promise.all(['i18n.cjs','theme.cjs','inline-widget.cjs'].map(f=>readFile(f==='inline-widget.cjs'&&process.env.AG_PULSE_SUBAGENT_SOURCE?process.env.AG_PULSE_SUBAGENT_SOURCE:join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const install=`window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});(${extract(sources[2])})();`;
+const install=bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')+bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')+invokeCjsFactory(sources[2],'inline-widget');
 const parent='11111111-1111-1111-1111-111111111111',child='22222222-2222-2222-2222-222222222222';
 function sample(id){const sub=id===child;return {connection:'live',groups:[{id:'3p',name:'Claude / GPT',windows:{'5h':{available:true,remaining:.7},weekly:{available:true,remaining:.6}}}],speed:trajectoryMetrics({trajectory:{cascadeId:id,generatorMetadata:[{chatModel:{modelDisplayName:'Claude Sonnet',chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:sub?12000:44000,maxContextTokens:100000}},usage:{inputTokens:400,cacheReadTokens:600,responseOutputTokens:sub?180:100,outputTokens:sub?180:100,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},streamingDuration:'2s'}}]}})};}
 function composer(sub=true){return `<section class="composer" data-testid="agent-input-box"><div><div role="textbox" contenteditable="true" class="editor" aria-label="任意翻译"></div></div><div class="actions"><div class="left"><button class="protected">＋</button>${sub?'<div class="identity" title="任意语言"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/></svg><span>ui-layout-probe</span></div>':'<div><button data-testid="model-selector-trigger">Claude Sonnet</button></div>'}</div><div class="right"><button class="protected">○</button><button class="protected" data-testid="send-button" disabled>➜</button></div></div></section>`;}
 const css=`body{margin:0;padding:20px;background:#14161b;color:#eee;font:14px sans-serif}.composer{padding:6px;max-width:850px;margin:60px auto;border:1px solid #444;border-radius:14px}.editor{height:60px}.actions,.left,.right{display:flex;align-items:center;gap:4px}.left{flex:1;min-width:0}.right{flex:none}.identity{display:flex;gap:4px;font-size:12px;white-space:nowrap;padding:4px 8px}.identity svg{width:14px;fill:none;stroke:currentColor}button{height:28px;background:none;border:0;color:inherit;white-space:nowrap}.protected{width:28px;flex:none}.decoy{position:fixed;right:20px;top:10px;display:flex;gap:6px}`;
+export async function runCheck() {
 const server=createServer((req,res)=>{
   if(req.url==='/widget.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end(install);return;}
   const lang=req.url.includes('lang=en')?'en':'zh-CN';
@@ -24,8 +26,7 @@ const server=createServer((req,res)=>{
   </script><script src="/widget.js"></script>`);
 });
 server.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const errors=[],results=[];
 try{
  for(const lang of ['en','zh']){
@@ -123,3 +124,5 @@ try{
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({cases:results,pageErrors:errors},null,2));
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

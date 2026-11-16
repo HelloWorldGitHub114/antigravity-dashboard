@@ -4,11 +4,14 @@ import {createServer} from 'node:http';
 import {join,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..'),files=['compat/i18n.cjs','compat/theme.cjs','compat/inline-widget.cjs','compat/usage-ui.cjs'];
-const ide=process.argv.includes('--ide');
 const sources=await Promise.all(files.map(f=>readFile(join(repo,f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
-const surface=ide?await readFile(join(repo,'ide/surface.cjs'),'utf8'):null;
+const surfaceSource=await readFile(join(repo,'ide/surface.cjs'),'utf8');
+export async function runCheck(args=process.argv.slice(2)) {
+const ide=args.includes('--ide');
+const surface=ide?surfaceSource:null;
 const models=['Gemini 3.8 Flash','Gemini 3.8 Pro','Claude Sonnet','Claude Opus','GPT 5.4'];
 const days=Array.from({length:120},(_,i)=>{const d=new Date('2026-06-14T00:00:00Z');d.setUTCDate(d.getUTCDate()+i);return {date:d.toISOString().slice(0,10),models:Object.fromEntries(models.map((m,j)=>{const n=(i*17+j*3)%11*1200;return [m,{uncached:n,cacheRead:n*2,cacheWrite:0,output:n,total:n*4,requests:n?1:0}];}))};});
 days.unshift({date:'2024-11-01',models:{[models[0]]:{uncached:100,cacheRead:0,cacheWrite:0,output:20,total:120,requests:1}}});
@@ -16,10 +19,10 @@ const fixture={accountKey:'fixture',today:'2026-10-11',timeZone:'Asia/Shanghai',
 const html=`<!doctype html><html><head><meta charset="utf-8">${ide?`<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; style-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'">`:''}<style>body{margin:0;background:#17181a;color:#ddd;font:13px 'Segoe UI';padding:50px}.rounded-composer{max-width:900px;margin:300px auto 0;background:#27282a;padding:12px;border-radius:18px}.editor{height:45px}.actions{display:flex;align-items:center;gap:5px}.left{display:flex;flex:1;min-width:0}.right{display:flex;gap:5px}button{background:transparent;border:0;color:inherit;height:28px}</style></head><body>${ide?'<div class="antigravity-agent-side-panel"><div id="conversation" role="region"><div data-testid="conversation-view" data-cascade-id="11111111-1111-1111-1111-111111111111"></div>':''}<div class="rounded-composer" ${ide?'id="antigravity.agentSidePanelInputBox"':''}><div class="editor" contenteditable="true" role="combobox" aria-label="Message input"></div><div class="actions"><div class="left"><button aria-label="Add context">＋</button><button data-testid="model-selector-trigger">Gemini 3.8 Flash</button></div><div class="right"><button aria-label="Record voice memo">♩</button><button aria-label="Send message">➜</button></div></div></div>${ide?'</div></div>':''}<script>
 history.replaceState({},'', '/c/11111111-1111-1111-1111-111111111111');window.testData=${JSON.stringify(fixture)};window.testPrefs={language:'zh-CN',languageGuideDismissed:true,revision:1};
 window.agPulseHost={getMetrics:async()=>({connection:'live',usage:testData,preferences:testPrefs,groups:[],speed:null}),getPreferences:async()=>testPrefs,setPreferences:async x=>{if(window.failGuideSave&&x.usageGuideDismissed)throw Error('Fixture save failure');return testPrefs={...testPrefs,...x,revision:testPrefs.revision+1};}};
-${ide?`window.__agPulseSurface=(${extract(surface)})();`:''}window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});window.__agPulseUsageFactory=(${extract(sources[3])});(${extract(sources[2])})();
+${ide?`window.__agPulseSurface=${invokeCjsFactory(surface,'surface')}`:''}${bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')}${bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')}${bindWindowFactory('__agPulseUsageFactory',sources[3],'usage-ui')}${invokeCjsFactory(sources[2],'inline-widget')}
 </script></body></html>`;
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html;charset=utf-8');res.end(html);});server.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright'),browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
 const screenshot=page.screenshot.bind(page);page.screenshot=options=>screenshot({...options,path:ide?options.path.replace('fixture-','ide-fixture-'):options.path});
 await mkdir(join(repo,'.data/usage'),{recursive:true});
@@ -56,7 +59,7 @@ try{
  await page.evaluate(()=>window.failGuideSave=true);await page.locator('#usage-intro-done').click();await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar').shadowRoot.getElementById('usage-dashboard').firstElementChild.shadowRoot.getElementById('usage-intro-error').textContent.length>0);
  assert.equal(await page.locator('#usage-intro').isVisible(),true);assert.notEqual(await page.evaluate(()=>testPrefs.usageGuideDismissed),true);
  await page.evaluate(()=>window.failGuideSave=false);await page.locator('#usage-intro-done').click();await page.waitForFunction(()=>testPrefs.usageGuideDismissed===true);assert.equal(await page.locator('#usage-intro').isVisible(),false);
- await page.evaluate(`window.__agPulseDispose();(${extract(sources[2])})();`);await page.locator('[data-card=cache]').click();await page.locator('#open-usage').click();assert.equal(await page.locator('#usage-intro').isVisible(),false,'A fresh renderer restores onboarding completion');
+ await page.evaluate(`window.__agPulseDispose();${invokeCjsFactory(sources[2],'inline-widget')}`);await page.locator('[data-card=cache]').click();await page.locator('#open-usage').click();assert.equal(await page.locator('#usage-intro').isVisible(),false,'A fresh renderer restores onboarding completion');
  // Pointer dismissal restores the chip's focus without pinning its hover
  // card. Keyboard dismissal must still return an operable keyboard focus.
  await page.locator('#usage-dashboard #close').click();await page.mouse.move(80,80);await page.waitForTimeout(450);
@@ -149,7 +152,7 @@ try{
  await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar')?.parentElement===document.querySelector('.rounded-composer .actions'));
  await page.setViewportSize({width:1280,height:900});await page.locator('[data-card=cache]').click();await page.locator('#open-usage').click();
  await page.evaluate(()=>{testData={...testData,accountKey:'new-account',days:[],models:[],requests:0,totalTokens:0,todayTokens:0,weekTokens:0,monthTokens:0};});await page.waitForTimeout(3500);assert.equal(await page.locator('#usage-dashboard').evaluate(n=>n.open),true,'Account changes retain the frame with fresh, isolated data');assert.equal(await page.locator('#totals .value').first().textContent(),'0Token');
- await page.evaluate(`window.__agPulseDispose();window.__agPulseUsageGuidePreview=true;(${extract(sources[2])})();`);await page.locator('[data-card=cache]').click();await page.locator('#open-usage').click();assert.equal(await page.locator('#usage-intro').isVisible(),true,'Local acceptance mode replays the introduction without clearing user data');
+ await page.evaluate(`window.__agPulseDispose();window.__agPulseUsageGuidePreview=true;${invokeCjsFactory(sources[2],'inline-widget')}`);await page.locator('[data-card=cache]').click();await page.locator('#open-usage').click();assert.equal(await page.locator('#usage-intro').isVisible(),true,'Local acceptance mode replays the introduction without clearing user data');
  await page.locator('#usage-intro-done').click();await page.waitForTimeout(100);assert.equal(await page.locator('#usage-intro').isVisible(),false);
  await page.locator('#locale').click();await page.waitForTimeout(150);assert.equal(await page.locator('#usage-intro').isVisible(),true,'Local replay: changing language resets the introduction');
  await page.locator('#usage-intro-done').click();await page.evaluate(()=>document.documentElement.style.setProperty('--primary','#46895e'));await page.waitForTimeout(400);assert.equal(await page.locator('#usage-intro').isVisible(),true,'Local replay: changing theme resets the introduction');
@@ -210,3 +213,5 @@ try{
  assert.equal(await page.locator('#table-body tr.model-group-row').count(),3);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({host:ide?'ide':'desktop',trustedTypes:ide,checks:'Usage entry and onboarding persistence/retry/local replay; hover dismissal and keyboard return; themed year menu; stable frame; heatmap and model chart/filter; polling; language/theme; narrow layout; account isolation; missing snapshots and composer replacement; simple/detailed model grouping and expandable suffix details',passed:true}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

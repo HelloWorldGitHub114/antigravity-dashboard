@@ -3,8 +3,15 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readHostTheme } from '../../compat/host-theme.mjs';
-import { RuntimeUi, makeRendererSource, type RuntimePreferencesBridge } from '../../compat/runtime-ui.mjs';
+import { readHostTheme } from '../ui/theme/host-theme.ts';
+import {
+  RuntimeUi,
+  bindWindowFactory,
+  invokeCjsFactory,
+  makeEsmExportFromCjs,
+  makeRendererSource,
+  type RuntimePreferencesBridge,
+} from '../ui/runtime-ui/index.ts';
 import type {
   IntegrationHealth,
   MetricsRequestInput,
@@ -39,10 +46,9 @@ const readCompat = (name: string, cache: Map<string, string> | null): string => 
   cache?.set(name, text);
   return text;
 };
-const extractExport = (s: string): string => s.slice(s.indexOf('module.exports = ') + 17).trim().replace(/;$/, '');
 const buildExtras = (cache: Map<string, string> | null): string =>
-  `window.__agPulseUpdateFactory=(${extractExport(readCompat('update-ui.cjs', cache))});` +
-  `window.__agPulseUsageFactory=(${extractExport(readCompat('usage-ui.cjs', cache))});`;
+  bindWindowFactory('__agPulseUpdateFactory', readCompat('update-ui.cjs', cache), 'update-ui') +
+  bindWindowFactory('__agPulseUsageFactory', readCompat('usage-ui.cjs', cache), 'usage-ui');
 
 const GUID = /^(?:[a-zA-Z0-9_.-]+\/)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const compatCache = new Map<string, string>();
@@ -62,7 +68,7 @@ const syncTimelinePreference = (enabled: boolean): void => {
   store.setModelTimelineEnabled(next);
   vStore?.setModelTimelineEnabled(next);
 };
-const livePreferences: RuntimePreferencesBridge = {
+const livePreferences: Required<RuntimePreferencesBridge> = {
   get: () => preferences.get(),
   snapshot: () => preferences.snapshot(),
   set: async (input: PreferencesUpdateInput) => {
@@ -119,12 +125,17 @@ const inlineSource = (cache: Map<string, string> | null = isSidecar ? compatCach
   const file = readCompat('inline-widget.cjs', cache);
   const i18n = readCompat('i18n.cjs', cache);
   const theme = readCompat('theme.cjs', cache);
-  return buildExtras(cache) + `window.__agPulseI18nFactory=(${extractExport(i18n)});window.__agPulseThemeFactory=(${extractExport(theme)});(${extractExport(file)})();`;
+  return (
+    buildExtras(cache) +
+    bindWindowFactory('__agPulseI18nFactory', i18n, 'i18n') +
+    bindWindowFactory('__agPulseThemeFactory', theme, 'theme') +
+    invokeCjsFactory(file, 'inline-widget')
+  );
 };
 const i18nModule = (cache: Map<string, string> | null = isSidecar ? compatCache : null): string =>
-  'export const createI18n=' + readCompat('i18n.cjs', cache).slice(readCompat('i18n.cjs', cache).indexOf('module.exports = ') + 17);
+  makeEsmExportFromCjs('createI18n', readCompat('i18n.cjs', cache), 'i18n');
 const themeModule = (cache: Map<string, string> | null = isSidecar ? compatCache : null): string =>
-  'export const createTheme=' + readCompat('theme.cjs', cache).slice(readCompat('theme.cjs', cache).indexOf('module.exports = ') + 17);
+  makeEsmExportFromCjs('createTheme', readCompat('theme.cjs', cache), 'theme');
 
 const sharedI18n = readCompat('i18n.cjs', compatCache);
 const sharedInline = readCompat('inline-widget.cjs', compatCache);
@@ -141,8 +152,12 @@ const integration = new RuntimeUi({
   source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, ownership?.token, ownership?.startedAt, sharedExtras),
   dataDir: paths.data,
   enabled: isEnabled,
-  addManualUsage: (input) => usage.addManualUsage(input?.scope, input?.data || input),
-  deleteManualUsage: (input) => usage.deleteManualUsage(input?.scope, typeof input === 'string' ? input : input?.id || input),
+  addManualUsage: (input) => usage.addManualUsage(input?.scope || '', input?.data || input),
+  deleteManualUsage: (input) =>
+    usage.deleteManualUsage(
+      typeof input === 'object' && input !== null ? input.scope || '' : '',
+      typeof input === 'string' ? input : input?.id || '',
+    ),
   getAccounts: () => usage.getAccounts(),
   switchAccount: (input) => usage.switchAccount(input),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
@@ -186,8 +201,12 @@ if (existsSync(vertexProfile) && homedir().toLowerCase() !== vertexHome.toLowerC
     source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, vToken, ownership?.startedAt, sharedExtras),
     dataDir: vDataDir,
     enabled: isEnabled,
-    addManualUsage: (input) => vertexUsage!.addManualUsage(input?.scope, input?.data || input),
-    deleteManualUsage: (input) => vertexUsage!.deleteManualUsage(input?.scope, typeof input === 'string' ? input : input?.id || input),
+    addManualUsage: (input) => vertexUsage!.addManualUsage(input?.scope || '', input?.data || input),
+    deleteManualUsage: (input) =>
+      vertexUsage!.deleteManualUsage(
+        typeof input === 'object' && input !== null ? input.scope || '' : '',
+        typeof input === 'string' ? input : input?.id || '',
+      ),
     getAccounts: () => vertexUsage!.getAccounts(),
     switchAccount: (input) => vertexUsage!.switchAccount(input),
     clearTimeline: (input) => vStore!.clearTimeline(input?.conversationId || null),

@@ -6,14 +6,16 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { trajectoryMetrics } from '../sidecars/panel/metrics.mjs';
+import { bindWindowFactory, invokeCjsFactory, makeEsmExportFromCjs } from '../compat/runtime-ui.mjs';
 import { panelAppSource } from '../sidecars/panel/panel-source.mjs';
+import { isDirectEntry, launchTestBrowser } from './ui-runner.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const read=path=>readFile(join(root,path),'utf8');
-const extract=source=>source.slice(source.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
 const theme=createRequire(import.meta.url)('../compat/theme.cjs')();
 const [i18n,widget,themeSource]=await Promise.all(['compat/i18n.cjs','compat/inline-widget.cjs','compat/theme.cjs'].map(read));
 const id='11111111-1111-1111-1111-111111111111';
+export async function runCheck() {
 let previewHostTheme={};
 const sample=()=>({ connection:'live',theme:previewHostTheme,quotaUpdatedAt:new Date().toISOString(), groups:['gemini','3p'].map((id,index)=>({id,name:index?'Claude / GPT':'Gemini',windows:{'5h':{available:true,remaining:index?.417:.834,resetAt:new Date(Date.now()+3600000).toISOString()},weekly:{available:true,remaining:index?.308:.617,resetAt:new Date(Date.now()+86400000).toISOString()}}})), speed:trajectoryMetrics({trajectory:{cascadeId:id,generatorMetadata:[{chatModel:{modelDisplayName:'Gemini 3.8 Flash High',chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:112000,maxContextTokens:256000}},usage:{inputTokens:13441,cacheReadTokens:614458,responseOutputTokens:5230,outputTokens:7259,thinkingOutputTokens:2029,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},streamingDuration:'50s'}}]}}) });
 const staticFiles={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css','/format.mjs':'format.mjs'};
@@ -28,11 +30,11 @@ const server=createServer(async(req,res)=>{
     }
     else if(path==='/api/metrics'){content=JSON.stringify(sample());type='application/json';}
     else if(path==='/app.js')content=panelAppSource();
-    else if(path==='/i18n.js')content='export const createI18n='+extract(i18n);
-    else if(path==='/theme.js')content='export const createTheme='+extract(themeSource);
+    else if(path==='/i18n.js')content=makeEsmExportFromCjs('createI18n',i18n,'i18n');
+    else if(path==='/theme.js')content=makeEsmExportFromCjs('createTheme',themeSource,'theme');
     else if(path==='/theme.css'){content=theme.css(':root');type='text/css';}
     else if(path==='/preload.js')content='';
-    else if(path==='/inline-widget.js')content=`window.__agPulseI18nFactory=(${extract(i18n)});window.__agPulseThemeFactory=(${extract(themeSource)});(${extract(widget)})();`;
+    else if(path==='/inline-widget.js')content=bindWindowFactory('__agPulseI18nFactory',i18n,'i18n')+bindWindowFactory('__agPulseThemeFactory',themeSource,'theme')+invokeCjsFactory(widget,'inline-widget');
     else if(path.startsWith('/toolbar-preview')){content=(await read('sidecars/panel/toolbar-preview.html')).replace('</head>',`<style>${fixtureCss}</style></head>`);type='text/html';}
     else if(staticFiles[path]){content=await read('sidecars/panel/'+staticFiles[path]);type=path==='/'?'text/html':path.endsWith('.css')?'text/css':'text/javascript';}
     else {res.writeHead(404);res.end();return;}
@@ -40,8 +42,7 @@ const server=createServer(async(req,res)=>{
   } catch(error) {res.writeHead(500);res.end(error.message);}
 });
 server.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
-const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 const output=join(root,'.data','theme-ui');await mkdir(output,{recursive:true});
 const errors=[];const url='http://127.0.0.1:'+server.address().port;
 const report={inline:false,panel:false,liveSwitch:false,hostOverridesOS:false,sdkTokens:false,systemFallback:false,disposal:false,contrast:false,hostOverlayOcclusion:false,quotaMenuInteraction:false,refreshFeedback:false,hostAccent:false,hostSurfaces:false};
@@ -355,3 +356,5 @@ try {
   await checkSurfaces(page,page.locator('.widget'),false);report.hostSurfaces=true;
   assert.deepEqual(errors,[]);console.log(JSON.stringify({...report,pageErrors:errors,screenshots:output},null,2));
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

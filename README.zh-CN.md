@@ -4,115 +4,115 @@
 
 # Antigrative Dashboard
 
-模型选择旁只显示生成速率、缓存和上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
-缩略信息常驻；鼠标悬停，才展开详细统计。
+模型选择旁常驻显示生成速率、缓存命中与上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
+缩略信息常驻；鼠标悬停或打开侧边栏，展开完整多维监控。
 
-[![Version 0.10.1](https://img.shields.io/badge/version-0.10.1-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.11.0](https://img.shields.io/badge/version-0.11.0-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
 
-[看看效果](#看看效果) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-状态栏) · [开始安装](#安装) · [启用与停用](#可插拔) · [兼容性](#兼容性) · [常见问题](#常见问题)
+[看看效果](#看看效果) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-状态栏) · [开始安装](#安装) · [启用与停用](#可插拔) · [兼容性](#兼容性) · [常见问题](#常见问题) · [English](README.md)
 
 </div>
 
 > [!NOTE]
 > **独立接续维护声明（Independent Continuation Fork）：** 本仓库基于原 MIT 协议开源项目 `antigrative-dashboard`（`Copyright (c) 2026 AG Pulse contributors`，原上游仓库已被作者删除）的 `v0.8.7` 版本独立接续维护。**`v0.8.8` 及之后版本**由当前仓库（`ShZbz/antigravity-dashboard`）独立开发与维护，与原作者不存在从属、合作或背书关系。
 
-**v0.10.1 更新：** 修复实时 sidecar 与 Teamwork 子代理捕获（`invokeSubagentSpec`、多级子代理传递解析、根任务 `taskUsage` 继承），并在用量统计明细中新增「简易 / 详细」模型分组与可展开变体明细行。[更新说明](CHANGELOG.md)。
+**v0.11.0 更新：** 完成全栈 TypeScript + `esbuild` 零依赖模块化重构（`src/`），建立打包与发布文件清单唯一真源（`src/platform/manifest.ts`），将生命周期安装、CLI 状态栏与 VSIX/ZIP 打包工具统一迁移至原生 Node.js（`manage.mjs`、`ide/package.mjs`，同时保留 Python 兼容回退），新增 `UsageLedger` 内存增量文件索引、连续异步分片 `TranscriptReader`、远程会话 `64 KiB` 流式投影、`WeakRef` 轨迹缓存防泄漏以及并发隔离 Playwright UI 回归测试套件。[更新说明](CHANGELOG.md)。
 
-**v0.9.0 – v0.10.0：** 新增云端 Remote Agent 会话支持（尾部窗口冷读与增量切片）、混合 Orchestrator 身份与多模型环形占比图、可选结构化调用时间线树（`modelTimelineEnabled`，默认关闭）、多账号严格隔离与切换查看（`全部账号`、`按模型 / 按用户` 维度、远程项目手动录入）、24 小时趋势折线图、自定义日期范围、单柱下钻以及多层子代理上下文占用环与状态树。
+**v0.9.0 – v0.10.2：** 新增云端 Remote Agent 会话支持（50 步尾部窗口冷读与增量切片）、混合 Orchestrator 身份与多模型 SVG 环形占比图、可选结构化调用时间线树（`modelTimelineEnabled`，默认关闭）、多账号严格隔离与切换查看（`全部账号汇总`、`按模型 / 按用户` 维度、`简易 / 详细` 模型变体归并、远程项目手动录入）、24 小时趋势折线图、自定义日期范围、单柱下钻以及多层子代理/Swarm 上下文占用环与状态树。
 
 ## 看看效果
 
 <img src="docs/assets/responsive-zh.png?v=0.8.0" width="100%" alt="最新版主对话窄窗口三图标布局，以及子代理输入框旁的独立统计。">
 
 <table>
-<tr><th width="50%">生成速度与缓存</th><th width="50%">上下文与共享额度</th></tr>
+<tr><th width="50%">生成速度、缓存与多模型环形分布</th><th width="50%">上下文与共享额度</th></tr>
 <tr>
-<td width="50%" valign="top"><img src="docs/assets/speed-zh.png?v=0.8.0" width="100%" alt="最新版生成速度详情卡"><br><img src="docs/assets/widget-zh.png?v=0.8.0" width="100%" alt="最新版 Token 用量与缓存详情卡"></td>
+<td width="50%" valign="top"><img src="docs/assets/speed.png?v=0.11.0" width="100%" alt="会话统计卡片：模型与工具用时、TTFT、会话与最近请求 TPS 及打开侧边栏入口"><br><img src="docs/assets/widget.png?v=0.11.0" width="100%" alt="Token 用量卡片：缓存命中率、任务总 Token、子代理汇总与 36px 多模型占比环"></td>
 <td width="50%" valign="top"><img src="docs/assets/context-zh.png?v=0.8.0" width="100%" alt="最新版上下文、5h 和周额度详情，以及持久化语言切换入口"></td>
 </tr>
 </table>
 
 <table>
-<tr><th width="50%">每日 / 每周活动</th><th width="50%">按模型统计用量</th></tr>
+<tr><th width="50%">子代理与 Swarm 状态树</th><th width="50%">可选结构化模型调用时间线</th></tr>
 <tr>
-<td width="50%"><img src="docs/assets/usage-overview-zh.png?v=0.8.0" width="100%" alt="最新版 Token 用量活动概览，支持每日和每周贡献图"></td>
-<td width="50%"><img src="docs/assets/usage-details-zh.png?v=0.8.0" width="100%" alt="最新版模型用量柱状图，支持天周月切换和主题配色"></td>
+<td width="50%" valign="top"><img src="docs/assets/sidebar-subagents.png?v=0.11.0" width="100%" alt="侧边栏 Subagents 区域：5 个 Swarm Worker 的实时状态圆点、模型标签、TPS、Token 用量与上下文占用环"></td>
+<td width="50%" valign="top"><img src="docs/assets/sidebar-timeline.png?v=0.11.0" width="100%" alt="侧边栏 Model timeline 区域：Plan / Worker / Tools·Agents 水平泳道与可折叠 Turn / Handoff 调用树"></td>
 </tr>
 </table>
 
-<sub>使用当前控件源码和示意宿主布局渲染，数值为示例。主对话与子代理统计分别展示，账号额度共享；44% 上下文读取最近请求开始时的估计值，不是累计输入。实际插件的数据来自本机 Antigravity 接口，中英文选择会保存。</sub>
+<table>
+<tr><th width="50%">每日 / 每周活动热力图</th><th width="50%">多账号与按模型/按用户统计</th></tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/assets/usage-overview-zh.png?v=0.8.0" width="100%" alt="Token 用量活动概览，支持每日和每周贡献图"></td>
+<td width="50%" valign="top"><img src="docs/assets/usage-details.png?v=0.11.0" width="100%" alt="Token 用量详情：支持全部账号汇总、按模型/按用户、简易/详细分组以及天/周/月/自定义日期柱状图"></td>
+</tr>
+<tr>
+<th colspan="2">24 小时趋势折线图、简易/详细模型变体归并与远程项目手动录入</th>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/assets/usage-hourly-breakdown.png?v=0.11.0" width="100%" alt="24 小时平滑趋势折线图、可展开模型变体明细表格与远程项目手动录入列表"></td>
+</tr>
+</table>
 
-**不用打开一个监控面板，继续你的对话。**
+<sub>上方包含实机采集截图与控件源码示意渲染。主对话与子代理统计分别独立计算，账号额度全局共享；上下文百分比读取最近请求开始时的宿主估计值，而非会话累计输入。中英文显示可随时在上下文详情卡底部或用量窗口右上角一键切换并跨重启保存。</sub>
 
-| 看见速度 | 知道余额 | 少一点打扰 |
+**不用停下手头的工作，关键指标始终在视线之内。**
+
+| 看见真实速度 | 掌握额度余额 | 洞察多代理与多模型协同 |
 | --- | --- | --- |
-| 会话加权 TPS、最近一次请求速率、模型 / 工具用时和首 token 时间。 | Gemini 与 Claude/GPT 的独立 5h、周余额及重置倒计时。 | 缩略条与模型选择同行；悬停展开；新对话尚无请求时不显示空 TPS。 |
+| 会话加权 TPS、已结算最近请求速率、模型 / 工具用时、首 token 时间及一键打开侧边栏。 | Gemini 与 Claude/GPT 独立 5h、周余额及实时重置倒计时。 | 多模型 SVG 环形占比图、多级 Swarm/子代理上下文占用环与可选结构化调用时间线树。 |
 
 ### 它还处理了这些细节
 
-- **防误触悬停与快速切换。** 首次悬停等待 250 毫秒，点击或键盘聚焦立即打开；卡片展开期间，以及鼠标离开控件后的 350 毫秒内，切换指标无需等待。提前移开鼠标、切换对话或替换输入区会取消尚未打开的弹窗。
-- **菜单保持稳定。** 打开额度组菜单时，轮询不会重建控件或关闭菜单，倒计时继续更新。
-- **用真实数据。** 余额读取账户接口，不根据生成字数推测，不将重置到期自动改成 100%。
-- **切换对话。** 统计跟随当前会话，新对话不沿用上一段对话的速率。
-- **子代理独立统计。** 输入框旁显示当前子代理的 tok/s、缓存率和上下文；详情区分子代理统计和账号共享额度。父子对话切换立即刷新，旧响应不能覆盖新页面或返回同一对话后的新数值。
-- **Teamwork 兼容（v0.8.1）。** 发送、停止、取消状态切换时保留控件，支持深层嵌套和无 `title`／`span` 的静态代理徽章。优先读取当前输入框所属的 DOM 会话标识，URL 不变时也能切换统计；忽略隐藏、禁用及更深层输入框，存在歧义时不随意挂载。中英文六层嵌套浏览器夹具已覆盖用量入口重新挂载和上下文至用量窗口的语言同步。Windows 真实三级委派已检查独立统计、返回主对话与生成中截图；该宿主每层改变 URL、只渲染一个输入框，URL 不变和六层 DOM 场景仍属夹具覆盖。Linux/macOS 登录后界面检查仍待完成。
-- **更新后自动连接。** 适配器保存在用户插件目录，默认安装不修改 App 归档。
-- **对话统计持久化。** 每个账号、每个对话分别保存 tok/s 与 cache，重新加载后可恢复。
-- **适合紧凑窗口。** 完整数值放不下时先保留仪表盘、数据库和上下文圆圈三个图标，仍可悬停或点击查看详情；语言切换保留在上下文卡里。连图标都放不下或确实碰撞宿主按钮时才隐藏，拉宽后恢复。消息按钮滚到输入框后面不会再导致控件消失。
-- **跟随主题配色。** 控件、悬浮卡和额度菜单跟随 Antigravity 的深浅模式及自定义背景、卡片、文字和强调色，并保持文字可读；独立预览跟随系统，切换主题无需重启或重新加载对话。
-- **语言设置跨重启保留。** 中英文选择写入独立的 `AntigravityPulse/preferences.json` 用户配置，控件和侧面板共用；不依赖应用每次启动的本地端口。
-- **不上传采集数据。** 后台使用本机 loopback 接口，数值留在你的电脑。
+- **Token 用量与多模型占比环。** 紧凑展示总 Token 与缓存命中率；悬停查看未缓存输入、缓存读取、输出、根任务总计（`Task total tokens`）与子代理汇总（`Subagents`）。当会话或任务涉及 2 个及以上模型时，内联卡片自动渲染 `36px` Top-3 多模型 SVG 环形图，侧边栏同步提供 `78px` 交互式环形图与明细列表（支持 `总计 / 输出 / 调用` 与 `仅当前会话 / 包含子代理` 切换）。
+- **Hybrid Orchestrator 混合模型识别。** 精确映射 `Orchestrator (Argon)`（`M668`）、`Gemini Flash`（`M669`）、Gemini 4 Argon/Hydrogen/Carbon 与 Claude 5.5 系列占位符，在侧边栏展示 `Orchestrator (Argon) → Gemini Flash` 协同流向，并在规划模型与执行模型分属不同配额池时给出配额拆分提示。
+- **多级子代理与 Swarm 状态树（`Subagents`）。** 自动提取 `invokeSubagentSpec`（`role`、`typeName`、`conversationId`）并传递解析多级委派子代理，展示语义化状态圆点（运行中、等待中、已完成、空闲、异常、已停止）、本地化状态文案、各子代理实时 TPS、Token 总量、圆形上下文占用环及可展开性能明细（`ℹ`），轮询刷新不丢失折叠状态。
+- **可选结构化模型调用时间线（`modelTimelineEnabled`）。** 默认关闭（`modelTimeline: null`，零 `timeline-v1` 磁盘写入）。在侧边栏开启后，仅提取纯结构化元数据（绝不记录提示词、回复、思考文本、文件路径或命令参数），渲染 `Plan` / `Worker` / `Tools·Agents` 三泳道概览条与可折叠 `Turn → Phase → Model Call / Tool Group / Subagent` 调用树（磁盘上限 `<= 400` 节点 / `<= 192 KiB`），支持一键清空（`Clear`）与关闭（`Disable`）。
+- **Cloud Remote Agent 远程会话支持。** 完整适配 `v1/default/jetski_remote_agents_3p/...` 云端远程项目，支持 50 步尾部窗口冷读、后台稀疏数组异步补全、基于 `initialStepsPageBounds` 的增量切片、`64 KiB` 流式 Connect+JSON 帧投影与卡死 `RUNNING` 状态自动重校。
+- **防误触悬停、稳定菜单与紧凑布局。** 首次悬停等待 250ms，卡片展开期间切换指标零延迟；轮询期间额度组下拉菜单保持打开且倒计时每秒跳动；窄窗口下通过 240ms WAAPI 动画平滑降级为三个可交互图标，不遮挡宿主原生按钮。
+- **主题自适应与本机隐私保护。** 自动跟随 Antigravity 深浅模式与自定义背景、卡片、文字、强调色；全部数据通过本机回环接口采集并保存在本地，绝不上传第三方服务。
 
 ## Antigravity IDE
 
-**v0.7.0+** 新增反重力自己的独立 IDE 适配。下载发布页的
-`antigrative-dashboard-ide-0.10.1.vsix`，在 IDE 扩展页选择「从 VSIX 安装」。
-仅安装 IDE 的用户也可以使用，无需先装桌面 App。
+**v0.7.0+** 提供反重力独立 IDE 的专用 VSIX 适配。从发布页下载
+`antigrative-dashboard-ide-0.11.0.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
 
 完全退出 IDE 后，使用带
 `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1`
-参数的启动方式打开；将参数加到快捷方式目标末尾，后续继续使用该快捷方式。
-窄栏显示三个可交互图标，拉宽后显示数值；悬停或点击即可查看详情。
+参数的快捷方式启动。窄栏显示三个可交互图标，拉宽后显示数值；悬停或点击即可查看详情与本地 Token 用量大盘。
 
-Windows IDE **2.5.5** 已验证真实对话。Linux/macOS IDE 有自动化覆盖，登录后的
-实机 GUI 验收尚未完成。VS Code、Visual Studio、JetBrains、Zed、Xcode 中的
-Antigravity 扩展目前尚未兼容。详见 [IDE 安装、更新、诊断和数据清理](ide/README.md)。
-上方演示图是桌面 App 控件，不是 IDE 界面截图。
+Windows IDE **2.5.5** 已验证真实对话；Linux/macOS IDE 具备三平台 CI 自动化覆盖，登录后的实机 GUI 验收仍待完成。VS Code、Visual Studio、JetBrains、Zed、Xcode 扩展暂不支持。详见 [IDE 安装、更新、诊断和数据清理](ide/README.md)。
 
 ## Antigravity CLI 状态栏
 
-**v0.6.0 新增**独立的 CLI 官方状态栏适配：上下文占用、缓存读取 Token、状态、分组额度及重置倒计时，支持中英文和终端宽度适配。额度数字和进度条按剩余量显示：**≥70% 绿色、≥30% 且 <70% 黄色、<30% 红色**。预览：`node cli/statusline.mjs --preview --language zh-CN`；安装：`python manage.py install-cli`（Linux/macOS 用 `python3`）。需要 Node.js 20+ 和支持官方接口的 CLI。v0.8.1 新增当前请求缓存率：适用 CLI 1.3.2/1.3.3 的 Sonnet 4.6、GPT-OSS 120B 及 CLI 1.3.3 的 Gemini 3.8 Flash (High) 已核实口径且写入为零；未确认情况保留不可用。官方输入没有流式耗时，暂不显示 tok/s。详见 [CLI 使用及撤回](docs/CLI.md)。
+**v0.6.0+** 提供独立的 CLI 官方 `statusLine` 适配：展示上下文占用、当前请求缓存命中率與读取 Token、状态、分组额度及重置倒计时，支持中英文和终端宽度适配。额度数字与进度条按剩余量分档着色：**≥70% 绿色、≥30% 且 <70% 黄色、<30% 红色**。预览：`node cli/statusline.mjs --preview --language zh-CN`；安装：`node manage.mjs install-cli` 或 `python manage.py install-cli`（Linux/macOS 用 `python3`）。详见 [CLI 使用及撤回](docs/CLI.md)。
 
 ![真实 Antigravity CLI 两轮对话及当前请求缓存率](docs/assets/cli-conversation-zh.png?v=0.8.4-cli-1)
 
-<sub>Linux Antigravity CLI 1.3.3 真实中文两轮对话，当前请求缓存率 95.4%、缓存读取 13.1K；账号邮箱已遮挡。macOS 登录后的交互实机验收尚未完成。</sub>
+<sub>Linux Antigravity CLI 1.3.3 真实中文两轮对话，当前请求缓存率 95.4%、缓存读取 13.1K；账号邮箱已遮挡。</sub>
 
 ## 安装
 
 以下命令安装**桌面 App 适配器**；IDE 用户请使用[上方专用 VSIX 安装流程](#antigravity-ide)。
 
-适用于 **Windows / Linux / macOS 的 Antigravity 桌面 App 2.21.1 / 2.22.0 + Python 3.10+**。三系统共用同一个 release ZIP，无 pip / npm 第三方依赖，后台使用 App 自带 Node.js。各平台完整验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+适用于 **Windows / Linux / macOS 的 Antigravity 桌面 App 2.21.1 / 2.22.0 + Node.js 20+（或通过安装脚本直接调用宿主自带 Electron 运行时）或 Python 3.10+**。三系统共用同一个 release ZIP，零第三方 npm / pip 运行时依赖。完整验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
-Linux / macOS 使用 `python3 manage.py install` 或 `sh install.sh`，启停和卸载命令同样把 `python` 换成 `python3`。无需 sudo，不修改应用归档。
+> 模型选择旁的内嵌位置通过标准 sidecar 与本地渲染调试端口挂载控件，默认安装绝不修改 `resources/app.asar`。原生侧面板同时作为常驻多维监控面板与备用入口。
 
-> 模型选择旁的内嵌位置没有公开插件挂载接口。现在由标准 sidecar 通过已有本地渲染调试端口挂载控件，默认安装不再修改 `resources/app.asar`。未来宿主 DOM、调试通道、SDK 或统计接口改变时仍可能需要适配；原生侧面板作为备用入口。
-
-### 手动安装
-
-下载 [最新 Release](https://github.com/ShZbz/antigravity-dashboard/releases/latest) 的 ZIP 并解压，或克隆仓库：
+下载 [最新 Release](https://github.com/ShZbz/antigravity-dashboard/releases/latest) 的 ZIP 并解压到固定目录，或克隆仓库：
 
 ```powershell
 git clone https://github.com/ShZbz/antigravity-dashboard.git
 cd antigravity-dashboard
-python manage.py install
+node manage.mjs install
 ```
 
-完全退出并重新打开 Antigravity。打开对话，模型选择右侧就会出现额度与速率条。PowerShell 用户也可以运行 `./install.ps1`。
+Windows 用户也可直接运行 `./install.ps1`，Linux / macOS 运行 `sh install.sh`（自动优先使用本机 Node.js 20+ 或宿主 Electron Node 运行时，并保留 `python3 manage.py install` 兼容回退）。请勿使用 sudo。
 
-安装器复制并启用插件；迁移时只恢复经过完整校验的旧补丁。后台自动发现当前渲染端口并重新连接。**保留这个源码 / 解压目录**，以便启停、升级和卸载。
+完全退出并重新打开 Antigravity，打开对话即可在模型选择右侧看到监控条。**请保留解压后的源码目录**，以便后续启停、升级和卸载。
 
 <details>
 <summary><strong>让 Agent 帮你安装：展开完整提示词</strong></summary>
@@ -130,14 +130,12 @@ python manage.py install
    共用 ZIP，但安装命令不同；独立 IDE 使用单独 VSIX。只下载已确认目标需要的
    文件并校验 SHA256，将源码解压到固定目录。不要未经单独确认安装、升级、
    降级或替换 Antigravity 宿主。
-4. 使用 Python 3.10+（Linux/macOS 通常用 python3），按确认的目标执行：
-   - App：先 python manage.py status，再 python manage.py install。
-   - CLI：检查 agy --version 和 Node.js 20+，执行 python manage.py install-cli，
-     不要执行 manage.py install。已有 statusLine 按 CLI 文档备份／覆盖流程处理。
-     CLI 缓存率有适用条件，按 docs/CLI.md 核对实测模型／版本及不可用情况。
-     不承诺 CLI 展示 tok/s 或本地用量图表，这些不在 CLI 适配范围内。
+4. 使用 Node.js 20+（node manage.mjs ...）或 Python 3.10+（python/python3 manage.py ...）执行：
+   - App：先 node manage.mjs status，再 node manage.mjs install（或 python manage.py install）。
+   - CLI：检查 agy --version 和 Node.js 20+，执行 node manage.mjs install-cli，
+     不要执行桌面版 install。已有 statusLine 按 CLI 文档备份／覆盖流程处理。
    - 独立 IDE：通过 Install from VSIX... 安装发布版 VSIX，或使用
-     ide/manage.py install --exe <已核实的IDE可执行文件> --vsix <发布版VSIX>。
+     node ide/manage.mjs install --exe <已核实的IDE可执行文件> --vsix <发布版VSIX>。
      不需要桌面 App，不要执行 App 安装器。
 5. 保留其他设置和已保存数据。需要重启或登录时先告知，不强制结束正在执行的
    任务。IDE 按文档保留本机回环调试启动参数；CLI 在新会话中验证。
@@ -151,101 +149,55 @@ python manage.py install
 
 ### 打开 App 侧边栏面板
 
-用右上角开关展开右侧辅助栏，在辅助栏顶部点击 **＋ → Extensions → Antigrative Dashboard**，即可打开插件的常驻仪表盘。速度、缓存、上下文和额度摘要持续显示；点击数据卡切换详情，鼠标移开不再隐藏。长内容在固定详情区内部滚动，也可用方向键／Home／End 选择标签页。输入框控件中打开的「用量统计」是另一个窗口。
+在会话统计悬浮卡底部点击 **打开侧边栏（Open sidebar →）**，或用右上角开关展开右侧辅助栏并点击 **＋ → Extensions → Antigrative Dashboard**。侧边栏常驻展示速度、缓存、上下文、配额摘要、多模型交互环形图、多级子代理状态树与可选结构化调用时间线。
 
-更新插件代码后请完整退出并重新打开 App，让采集进程加载新模块；重启前已经打开的面板可能仍由旧采集进程提供页面。
-
-在项目目录运行：
+在项目目录运行（`node manage.mjs <action>` 或 `python manage.py <action>`，可通过 `--instance (all|pro|vertex)` 指定单实例或双实例同步）：
 
 | 操作 | 命令 | 行为 |
 | --- | --- | --- |
-| 安装 / 更新插件 | `python manage.py install` | 复制运行时适配器，保留其他配置和历史统计 |
-| 停用 | `python manage.py disable` | 关闭插件，缩略条在下一次轮询隐藏 |
-| 启用 | `python manage.py enable` | 启动插件并重新显示控件 |
-| 查看状态 | `python manage.py status` | 检查安装、开关和控件连接健康状态 |
-| 卸载 | `python manage.py uninstall` | 移除本插件目录，保留历史统计与旧版备份 |
+| 安装 / 更新插件 | `node manage.mjs install` | 复制运行时适配器，保留其他配置和历史统计 |
+| 停用 | `node manage.mjs disable` | 关闭插件，缩略条在下一次轮询隐藏 |
+| 启用 | `node manage.mjs enable` | 启动插件并重新显示控件 |
+| 查看状态 | `node manage.mjs status` | 检查安装、开关和控件连接健康状态 |
+| 卸载 | `node manage.mjs uninstall` | 移除本插件目录，保留历史统计与旧版备份 |
 
-首次安装、更新插件代码或卸载之后需要完整重启 App。启停开关不需要重装或再次修改归档。`./uninstall.ps1` 等同于卸载命令。
+首次安装、更新插件代码或卸载后需要完整重启 App；启停开关无需重装。`./uninstall.ps1` / `sh uninstall.sh` 等同于卸载命令。`node manage.mjs install --panel-only` 仅安装原生 sidecar 面板。
 
-**恢复资料会保留。** 原始归档在 `%LOCALAPPDATA%/AntigravityPulseBackups/<时间戳>/`；卸载保留备份与诊断日志。遇到 App 升级或其他修改时，卸载器拒绝覆盖未知文件，不强行恢复旧版 App。
-
-`python manage.py install --panel-only` 关闭内嵌挂载，只安装原生 sidecar 面板。需要账号原生 UI Extensions 已开放；这个模式不能保证出现模型旁的缩略条。
-
-## 上下文窗口
-
-状态栏显示环形占用指示与百分比；悬停查看“已用 / 剩余”比例、已用 Token 与容量、采样模型，以及 5h 和周额度余额、倒计时、重置时间。额度组选择和刷新也在同一张悬浮卡中。数值来自最近请求开始时的 `contextWindowMetadata.estimatedTokensUsed` / `maxContextTokens`，由宿主估计。不是会话累计输入量，也不是生成中的实时 Token 计数。
-
-缺少容量时显示“容量不可用”，不按模型名称猜测上限。压缩上下文后允许占用下降；切换对话不会沿用上一个对话的数值。上下文与 tok/s、缓存统计一起按账户和对话保存，历史恢复值注明保存时间。
-
-### 语言与缓存
-
-默认英文。首次使用时，主对话上下文控件旁会出现轻量双语提示；点击后打开详情并定位到底部的 **English / 简体中文** 按钮。语言选择会保存，之后仍可随时在上下文详情底部切换。选择语言或关闭提示后不再重复引导；关闭提示不会改变已有语言，保存失败会显示提示并允许重试。子代理界面不重复显示首次引导。
-
-缓存卡按 DSH 逻辑显示总 token、缓存命中、未缓存输入、缓存读取与输出；缓存写入非零时显示额外一行。
-
-Antigravity 的 `inputTokens` 是未缓存输入。缓存率 = 缓存读取 ÷（未缓存输入 + 缓存读取 + 缓存写入），不是把缓存写入算作命中。总 token = 总输入 + 输出。
-
-## 数据如何计算
+## 数据如何计算与计时质量
 
 | 项目 | 口径 |
 | --- | --- |
-| 会话 TPS | 有效请求的正文输出 token 总数 ÷ 对应流式时长总和 |
-| 最近一次 TPS | 最近一次请求正文 token ÷ 流式时长；计时异常或缺失时不显示速率 |
-| TTFT | 请求首 token 时间的平均值；不计入正文流式 TPS |
-| 模型用时 | 请求 TTFT 与流式生成时长相加 |
-| 工具用时 | 工具执行区间合并后统计，重叠时间不重复计数 |
-| 5h / 周余额 | 账户返回的 `remainingFraction`；不是货币金额 |
-| 重置倒计时 | 账户返回的 `resetTime` 与当前时间之差 |
+| 上下文窗口 | 最近一次请求开始时的 `estimatedTokensUsed` / `maxContextTokens`；容量未知时显示不可用 |
+| 缓存命中率 | 缓存读取 ÷（未缓存输入 + 缓存读取 + 缓存写入），按请求 Token 总量加权；缓存写入不算命中 |
+| 总 Token | 未缓存输入 + 缓存读取 + 缓存写入 + 输出（含思考输出）；`Task total tokens` 汇总根会话与全部委派子代理 |
+| 会话 TPS | 有效请求的输出 Token 总数 ÷ 对应流式时长总和 |
+| 最近一次 TPS | 最近一次已完成有效请求的输出 Token ÷ 流式时长；生成中显示「计算中…」 |
+| TTFT / 模型 / 工具用时 | 首 token 平均耗时（不计入流式 TPS）、TTFT + 流式时长总和、工具执行区间去重合并时长 |
+| 5h / 周余额与倒计时 | 账户返回的 `remainingFraction` 与 `resetTime` 差值 |
 
-统计来自已完成请求，约每 2.2 秒检查，不宣称逐 token 的即时速率。额度每 60 秒刷新，倒计时每秒走动。
-思考 token 单独列出；模型未拆分正文时会标明全部输出口径。缺少有效时长的请求不会计入 TPS。失联显示不可用或明确的旧数据状态。
+输出集中到达或长 TTFT 后短促刷出工具调用时，宿主记录的流式窗口可能只有几毫秒。插件在不设人为速度上限的前提下筛除异常计时样本：
+- **不计入 TPS 的样本：** Token 口径分裂（`token-scope`）、重复记录冲突、无对应计时的重试记录、零 Token 样本，以及缓冲式工具调用窗口（`short-tool-window`：流式时长 `< 5s`、`TTFT >= 1s` 且 `TTFT / duration >= 12`）。
+- **同模型短样本离群过滤：** 同一模型、供应商和原始 Token 口径下至少有 2 次时长 `>= 1s` 的有效采样后，时长 `< 1s` 且超过 `max(中位数 × 2.5，中位数 + MAD × 6)` 的短时尖峰将被隔离。
+- **流式思考与生成中防抖：** 持续流式思考（`duration >= 15s` 或 `duration >= max(2s, 2 × ttft)`）使用完整 `outputTokens` 配对 `streamingDuration`；执行中会话将「最近一次请求」锚定在已完成请求上，避免工具调用期间闪烁误报「计时异常」。详见[计时策略与限制](docs/TPS.md)。
 
-### 计时异常处理
+## 对话统计持久化与长对话采集
 
-输出集中到达时，宿主可能只记录到几毫秒的流式时长，导致 TPS 虚高。这个短窗口不一定代表模型实际生成所用的时间。插件会先检查计时质量，再计算会话 TPS，不给速度设上限，也不编造更长的生成时长。
-
-- **不计入 TPS 的请求：** Token 统计范围不一致、同一请求的重复记录冲突、多次尝试的用量不同但没有各自对应的计时，以及计算结果无效。对于纯工具输出，如果流式时长不足 1 秒、TTFT 至少 2 秒，且 TTFT 至少是流式时长的 20 倍，也视为计时不可靠。
-- **同模型基线检查：** 至少有 5 次时长达到 1 秒的有效采样后，若短时采样的速率超过 `max(中位数 × 8，中位数 + MAD × 12)`，则不计入 TPS。基线限定为同一模型、供应商和 Token 口径；MAD 指各采样偏离中位数的绝对值的中位数。
-- **仍计入的请求：** 普通短文本请求和持续的高速度请求仍可参与统计，不因数值高就排除持续采样。异常请求的 Token 和缓存用量也完整保留；排除速率不等于删除请求或用量。
-- **界面与历史恢复：** 最近一次请求计时不可靠时显示“计时异常”，不拿上一条请求的速度代替。没有有效样本时 TPS 显示不可用。旧算法保存的速率会等待完整对话数据重新计算，Token、缓存与上下文保留，重载后不会重新使用旧的未校验 TPS。
-
-这些规则是针对宿主耗时摘要的保守判断，不代表已证实输出缓冲。当前本地接口未提供逐片段时间记录，无法恢复缺失的服务端生成时间。使用界面只保留简洁的统计方式，具体筛选规则在项目说明中解释。桌面版和独立 IDE 共用这些规则。详见[计时策略与限制](docs/TPS.md)，参考 DSH 讨论 [#7960](https://github.com/deepseek-ai/deepseek-harness/discussions/7960) 和 [#6129](https://github.com/deepseek-ai/deepseek-harness/discussions/6129)。
-
-### 紧凑卡片的统计口径
-
-卡片只展示可读取的数值，缺失值显示「—」，不逐项添加不等号，也不展开计算说明或缺失请求计数。后台仍保留不完整／未知覆盖标记；可读数据的合计可能缺少宿主未返回的用量，不代表完整账单。缓存率只使用可校验输入，零输入不编造百分比。正文／思考输出独立于缓存是否可用，继续计入统计。
-
-## 对话统计持久化
-
-上下文百分比使用当前请求的宿主窗口容量。紧凑卡片只展示占用、已用／总量、采样模型和两档额度／重置时间；重复容量参考、未知压缩字段、日志文本估算和计算说明不占据卡片。后台仍分别保存来源参考与保守诊断，不改变宿主分母或计费用量。详见[上下文口径与资料来源](docs/CONTEXT_LIMITS.md)。
-
-已完成请求的 tok/s、cache 和数值统计自动保存到 `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/history-v1/<账号哈希>/<对话ID>.json`。重载、重启、更新或重装插件都会保留。接口临时返回空数据或较少采样时，不覆盖已有有效统计；恢复值会在详情中注明保存时间。真实 0% 缓存命中率正常显示。
-
-只保存白名单数值、模型和状态，不保存正文、标题、邮箱或凭据。确认当前账号后才读取该账号的历史。已经缺失的请求时长无法重建。打开 Antigravity 后执行 `node tools/check-live-history.mjs`，可补存当前接口仍能读取的所有历史对话，并验证重启恢复。
-
-## 长对话采集
-
-步骤与生成统计分开按偏移读取，生成元数据请求关闭消息正文。大段文本和工具输出流式跳过，后续刷新只重读可能变化的尾部。已移除整包 512MiB 响应限制；统计缓存仍有基于资源测试选择的工程预算，超出时明确提示，不截断后伪造完整统计。详见[采集策略、实验依据与限制](docs/LONG_CONVERSATIONS.md)。
+已完成请求的 TPS、缓存、多模型分布和白名单上下文估算自动保存至 `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/history-v1/<账号哈希>/<对话ID>.json`（详见[上下文口径](docs/CONTEXT_LIMITS.md)）。本地长对话与云端 Remote Agent 会话采用偏移分页读取（`includeMessages: false`）、`64 KiB` 流式 JSON 投影与 `8 MiB` `WeakRef` 有界缓存，不保留对话正文或工具输出（详见[长对话采集](docs/LONG_CONVERSATIONS.md)）。
 
 ## 本地 Token 用量统计
 
-打开缓存 / 数据库图标，点击「查看用量统计」。入口以两列展示今日和本月用量；活动概览提供每日 / 每周贡献图以及 24 小时交互式趋势折线图，用量详情提供按模型或按用户切换的天、周、月及自定义日期范围柱状图，支持单柱下钻与「简易 / 详细」模型分组。模型颜色跟随实际主题和强调色；K/M/B 摘要最多显示一位小数，表格与提示保留完整数值。
+打开缓存 / 数据库图标并点击「查看用量统计」：
+- **活动概览（Activity）：** 每日与每周贡献热力图。
+- **用量详情（Usage details）：** 支持 **天 / 周 / 月 / 自定义日期范围** 堆叠柱状图与单柱点击下钻、**按模型 / 按用户** 维度切换、**简易 / 详细** 模型变体归并（支持点击分组行展开 `[N variants ▸]` 变体明细）、**24 小时交互式平滑趋势折线图**（区间汇总 / 今日视图）以及 **远程项目手动录入（`+ Remote Usage`）**。
+- **多账号隔离与增量索引：** 通过 `ownership-v1.json` 严格按账号隔离会话归属并去重，内置内存 `fileIndex` 增量缓存与分批回填检查点，支持切换单账号或查看「全部账号汇总」（`All Accounts (Aggregated)`）。
 
-首次使用提示说明历史导入、统计范围与隐私。点击「知道了」后保存完成状态，重启、换语言、换主题都不会重复弹出。直接关闭窗口则保留提示；保存失败可以重试。
-
-启动时汇总当前账号可读取的本地历史对话，此后每 60 秒检查历史；新完成请求随正常轮询记录，也支持手动录入远程 / 移动端项目消耗。独立的 `usage-v1` 用量账本通过 `ownership-v1.json` 严格按账号隔离归属并去重，只保存时间、模型、Token 计数和哈希标识，不保存正文、回复或凭据；支持查看单账号或切换「全部账号汇总」。桌面与 IDE 账本独立。删除对话不会扣除已记录用量；这是本地已观察到的消耗，不是供应商账单，缺失或已删除的历史可能无法补齐。天、月按 UTC+8 划分，周一开始一周。
-
-桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`（宿主可覆盖数据目录）。IDE 路径：其用户目录下的 `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`（从旧版 `you-should-know-me.antigrative-dashboard-ide` 迁移请参阅 `ide/README.md`）。清理前先停用插件；再次启用后，仍可读取的对话会重新导入。`history-v1` 继续单独保存每个对话最新的统计快照。[统计口径、清理和边界](docs/USAGE.md)。
+桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`；IDE 路径：`User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`。日期按 `Asia/Shanghai`（UTC+8）划分，周一为每周起始。详见[统计口径、清理和边界](docs/USAGE.md)。
 
 ## 兼容性
 
-当前实机验证：**Windows 11 / Antigravity App 2.21.1、2.22.0**；2.22.0 的真实上下文读取和合并悬浮卡已验收。Linux/macOS 的完整登录界面仍需用户实机验证，自动化覆盖范围见兼容性文档。
+当前实机验证：**Windows 11 / Antigravity App 2.21.1、2.22.0** 及独立 **Antigravity IDE 2.5.5**（专用 VSIX）。Linux/macOS 具备三系统 CI 自动化覆盖，完整登录 GUI 仍待实机验收。
 
-独立 Antigravity IDE 2.5.5 提供单独 VSIX，Windows 已实机验证。其他编辑器扩展和 DSH 暂不支持。Linux/macOS 桌面版已适配原生路径、后台发现和 shell 安装器；IDE 有自动化覆盖，完整登录界面仍待实机验收，详见兼容性文档。
-
-> **验证与素材说明：** 上方沿用的 `v0.8.0` 示意图及 [COMPATIBILITY.md](COMPATIBILITY.md) 中 `v0.8.7` 及以前的基线验证描述均源自原上游项目（`AG Pulse contributors`）；`v0.8.8+` 新增特性（如云端 Remote Agent 支持、多模型占比环、调用时间线树、多账号隔离及 Teamwork／模型分组更新等）由当前维护者（`ShZbz`）独立验证。
-
-参考 DSH Rail Music 的项目组织与文档风格，但安装接口不同，不能使用 `dsh plugin add` 安装 Antigrative Dashboard。
+> **验证与素材说明：** 上方沿用的 `v0.8.0` 顶部横幅/窄窗响应式/上下文/活动热力图/CLI 示意图及 [COMPATIBILITY.md](COMPATIBILITY.md) 中 `v0.8.7` 及以前的基线验证描述源自原上游项目（`AG Pulse contributors`）；`v0.8.8+` 新增特性与 `v0.11.0` 更新的会话统计卡、多模型环形卡片、子代理/Swarm 状态树、调用时间线树及多账号用量详情截图由当前维护者（`ShZbz`）独立实机验证。
 
 [完整边界与更新策略 →](COMPATIBILITY.md)
 
@@ -253,44 +205,42 @@ Antigravity 的 `inputTokens` 是未缓存输入。缓存率 = 缓存读取 ÷�
 
 <details><summary><strong>安装后没出现？</strong></summary>
 
-确认已完全退出主进程再启动 App，不只是关闭窗口。执行 `python manage.py status`；检查 `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/logs/sidecar.log` 和 `data/integration-state.json`。日志不要直接公开，其中宿主产生的日志可能含本机信息。
+确认已完全退出主进程再启动 App。执行 `node manage.mjs status`（或 `python manage.py status`），检查 `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/logs/sidecar.log` 和 `data/integration-state.json`。
 
 </details>
 
 <details><summary><strong>为什么新对话没有 tok/s？</strong></summary>
 
-还没有请求统计时刻意隐藏，防止显示旧会话速率。完成一次模型响应后出现。
+尚无已完成请求统计时刻意隐藏，防止显示旧会话速率；完成一次模型响应后自动出现。
 
 </details>
 
 <details><summary><strong>为什么 Gemini 与 Claude/GPT 的余额不同？</strong></summary>
 
-服务端返回两个独立共享额度组。控件默认跟随当前模型；在额度卡中可以切换查看另一组，手动选择其他组时会显示组名避免混淆。
+服务端返回两个独立共享额度组。控件默认跟随当前模型，也可在上下文详情卡的额度菜单中切换查看另一组。
 
 </details>
 
 <details><summary><strong>升级 Antigravity 后怎么办？</strong></summary>
 
-App 更新不会覆盖用户插件目录中的适配器。后台重新发现端口、凭据和渲染窗口，并自动重连。未显示时检查 `python manage.py status`；宿主接口变化时可先用原生侧面板。不要把旧归档覆盖新版应用。详见[鲁棒性分析](docs/ROBUSTNESS.md)。
+App 更新不会覆盖用户插件目录中的运行时适配器，后台会自动重新发现端口、凭据和渲染窗口。详见[鲁棒性分析](docs/ROBUSTNESS.md)。
 
 </details>
 
 ## 开发与发行
 
 ```powershell
+npm run typecheck
+npm run build
 npm test
-python -m unittest discover -s tests -v
-python manage.py package
+npm run test:lifecycle
+npm run package
 ```
 
-ZIP 与 SHA256 文件输出到 `dist/`。打包使用文件白名单，不包含账号配置、凭据、日志、SDK 缓存或 App 归档。
+全栈 TypeScript 源码位于 `src/`（`contracts`、`shared`、`platform`、`telemetry`、`ui`、`lifecycle`），通过 `tools/build.mjs`（`esbuild`）编译生成零外部依赖的 `sidecars/panel/`、`compat/`、`ide/`、`cli/` 与 `manage.mjs` 运行时产物。ZIP 与 VSIX 发行包及 `.sha256` 校验文件输出到 `dist/`。
 
 [开发说明 →](docs/DEVELOPMENT.md) · [版本记录 →](CHANGELOG.md)
 
-## 许可
+## 许可与 App 手动更新
 
-Antigrative Dashboard 源码使用 [MIT](LICENSE) 许可证。项目不分发 Antigravity 的二进制、SDK 或 App 备份。Antigravity 名称属于其各自权利人，本项目与其无官方隶属关系。
-
-## App 手动更新
-
-在**上下文详情 → 右下角 ⋯ → 检查更新**中手动检查稳定发行版。更新器只更新 App 插件，校验官方包与 SHA-256，保留设置和用量记录；安装完成后可重新加载插件。失败或中断时保留回滚与恢复材料。IDE 和 CLI 仍使用各自安装方式。[校验、恢复及边界说明](docs/UPDATES.md)。
+源码使用 [MIT](LICENSE) 许可证。在**上下文详情 → 右下角 ⋯ → 检查更新**中可手动检查并安装稳定发行版（详见 [校验、恢复及边界说明](docs/UPDATES.md)）。

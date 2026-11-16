@@ -14,6 +14,8 @@ No whole-response 512 MiB ceiling remains for successful trajectory/step/metadat
 - An appended/running conversation refreshes the newest mutable model record and steps, plus any earlier timed tool not yet completed. A submitted user input is skipped when re-reading that turn. Missing step associations trigger a conservative metadata reload.
 - Changed settled histories, rewinds and an explicit manual refresh re-read the projected statistics. Prefixes are invalidated on account or endpoint changes. Concurrent reads coalesce. Failed or inconsistent pages cannot replace the last complete cached revision.
 - Request deduplication, TPS classification, cache calculations, context sampling and usage-ledger identities are unchanged. Missing values remain unavailable; no total or rate is fabricated from an incomplete page.
+- **Cloud Remote Agent sessions (`v0.8.9+` / `v0.11.0`):** For remote project sessions (`v1/default/jetski_remote_agents_3p/...`), the reader fetches the latest 50-step tail window on cold start, lazily backfills earlier pages into a sparse step array in the background, uses `initialStepsPageBounds` for `<1s` incremental active-turn slicing, and stream-decodes `flag === 0` `StreamAgentStateUpdates` Connect+JSON frames in 64 KiB `StringDecoder('utf8')` chunks through `TrajectoryJson` instead of buffering whole multi-megabyte snapshots in memory.
+- **WeakRef retention bounds (`v0.10.2+`):** `MetricsStore` holds trajectory references via `WeakRef` (`rawWeak`) and structural equality checks (`sameTranscriptStats`, `sameTaskUsage`, `sameStringList`), ensuring conversations evicted from `TrajectoryReader`'s 8 MiB LRU cache are never pinned in V8 heap.
 
 ## Resource policy and evidence
 

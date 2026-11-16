@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: npm ci
+      - run: node tools/build.mjs --check
       - run: npm test
       - name: Stream an optional transcript without retaining its text
         run: node --expose-gc tools/check-transcript-resources.mjs

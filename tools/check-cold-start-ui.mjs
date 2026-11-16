@@ -5,25 +5,25 @@ import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
-import {RuntimeUi,makeRendererSource} from '../compat/runtime-ui.mjs';
+import {RuntimeUi,bindWindowFactory,makeRendererSource} from '../compat/runtime-ui.mjs';
 import {trajectoryMetrics} from '../sidecars/panel/metrics.mjs';
+import {isDirectEntry,launchPersistentTestContext} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const sources=await Promise.all(['i18n.cjs','inline-widget.cjs','theme.cjs','usage-ui.cjs'].map(f=>readFile(join(repo,'compat',f),'utf8')));
-const extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
 const composer=`<div class="rounded-composer"><div role="combobox" aria-label="Message input" contenteditable="true" class="editor"></div><div class="actions"><div class="left"><button aria-label="Add context">+</button><button data-testid="model-selector-trigger">Gemini</button></div><div class="right"><button aria-label="Send message">→</button></div></div></div>`;
 const html=`<!doctype html><meta charset="utf-8"><style>body{background:#181a1f;color:#eee;font:14px sans-serif}.rounded-composer{margin:200px auto;width:900px;padding:12px;background:#27292f}.editor{height:70px}.actions,.left,.right{display:flex;align-items:center;gap:6px}.left{flex:1;min-width:0}button{color:inherit;background:none;border:0;height:28px}</style><body><script>setTimeout(()=>document.body.insertAdjacentHTML('beforeend',${JSON.stringify(composer)}),400);</script>`;
+export async function runCheck() {
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html;charset=utf-8');res.end(html);});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const profile=await mkdtemp(join(tmpdir(),'ag-cold-start-'));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');
 let context,ui;const errors=[],checks=[];
 try{
- context=await chromium.launchPersistentContext(profile,{headless:true,viewport:{width:1280,height:800},args:['--remote-debugging-port=0'],...(process.platform==='win32'&&!process.env.CI?{channel:'msedge'}:{})});
+ context=await launchPersistentTestContext(profile,{viewport:{width:1280,height:800},args:['--remote-debugging-port=0']});
  const page=context.pages()[0];page.on('pageerror',e=>errors.push(e.message));
  const base=`http://127.0.0.1:${server.address().port}`;
  await page.goto(base+'/c/11111111-1111-1111-1111-111111111111',{waitUntil:'domcontentloaded'});
  const prefs={language:'en',languageGuideDismissed:true,revision:1};
- ui=new RuntimeUi({profile,interval:100,source:makeRendererSource(sources[0],sources[1],sources[2],null,0,`window.__agPulseUsageFactory=(${extract(sources[3])});`),
+ ui=new RuntimeUi({profile,interval:100,source:makeRendererSource(sources[0],sources[1],sources[2],null,0,bindWindowFactory('__agPulseUsageFactory',sources[3],'usage-ui')),
   preferences:{get:async()=>prefs,set:async x=>Object.assign(prefs,x)},snapshot:async input=>({connection:'live',groups:[],preferences:prefs,speed:trajectoryMetrics({trajectory:{cascadeId:input.conversationId,generatorMetadata:[{chatModel:{streamingDuration:'2s',usage:{inputTokens:100,outputTokens:100,responseOutputTokens:100},chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:1000,maxContextTokens:100000}}}}]}})})});
  ui.start();
  for(let i=0;i<Number(process.env.AG_PULSE_NAV_ROUNDS||5);i++){
@@ -43,3 +43,5 @@ try{
 }finally{
  await ui?.stop();await context?.close();await new Promise(r=>server.close(r));await rm(profile,{recursive:true,force:true});
 }
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

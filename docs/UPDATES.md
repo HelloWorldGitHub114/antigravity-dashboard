@@ -26,10 +26,13 @@ metadata on stderr; the verified final result remains a separate stdout message.
   stop the installation. SHA-256 detects inconsistent files; it is not an
   independent publisher signature if the release account itself is compromised.
 - Bounded download, expanded size and entry count; unsafe paths, duplicate
-  normalized paths, symlinks, Windows junctions, private runtime directories and
-  a mismatched or incomplete manifest are rejected.
-- No same-version reinstall or downgrade. A plan expires after 15 minutes and
-  is checked again against the installed version before installation.
+  normalized paths, symlinks, Windows junctions, private runtime directories
+  (`data`, `history-v1`, `usage-v1`, `timeline-v1`, `sdk`) and a mismatched or
+  incomplete manifest are rejected.
+- No same-version reinstall or downgrade (semver pre-release suffixes such as
+  `-alpha.N` / `-beta.N` compare below their corresponding stable release so
+  pre-release builds upgrade cleanly to stable). A plan expires after 15 minutes
+  and is checked again against the installed version before installation.
 
 The limits are operational safeguards (64 MiB archive, 256 MiB expanded, 8,192
 entries), not claims of universally safe memory limits. Exceeding them fails

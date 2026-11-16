@@ -4,19 +4,22 @@ import {createServer} from 'node:http';
 import {join,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {bindWindowFactory,invokeCjsFactory} from '../compat/runtime-ui.mjs';
+import {isDirectEntry,launchTestBrowser} from './ui-runner.mjs';
 const repo=join(dirname(fileURLToPath(import.meta.url)),'..');
 const names=['compat/i18n.cjs','compat/theme.cjs','compat/inline-widget.cjs','compat/update-ui.cjs'];
-const sources=await Promise.all(names.map(name=>readFile(join(repo,name),'utf8'))),extract=s=>s.slice(s.indexOf('module.exports = ')+17).trim().replace(/;$/,'');
+const sources=await Promise.all(names.map(name=>readFile(join(repo,name),'utf8')));
 const html=`<!doctype html><meta charset="utf-8"><style>:root{--primary:#bc714e}body{margin:0;background:#151311;color:#eee;font:12px 'Segoe UI';padding:32px}.composer{margin:340px auto 0;max-width:860px;background:#27221f;border-radius:16px;padding:12px}.editor{height:42px}.row{display:flex;gap:6px;align-items:center}.left{display:flex;flex:1;min-width:0}.right{display:flex;flex:none}button{background:transparent;border:0;color:inherit}</style><div class="rounded-composer composer"><div class="editor" contenteditable="true" role="combobox" aria-label="Message input"></div><div class="row"><div class="left"><button aria-label="Add context">＋</button><button data-testid="model-selector-trigger">Gemini 3.8 Flash</button></div><div class="right"><button aria-label="Send message">➤</button></div></div></div><script>
 history.replaceState({},'', '/c/11111111-1111-1111-1111-111111111111');window.calls=[];window.nextUpdate='current';window.prefs={language:'zh-CN',languageGuideDismissed:true,usageGuideDismissed:true,revision:1};
 window.agPulseHost={getPreferences:async()=>prefs,setPreferences:async input=>(prefs={...prefs,...input,revision:prefs.revision+1}),getMetrics:async()=>({connection:'live',preferences:prefs,groups:[],speed:{conversationId:'11111111-1111-1111-1111-111111111111',tps:32,rounds:1,steps:2,measuredRequests:1,counts:{responseOutput:100,thinkingOutput:0},context:{usedTokens:20000,maxTokens:100000,usedFraction:.2,remainingFraction:.8,model:'Gemini'}}}),updatePlugin:async input=>{calls.push(input);if(input.action==='apply')return {state:'installing',host:'app',currentVersion:'0.8.6',latestVersion:'0.8.7',progress:{phase:'download',received:524288,total:1048576}};if(input.action==='status')return {state:'installed',host:'app',currentVersion:'0.8.7',latestVersion:'0.8.7'};if(input.action==='reload')return {state:'reloading',host:'app',currentVersion:'0.8.7',latestVersion:'0.8.7'};await new Promise(r=>setTimeout(r,200));return {state:nextUpdate,host:'app',currentVersion:'0.8.6',latestVersion:nextUpdate==='available'?'0.8.7':'0.8.6',notes:nextUpdate==='available'?'Preview changes\\n<img src="https://invalid.example/private">':'',error:nextUpdate==='error'?'network':undefined};}};
-window.__agPulseI18nFactory=(${extract(sources[0])});window.__agPulseThemeFactory=(${extract(sources[1])});window.__agPulseUpdateFactory=(${extract(sources[3])});(${extract(sources[2])})();
+${bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')}${bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')}${bindWindowFactory('__agPulseUpdateFactory',sources[3],'update-ui')}${invokeCjsFactory(sources[2],'inline-widget')}
 </script>`;
+export async function runCheck() {
 await mkdir(join(repo,'.data/update-ui'),{recursive:true});
 await writeFile(join(repo,'.data/update-ui/updater-fixture.html'),html);
 const {Script}=await import('node:vm');new Script(html.slice(html.indexOf('<script>')+8,html.lastIndexOf('</script>')));
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);});await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE?pathToFileURL(process.env.PLAYWRIGHT_MODULE).href:'playwright');const browser=await chromium.launch(process.platform==='win32'&&!process.env.CI?{channel:'msedge',headless:true}:{headless:true});
+const browser=await launchTestBrowser();
 try{
  const page=await browser.newPage({viewport:{width:1100,height:860}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:'+server.address().port);
 
@@ -46,3 +49,5 @@ try{
  assert.equal(await page.locator('#update-action').isVisible(),false);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({manualOnly:true,currentVersion:true,bilingual:true,plainTextNotes:true,installationPolling:true,reload:true,retry:true,pageErrors:errors}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
+}
+if (isDirectEntry(import.meta.url)) await runCheck();

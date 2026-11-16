@@ -7,7 +7,13 @@ import { homedir } from "node:os";
 import { dirname, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readHostTheme } from "../../compat/host-theme.mjs";
-import { RuntimeUi, makeRendererSource } from "../../compat/runtime-ui.mjs";
+import {
+  RuntimeUi,
+  bindWindowFactory,
+  invokeCjsFactory,
+  makeEsmExportFromCjs,
+  makeRendererSource
+} from "../../compat/runtime-ui.mjs";
 import { platformPaths } from "../../compat/platform.mjs";
 import { PreferencesStore } from "../../compat/preferences.mjs";
 import { SidecarOwner } from "../../compat/sidecar-owner.mjs";
@@ -196,8 +202,7 @@ var readCompat = (name, cache) => {
   cache?.set(name, text);
   return text;
 };
-var extractExport = (s) => s.slice(s.indexOf("module.exports = ") + 17).trim().replace(/;$/, "");
-var buildExtras = (cache) => `window.__agPulseUpdateFactory=(${extractExport(readCompat("update-ui.cjs", cache))});window.__agPulseUsageFactory=(${extractExport(readCompat("usage-ui.cjs", cache))});`;
+var buildExtras = (cache) => bindWindowFactory("__agPulseUpdateFactory", readCompat("update-ui.cjs", cache), "update-ui") + bindWindowFactory("__agPulseUsageFactory", readCompat("usage-ui.cjs", cache), "usage-ui");
 var GUID = /^(?:[a-zA-Z0-9_.-]+\/)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var compatCache = /* @__PURE__ */ new Map();
 var createTheme = createRequire(import.meta.url)("../../compat/theme.cjs");
@@ -269,10 +274,10 @@ var inlineSource = (cache = isSidecar ? compatCache : null) => {
   const file = readCompat("inline-widget.cjs", cache);
   const i18n = readCompat("i18n.cjs", cache);
   const theme = readCompat("theme.cjs", cache);
-  return buildExtras(cache) + `window.__agPulseI18nFactory=(${extractExport(i18n)});window.__agPulseThemeFactory=(${extractExport(theme)});(${extractExport(file)})();`;
+  return buildExtras(cache) + bindWindowFactory("__agPulseI18nFactory", i18n, "i18n") + bindWindowFactory("__agPulseThemeFactory", theme, "theme") + invokeCjsFactory(file, "inline-widget");
 };
-var i18nModule = (cache = isSidecar ? compatCache : null) => "export const createI18n=" + readCompat("i18n.cjs", cache).slice(readCompat("i18n.cjs", cache).indexOf("module.exports = ") + 17);
-var themeModule = (cache = isSidecar ? compatCache : null) => "export const createTheme=" + readCompat("theme.cjs", cache).slice(readCompat("theme.cjs", cache).indexOf("module.exports = ") + 17);
+var i18nModule = (cache = isSidecar ? compatCache : null) => makeEsmExportFromCjs("createI18n", readCompat("i18n.cjs", cache), "i18n");
+var themeModule = (cache = isSidecar ? compatCache : null) => makeEsmExportFromCjs("createTheme", readCompat("theme.cjs", cache), "theme");
 var sharedI18n = readCompat("i18n.cjs", compatCache);
 var sharedInline = readCompat("inline-widget.cjs", compatCache);
 var sharedTheme = readCompat("theme.cjs", compatCache);
@@ -287,8 +292,11 @@ var integration = new RuntimeUi({
   source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, ownership?.token, ownership?.startedAt, sharedExtras),
   dataDir: paths.data,
   enabled: isEnabled,
-  addManualUsage: (input) => usage.addManualUsage(input?.scope, input?.data || input),
-  deleteManualUsage: (input) => usage.deleteManualUsage(input?.scope, typeof input === "string" ? input : input?.id || input),
+  addManualUsage: (input) => usage.addManualUsage(input?.scope || "", input?.data || input),
+  deleteManualUsage: (input) => usage.deleteManualUsage(
+    typeof input === "object" && input !== null ? input.scope || "" : "",
+    typeof input === "string" ? input : input?.id || ""
+  ),
   getAccounts: () => usage.getAccounts(),
   switchAccount: (input) => usage.switchAccount(input),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null)
@@ -331,8 +339,11 @@ if (existsSync(vertexProfile) && homedir().toLowerCase() !== vertexHome.toLowerC
     source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, vToken, ownership?.startedAt, sharedExtras),
     dataDir: vDataDir,
     enabled: isEnabled,
-    addManualUsage: (input) => vertexUsage.addManualUsage(input?.scope, input?.data || input),
-    deleteManualUsage: (input) => vertexUsage.deleteManualUsage(input?.scope, typeof input === "string" ? input : input?.id || input),
+    addManualUsage: (input) => vertexUsage.addManualUsage(input?.scope || "", input?.data || input),
+    deleteManualUsage: (input) => vertexUsage.deleteManualUsage(
+      typeof input === "object" && input !== null ? input.scope || "" : "",
+      typeof input === "string" ? input : input?.id || ""
+    ),
     getAccounts: () => vertexUsage.getAccounts(),
     switchAccount: (input) => vertexUsage.switchAccount(input),
     clearTimeline: (input) => vStore.clearTimeline(input?.conversationId || null)

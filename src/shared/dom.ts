@@ -208,7 +208,7 @@ export function setStyle(
  * Toggles `el.hidden` only when changed.
  */
 export function setHidden(
-  el: { hidden: boolean } | null | undefined,
+  el: { hidden: boolean | string } | null | undefined,
   hidden: boolean,
 ): void {
   const next = Boolean(hidden);

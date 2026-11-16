@@ -1,223 +1,414 @@
-// Serialized into Antigravity's main process. Only the app's own local renderer
-// can obtain sanitized Antigrative Dashboard metrics; no API credentials enter the renderer.
-module.exports = function installAgPulseIpc(electron, authorities) {
-  const http = require('node:http');
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const os = require('node:os');
-  const local = process.platform === 'win32' ? process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local')
-    : process.platform === 'darwin' ? path.join(os.homedir(),'Library','Application Support')
-    : process.env.XDG_DATA_HOME || path.join(os.homedir(),'.local','share');
-  const GUID = /^(?:[a-zA-Z0-9_.-]+\/)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const offline = message => ({ connection:'offline', error:message, groups:[],speed:null,serverTime:new Date().toISOString() });
-  const keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
-  const settingsFile = path.join(local,'AntigravityPulse','settings.json');
-  const configFile = path.join(os.homedir(),'.gemini','config','config.json');
-  const sidecarLogFile = path.join(os.homedir(),'.gemini','antigravity','sidecar_data','antigravity-pulse','panel','logs','sidecar.log');
-  const diagLogDir = path.join(os.homedir(),'.gemini','antigravity','sidecar_data','antigravity-pulse','panel','logs');
-  const diagLogFile = path.join(diagLogDir,'widget.log');
-  let diagDirReady = false;
-  let disabledCache = { value: false, at: 0, pending: null };
-  let fallbackCache = { endpoint: null, at: 0, pending: null };
-
-  const isDisabled = async () => {
-    const now = Date.now();
-    if (now - disabledCache.at < 1000) return disabledCache.value;
-    if (disabledCache.pending) return disabledCache.pending;
-    disabledCache.pending = (async () => {
-      const readJson = async file => {
-        try { return JSON.parse((await fs.promises.readFile(file,'utf8')).replace(/^\uFEFF/,'')); }
-        catch { return null; }
-      };
-      const [settings, config] = await Promise.all([readJson(settingsFile), readJson(configFile)]);
-      const disabled = settings?.enabled === false || config?.plugins?.['antigravity-pulse']?.enabled === false;
-      disabledCache = { value: disabled, at: Date.now(), pending: null };
-      return disabled;
-    })().finally(() => { if (disabledCache.pending) disabledCache.pending = null; });
-    return disabledCache.pending;
-  };
-
-  const readLogTail = async (file, maxBytes = 262144) => {
-    const stat = await fs.promises.stat(file);
-    const start = Math.max(0, stat.size - maxBytes);
-    const length = stat.size - start;
-    if (!length) return '';
-    const handle = await fs.promises.open(file, 'r');
-    try {
-      const buf = Buffer.allocUnsafe(length);
-      let offset = 0;
-      while (offset < length) {
-        const { bytesRead } = await handle.read(buf, offset, length - offset, start + offset);
-        if (bytesRead <= 0) break;
-        offset += bytesRead;
-      }
-      return buf.toString('utf8', 0, offset);
-    } finally {
-      await handle.close();
-    }
-  };
-
-  const getFallbackEndpoint = async () => {
-    const now = Date.now();
-    if (fallbackCache.endpoint && now - fallbackCache.at < 1500) return fallbackCache.endpoint;
-    if (fallbackCache.pending) return fallbackCache.pending;
-    fallbackCache.pending = (async () => {
-      let endpoint = null;
-      try {
-        const log = await readLogTail(sidecarLogFile);
-        const port = [...log.matchAll(/\[sidecar\] listening on 127\.0\.0\.1:(\d+)/g)].at(-1)?.[1];
-        if (port) endpoint = `http://127.0.0.1:${port}/`;
-      } catch {}
-      fallbackCache = { endpoint, at: Date.now(), pending: null };
-      return endpoint;
-    })().finally(() => { if (fallbackCache.pending) fallbackCache.pending = null; });
-    return fallbackCache.pending;
-  };
-
-  let preferenceStore;
-  electron.ipcMain.handle('ag-pulse:preferences',async(event,input={})=>{
-    try {
-      const origin=new URL(event.senderFrame?.url||event.sender.getURL());
-      if(!['127.0.0.1','localhost','[::1]'].includes(origin.hostname)||!['http:','https:'].includes(origin.protocol))throw new Error('Invalid preference origin');
-      if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['language','languageGuideDismissed','usageGuideDismissed','modelTimelineEnabled'].includes(key)))throw new Error('Invalid preference input');
-      if(Object.hasOwn(input,'modelTimelineEnabled')&&typeof input.modelTimelineEnabled!=='boolean')throw new Error('Invalid timeline preference');
-      if(!preferenceStore){
-        const file=path.join(os.homedir(),'.gemini','config','plugins','antigravity-pulse','compat','preferences.mjs');
-        preferenceStore=import(require('node:url').pathToFileURL(file).href).then(({PreferencesStore})=>new PreferencesStore());
-      }
-      const store=await preferenceStore;
-      return Object.keys(input).length?await store.set(input):await store.get();
-    }catch{preferenceStore=null;return {error:'Language preference could not be saved or read'};}
-  });
-  electron.ipcMain.on('ag-pulse:diagnostic',(event,state={})=>{
-    try {
-      const origin=new URL(event.senderFrame?.url||event.sender.getURL());
-      if(!['127.0.0.1','localhost','[::1]'].includes(origin.hostname))return;
-      if(!['boot','mounted','mount-error'].includes(state.stage))return;
-      const safe={stage:state.stage,hostFound:state.hostFound===true,editorFound:state.editorFound===true,composerFound:state.composerFound===true};
-      const line=`${new Date().toISOString()} ${JSON.stringify(safe)}\n`;
-      Promise.resolve().then(async()=>{
-        if(!diagDirReady){await fs.promises.mkdir(diagLogDir,{recursive:true});diagDirReady=true;}
-        await fs.promises.appendFile(diagLogFile,line);
-      }).catch(()=>{diagDirReady=false;});
-    }catch{}
-  });
-  electron.ipcMain.handle('ag-pulse:metrics', async (event, input={}) => {
-    let origin;
-    try { origin = new URL(event.senderFrame?.url || event.sender.getURL()); } catch { return offline('来源不可用'); }
-    if (!['127.0.0.1','localhost','[::1]'].includes(origin.hostname) || !['http:','https:'].includes(origin.protocol)) return offline('仅允许 Antigravity 本地界面');
-    if (await isDisabled()) return {...offline('Antigrative Dashboard 已停用'),enabled:false};
-    if (input.conversationId && !GUID.test(input.conversationId)) return offline('会话标识无效');
-    let endpoint = [...authorities].find(([key])=>key.startsWith('antigravity-pulse--panel-'))?.[1];
-    let usedFallback = false;
-    if (!endpoint) {
-      // The native UI feature may be hidden, but the installed plugin process
-      // still runs. Its own SDK log announces the loopback port.
-      endpoint = await getFallbackEndpoint();
-      usedFallback = Boolean(endpoint);
-    }
-    if (!endpoint) return offline('等待 Antigrative Dashboard 后台启动');
-    const url=new URL(endpoint);
-    if (!['127.0.0.1','localhost','[::1]'].includes(url.hostname) || url.protocol!=='http:') return offline('控件接口地址无效');
-    url.hostname='127.0.0.1'; url.pathname='/api/metrics';url.search='';
-    if(input.conversationId)url.searchParams.set('conversationId',input.conversationId);
-    if(input.force===true)url.searchParams.set('force','1');
-    return await new Promise(resolve=>{
-      let settled = false;
-      const finish = (value, failed = false) => {
-        if (settled) return;
-        settled = true;
-        if (failed && usedFallback) fallbackCache = { endpoint: null, at: 0, pending: null };
-        resolve(value);
-      };
-      const req=http.get({
-        hostname: '127.0.0.1',
-        port: url.port || 80,
-        path: url.pathname + url.search,
-        agent: keepAliveAgent,
-      },res=>{
-        let body='';res.setEncoding('utf8');
-        res.on('data',chunk=>{body+=chunk;if(body.length>1048576)req.destroy(new Error('Metrics too large'));});
-        res.on('error',()=>finish(offline('控件暂时不可用'),true));
-        res.on('end',()=>{try{if(res.statusCode!==200)throw new Error();const metrics=JSON.parse(body);if(!['live','stale','offline'].includes(metrics.connection))throw new Error();finish(metrics);}catch{finish(offline('控件暂时不可用'),true);}});
-      });
-      req.on('error',()=>finish(offline('等待 Antigrative Dashboard 重新连接'),true));
-      req.setTimeout(15000,()=>req.destroy(new Error('Metrics timeout')));
+// Generated by tools/build.mjs from src/. Do not edit directly.
+module.exports = function installAgPulseIpc(...args) {
+  var __agPulseModule = (() => {
+    "use strict";
+    var __defProp = Object.defineProperty;
+    var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+    var __getOwnPropNames = Object.getOwnPropertyNames;
+    var __hasOwnProp = Object.prototype.hasOwnProperty;
+    var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+      get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+    }) : x)(function(x) {
+      if (typeof require !== "undefined") return require.apply(this, arguments);
+      throw Error('Dynamic require of "' + x + '" is not supported');
     });
-  });
+    var __export = (target, all) => {
+      for (var name in all)
+        __defProp(target, name, { get: all[name], enumerable: true });
+    };
+    var __copyProps = (to, from, except, desc) => {
+      if (from && typeof from === "object" || typeof from === "function") {
+        for (let key of __getOwnPropNames(from))
+          if (!__hasOwnProp.call(to, key) && key !== except)
+            __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      }
+      return to;
+    };
+    var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  let usageLedgerPromise;
-  const getLedger = () => {
-    if (!usageLedgerPromise) {
-      const candidates = [
-        path.join(__dirname, '..', 'sidecars', 'panel', 'usage.mjs'),
-        path.join(os.homedir(), '.gemini', 'config', 'plugins', 'antigravity-pulse', 'sidecars', 'panel', 'usage.mjs')
-      ];
-      const target = candidates.find(p => fs.existsSync(p)) || candidates[0];
-      usageLedgerPromise = import(require('node:url').pathToFileURL(target).href)
-        .then(({ UsageLedger }) => new UsageLedger())
-        .catch(err => { usageLedgerPromise = null; throw err; });
+    // src/ui/ipc-host/index.ts
+    var index_exports = {};
+    __export(index_exports, {
+      default: () => installAgPulseIpc
+    });
+
+    // src/contracts/preferences.ts
+    var PREFERENCE_KEYS = [
+      "language",
+      "languageGuideDismissed",
+      "usageGuideDismissed",
+      "modelTimelineEnabled"
+    ];
+
+    // src/ui/ipc-host/helpers.ts
+    function createHostStatusHelpers(fs, settingsFile, configFile, sidecarLogFile) {
+      let disabledCache = {
+        value: false,
+        at: 0,
+        pending: null
+      };
+      let fallbackCache = {
+        endpoint: null,
+        at: 0,
+        pending: null
+      };
+      const isDisabled = async () => {
+        const now = Date.now();
+        if (now - disabledCache.at < 1e3) return disabledCache.value;
+        if (disabledCache.pending) return disabledCache.pending;
+        disabledCache.pending = (async () => {
+          const readJson = async (file) => {
+            try {
+              return JSON.parse(
+                (await fs.promises.readFile(file, "utf8")).replace(/^\uFEFF/, "")
+              );
+            } catch {
+              return null;
+            }
+          };
+          const [settings, config] = await Promise.all([readJson(settingsFile), readJson(configFile)]);
+          const plugins = config?.plugins;
+          const disabled = settings?.enabled === false || plugins?.["antigravity-pulse"]?.enabled === false;
+          disabledCache = { value: disabled, at: Date.now(), pending: null };
+          return disabled;
+        })().finally(() => {
+          if (disabledCache.pending) disabledCache.pending = null;
+        });
+        return disabledCache.pending;
+      };
+      const readLogTail = async (file, maxBytes = 262144) => {
+        const stat = await fs.promises.stat(file);
+        const start = Math.max(0, stat.size - maxBytes);
+        const length = stat.size - start;
+        if (!length) return "";
+        const handle = await fs.promises.open(file, "r");
+        try {
+          const buf = Buffer.allocUnsafe(length);
+          let offset = 0;
+          while (offset < length) {
+            const { bytesRead } = await handle.read(buf, offset, length - offset, start + offset);
+            if (bytesRead <= 0) break;
+            offset += bytesRead;
+          }
+          return buf.toString("utf8", 0, offset);
+        } finally {
+          await handle.close();
+        }
+      };
+      const getFallbackEndpoint = async () => {
+        const now = Date.now();
+        if (fallbackCache.endpoint && now - fallbackCache.at < 1500) return fallbackCache.endpoint;
+        if (fallbackCache.pending) return fallbackCache.pending;
+        fallbackCache.pending = (async () => {
+          let endpoint = null;
+          try {
+            const log = await readLogTail(sidecarLogFile);
+            const port = [...log.matchAll(/\[sidecar\] listening on 127\.0\.0\.1:(\d+)/g)].at(-1)?.[1];
+            if (port) endpoint = `http://127.0.0.1:${port}/`;
+          } catch {
+          }
+          fallbackCache = { endpoint, at: Date.now(), pending: null };
+          return endpoint;
+        })().finally(() => {
+          if (fallbackCache.pending) fallbackCache.pending = null;
+        });
+        return fallbackCache.pending;
+      };
+      const resetFallbackEndpoint = () => {
+        fallbackCache = { endpoint: null, at: 0, pending: null };
+      };
+      return { isDisabled, getFallbackEndpoint, resetFallbackEndpoint };
     }
-    return usageLedgerPromise;
-  };
 
-  const validateOrigin = event => {
-    const origin = new URL(event.senderFrame?.url || event.sender.getURL());
-    if (!['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname) || !['http:', 'https:'].includes(origin.protocol)) {
-      throw new Error('Invalid origin');
+    // src/ui/ipc-host/usage-handlers.ts
+    function registerUsageIpcHandlers({
+      electron,
+      fs,
+      os,
+      path,
+      pathToFileURL,
+      baseDir,
+      validateOrigin
+    }) {
+      let usageLedgerPromise = null;
+      const getLedger = () => {
+        if (!usageLedgerPromise) {
+          const candidates = [
+            ...baseDir ? [path.join(baseDir, "..", "sidecars", "panel", "usage.mjs")] : [],
+            path.join(
+              os.homedir(),
+              ".gemini",
+              "config",
+              "plugins",
+              "antigravity-pulse",
+              "sidecars",
+              "panel",
+              "usage.mjs"
+            )
+          ];
+          const target = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+          usageLedgerPromise = import(pathToFileURL(target).href).then((mod) => {
+            const { UsageLedger } = mod;
+            return new UsageLedger();
+          }).catch((err) => {
+            usageLedgerPromise = null;
+            throw err;
+          });
+        }
+        return usageLedgerPromise;
+      };
+      const handleAddManualUsage = async (event, rawInput = {}) => {
+        try {
+          validateOrigin(event);
+          const ledger = await getLedger();
+          const input = rawInput ?? {};
+          const scope = input.scope || input.account || input.accountKey;
+          const data = input.data || input;
+          return await ledger.addManualUsage(scope, data);
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Failed to add manual usage" };
+        }
+      };
+      const handleDeleteManualUsage = async (event, rawInput = {}) => {
+        try {
+          validateOrigin(event);
+          const ledger = await getLedger();
+          const input = rawInput;
+          const scope = typeof input === "object" && input !== null ? input.scope || input.account || input.accountKey : void 0;
+          const id = typeof input === "string" ? input : typeof input === "object" && input !== null ? input.id || null : null;
+          return await ledger.deleteManualUsage(scope, id);
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Failed to delete manual usage" };
+        }
+      };
+      const handleGetAccounts = async (event, rawInput = {}) => {
+        try {
+          validateOrigin(event);
+          const ledger = await getLedger();
+          const input = rawInput ?? {};
+          return await ledger.getAccounts(input.active || input.scope || null);
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Failed to get accounts", accounts: [] };
+        }
+      };
+      const handleSwitchAccount = async (event, rawInput = {}) => {
+        try {
+          validateOrigin(event);
+          const input = rawInput;
+          const account = typeof input === "string" ? input : input?.account || input?.id || void 0;
+          return { success: true, active: account, activeAccount: account };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Failed to switch account" };
+        }
+      };
+      electron.ipcMain.handle("ag-pulse:add-manual-usage", handleAddManualUsage);
+      electron.ipcMain.handle("ag-pulse:addManualUsage", handleAddManualUsage);
+      electron.ipcMain.handle("ag-pulse:delete-manual-usage", handleDeleteManualUsage);
+      electron.ipcMain.handle("ag-pulse:deleteManualUsage", handleDeleteManualUsage);
+      electron.ipcMain.handle("ag-pulse:get-accounts", handleGetAccounts);
+      electron.ipcMain.handle("ag-pulse:getAccounts", handleGetAccounts);
+      electron.ipcMain.handle("ag-pulse:switch-account", handleSwitchAccount);
+      electron.ipcMain.handle("ag-pulse:switchAccount", handleSwitchAccount);
     }
-  };
 
-  const handleAddManualUsage = async (event, input = {}) => {
-    try {
-      validateOrigin(event);
-      const ledger = await getLedger();
-      const scope = input.scope || input.account || input.accountKey;
-      const data = input.data || input;
-      return await ledger.addManualUsage(scope, data);
-    } catch (e) {
-      return { error: e.message || 'Failed to add manual usage' };
+    // src/ui/ipc-host/index.ts
+    var ALLOWED_PREFERENCE_KEYS = new Set(PREFERENCE_KEYS);
+    var DIAGNOSTIC_STAGES = /* @__PURE__ */ new Set(["boot", "mounted", "mount-error"]);
+    var LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["127.0.0.1", "localhost", "[::1]"]);
+    var GUID_RE = /^(?:[a-zA-Z0-9_.-]+\/)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    function installAgPulseIpc(electron, authorities) {
+      const http = __require("node:http");
+      const fs = __require("node:fs");
+      const path = __require("node:path");
+      const os = __require("node:os");
+      const { pathToFileURL } = __require("node:url");
+      const local = process.platform === "win32" ? process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local") : process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+      const offline = (message) => ({
+        connection: "offline",
+        error: message,
+        groups: [],
+        speed: null,
+        serverTime: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      const keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
+      const settingsFile = path.join(local, "AntigravityPulse", "settings.json");
+      const configFile = path.join(os.homedir(), ".gemini", "config", "config.json");
+      const diagLogDir = path.join(
+        os.homedir(),
+        ".gemini",
+        "antigravity",
+        "sidecar_data",
+        "antigravity-pulse",
+        "panel",
+        "logs"
+      );
+      const sidecarLogFile = path.join(diagLogDir, "sidecar.log");
+      const diagLogFile = path.join(diagLogDir, "widget.log");
+      let diagDirReady = false;
+      const { isDisabled, getFallbackEndpoint, resetFallbackEndpoint } = createHostStatusHelpers(
+        fs,
+        settingsFile,
+        configFile,
+        sidecarLogFile
+      );
+      const validateOrigin = (event) => {
+        const origin = new URL(event.senderFrame?.url || event.sender.getURL());
+        if (!LOOPBACK_HOSTS.has(origin.hostname) || !["http:", "https:"].includes(origin.protocol)) {
+          throw new Error("Invalid origin");
+        }
+        return origin;
+      };
+      let preferenceStore = null;
+      electron.ipcMain.handle(
+        "ag-pulse:preferences",
+        async (event, rawInput = {}) => {
+          try {
+            validateOrigin(event);
+            const input = rawInput ?? {};
+            if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !ALLOWED_PREFERENCE_KEYS.has(key))) {
+              throw new Error("Invalid preference input");
+            }
+            if (Object.hasOwn(input, "modelTimelineEnabled") && typeof input.modelTimelineEnabled !== "boolean") {
+              throw new Error("Invalid timeline preference");
+            }
+            if (!preferenceStore) {
+              const file = path.join(
+                os.homedir(),
+                ".gemini",
+                "config",
+                "plugins",
+                "antigravity-pulse",
+                "compat",
+                "preferences.mjs"
+              );
+              preferenceStore = import(pathToFileURL(file).href).then((mod) => {
+                const { PreferencesStore } = mod;
+                return new PreferencesStore();
+              });
+            }
+            const store = await preferenceStore;
+            return Object.keys(input).length ? await store.set(input) : await store.get();
+          } catch {
+            preferenceStore = null;
+            return { error: "Language preference could not be saved or read" };
+          }
+        }
+      );
+      electron.ipcMain.on("ag-pulse:diagnostic", (event, rawState = {}) => {
+        try {
+          const origin = new URL(event.senderFrame?.url || event.sender.getURL());
+          if (!LOOPBACK_HOSTS.has(origin.hostname)) return;
+          const state = rawState ?? {};
+          if (!state.stage || !DIAGNOSTIC_STAGES.has(state.stage)) return;
+          const safe = {
+            stage: state.stage,
+            hostFound: state.hostFound === true,
+            editorFound: state.editorFound === true,
+            composerFound: state.composerFound === true
+          };
+          const line = `${(/* @__PURE__ */ new Date()).toISOString()} ${JSON.stringify(safe)}
+  `;
+          Promise.resolve().then(async () => {
+            if (!diagDirReady) {
+              await fs.promises.mkdir(diagLogDir, { recursive: true });
+              diagDirReady = true;
+            }
+            await fs.promises.appendFile(diagLogFile, line);
+          }).catch(() => {
+            diagDirReady = false;
+          });
+        } catch {
+        }
+      });
+      electron.ipcMain.handle(
+        "ag-pulse:metrics",
+        async (event, rawInput = {}) => {
+          let origin;
+          try {
+            origin = new URL(event.senderFrame?.url || event.sender.getURL());
+          } catch {
+            return offline("\u6765\u6E90\u4E0D\u53EF\u7528");
+          }
+          if (!LOOPBACK_HOSTS.has(origin.hostname) || !["http:", "https:"].includes(origin.protocol)) {
+            return offline("\u4EC5\u5141\u8BB8 Antigravity \u672C\u5730\u754C\u9762");
+          }
+          if (await isDisabled()) {
+            return { ...offline("Antigrative Dashboard \u5DF2\u505C\u7528"), enabled: false };
+          }
+          const input = rawInput ?? {};
+          if (input.conversationId && !GUID_RE.test(input.conversationId)) {
+            return offline("\u4F1A\u8BDD\u6807\u8BC6\u65E0\u6548");
+          }
+          let endpoint = [...authorities].find(
+            ([key]) => key.startsWith("antigravity-pulse--panel-")
+          )?.[1];
+          let usedFallback = false;
+          if (!endpoint) {
+            endpoint = await getFallbackEndpoint() ?? void 0;
+            usedFallback = Boolean(endpoint);
+          }
+          if (!endpoint) return offline("\u7B49\u5F85 Antigrative Dashboard \u540E\u53F0\u542F\u52A8");
+          const url = new URL(endpoint);
+          if (!LOOPBACK_HOSTS.has(url.hostname) || url.protocol !== "http:") {
+            return offline("\u63A7\u4EF6\u63A5\u53E3\u5730\u5740\u65E0\u6548");
+          }
+          url.hostname = "127.0.0.1";
+          url.pathname = "/api/metrics";
+          url.search = "";
+          if (input.conversationId) url.searchParams.set("conversationId", input.conversationId);
+          if (input.force === true) url.searchParams.set("force", "1");
+          return new Promise((resolve) => {
+            let settled = false;
+            const finish = (value, failed = false) => {
+              if (settled) return;
+              settled = true;
+              if (failed && usedFallback) resetFallbackEndpoint();
+              resolve(value);
+            };
+            const req = http.get(
+              {
+                hostname: "127.0.0.1",
+                port: url.port || 80,
+                path: url.pathname + url.search,
+                agent: keepAliveAgent
+              },
+              (res) => {
+                let body = "";
+                res.setEncoding("utf8");
+                res.on("data", (chunk) => {
+                  body += chunk;
+                  if (body.length > 1048576) req.destroy(new Error("Metrics too large"));
+                });
+                res.on("error", () => finish(offline("\u63A7\u4EF6\u6682\u65F6\u4E0D\u53EF\u7528"), true));
+                res.on("end", () => {
+                  try {
+                    if (res.statusCode !== 200) throw new Error();
+                    const metrics = JSON.parse(body);
+                    if (!["live", "stale", "offline"].includes(metrics.connection)) throw new Error();
+                    finish(metrics);
+                  } catch {
+                    finish(offline("\u63A7\u4EF6\u6682\u65F6\u4E0D\u53EF\u7528"), true);
+                  }
+                });
+              }
+            );
+            req.on("error", () => finish(offline("\u7B49\u5F85 Antigrative Dashboard \u91CD\u65B0\u8FDE\u63A5"), true));
+            req.setTimeout(15e3, () => req.destroy(new Error("Metrics timeout")));
+          });
+        }
+      );
+      registerUsageIpcHandlers({
+        electron,
+        fs,
+        os,
+        path,
+        pathToFileURL,
+        baseDir: typeof __dirname === "string" ? __dirname : "",
+        validateOrigin
+      });
     }
-  };
-
-  const handleDeleteManualUsage = async (event, input = {}) => {
-    try {
-      validateOrigin(event);
-      const ledger = await getLedger();
-      const scope = input.scope || input.account || input.accountKey;
-      const id = input.id || (typeof input === 'string' ? input : null);
-      return await ledger.deleteManualUsage(scope, id);
-    } catch (e) {
-      return { error: e.message || 'Failed to delete manual usage' };
-    }
-  };
-
-  const handleGetAccounts = async (event, input = {}) => {
-    try {
-      validateOrigin(event);
-      const ledger = await getLedger();
-      return await ledger.getAccounts(input.active || input.scope || null);
-    } catch (e) {
-      return { error: e.message || 'Failed to get accounts', accounts: [] };
-    }
-  };
-
-  const handleSwitchAccount = async (event, input = {}) => {
-    try {
-      validateOrigin(event);
-      const account = typeof input === 'string' ? input : (input.account || input.id);
-      return { success: true, active: account, activeAccount: account };
-    } catch (e) {
-      return { error: e.message || 'Failed to switch account' };
-    }
-  };
-
-  electron.ipcMain.handle('ag-pulse:add-manual-usage', handleAddManualUsage);
-  electron.ipcMain.handle('ag-pulse:addManualUsage', handleAddManualUsage);
-  electron.ipcMain.handle('ag-pulse:delete-manual-usage', handleDeleteManualUsage);
-  electron.ipcMain.handle('ag-pulse:deleteManualUsage', handleDeleteManualUsage);
-  electron.ipcMain.handle('ag-pulse:get-accounts', handleGetAccounts);
-  electron.ipcMain.handle('ag-pulse:getAccounts', handleGetAccounts);
-  electron.ipcMain.handle('ag-pulse:switch-account', handleSwitchAccount);
-  electron.ipcMain.handle('ag-pulse:switchAccount', handleSwitchAccount);
+    return __toCommonJS(index_exports);
+  })();
+  const __agPulseFactoryFn = __agPulseModule && typeof __agPulseModule === "object" && "default" in __agPulseModule ? __agPulseModule.default : __agPulseModule;
+  return __agPulseFactoryFn.apply(this, args);
 };

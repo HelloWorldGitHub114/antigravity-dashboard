@@ -11,7 +11,7 @@ MODULES = [f'compat/{name}' for name in ['runtime-ui.mjs', 'platform.mjs', 'pref
     'sidecar-owner.mjs', 'i18n.cjs', 'theme.cjs', 'inline-widget.cjs', 'usage-ui.cjs']]
 MODULES += [f'sidecars/panel/{name}.mjs' for name in ['client', 'trajectory-json', 'trajectory-reader', 'discovery', 'store', 'history', 'metrics', 'rate-quality', 'context', 'transcript', 'usage', 'local-conversations', 'delegated-usage', 'delegation', 'timeline', 'timeline-store', 'task-usage']]
 MODULES += [f'ide/{name}' for name in ['extension.cjs', 'host.cjs', 'main.mjs', 'client.mjs',
-    'discovery.mjs', 'runtime.mjs', 'surface.cjs', 'launch.mjs', 'manage.py']]
+    'discovery.mjs', 'runtime.mjs', 'surface.cjs', 'launch.mjs', 'manage.mjs', 'manage.py']]
 
 
 def build(output=None):
