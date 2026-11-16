@@ -758,6 +758,63 @@ module.exports = function createUsageDashboard(...args) {
 
     // src/ui/usage-modal/hourly-spline.ts
     var SVG_NS = "http://www.w3.org/2000/svg";
+    function fmt1(v) {
+      if (!Number.isFinite(v)) return "0.0";
+      const sign = v < 0 ? -1 : 1;
+      const scaled = Math.round(Math.abs(v) * 10);
+      const rounded = scaled === 0 ? 0 : sign * scaled / 10;
+      return rounded.toFixed(1);
+    }
+    function isBaselinePoint(p, baselineY) {
+      if (typeof p.val === "number" && Number.isFinite(p.val)) {
+        return p.val === 0;
+      }
+      return Math.abs(p.y - baselineY) <= 1e-9 || p.y >= baselineY;
+    }
+    function compileCatmullRomSvgPathFallback(points, baselineY, tension = 0.5, minY) {
+      if (!Number.isFinite(baselineY) || !Array.isArray(points) || points.length === 0) {
+        return { pathD: "", areaD: "" };
+      }
+      const pts = points.filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (pts.length === 0) {
+        return { pathD: "", areaD: "" };
+      }
+      const safeTension = Number.isFinite(tension) ? tension : 0.5;
+      let resolvedMinY = typeof minY === "number" && Number.isFinite(minY) ? minY : baselineY;
+      if (typeof minY !== "number" || !Number.isFinite(minY)) {
+        for (const p of pts) {
+          if (p.y < resolvedMinY) resolvedMinY = p.y;
+        }
+      }
+      const lo = Math.min(resolvedMinY, baselineY);
+      const hi = Math.max(resolvedMinY, baselineY);
+      let pathD = `M ${fmt1(pts[0].x)},${fmt1(pts[0].y)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        const cp1x = p1.x + (p2.x - p0.x) * safeTension / 3;
+        const cp2x = p2.x - (p3.x - p1.x) * safeTension / 3;
+        let cp1y = p1.y + (p2.y - p0.y) * safeTension / 3;
+        let cp2y = p2.y - (p3.y - p1.y) * safeTension / 3;
+        const p1Zero = isBaselinePoint(p1, baselineY);
+        const p2Zero = isBaselinePoint(p2, baselineY);
+        if (p1Zero && p2Zero) {
+          cp1y = baselineY;
+          cp2y = baselineY;
+        } else {
+          if (p1Zero) cp1y = baselineY;
+          if (p2Zero) cp2y = baselineY;
+          cp1y = Math.min(hi, Math.max(lo, cp1y));
+          cp2y = Math.min(hi, Math.max(lo, cp2y));
+        }
+        pathD += ` C ${fmt1(cp1x)},${fmt1(cp1y)} ${fmt1(cp2x)},${fmt1(cp2y)} ${fmt1(p2.x)},${fmt1(p2.y)}`;
+      }
+      const baseS = fmt1(baselineY);
+      const areaD = `${pathD} L ${fmt1(pts[pts.length - 1].x)},${baseS} L ${fmt1(pts[0].x)},${baseS} Z`;
+      return { pathD, areaD };
+    }
     function svgEl(tag, attrs = {}, txt) {
       const n = document.createElementNS(SVG_NS, tag);
       for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
@@ -824,28 +881,7 @@ module.exports = function createUsageDashboard(...args) {
         val: v,
         hour: i
       }));
-      let pathD = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const p0 = pts[Math.max(0, i - 1)];
-        const p1 = pts[i];
-        const p2 = pts[i + 1];
-        const p3 = pts[Math.min(pts.length - 1, i + 2)];
-        const cp1x = p1.x + (p2.x - p0.x) / 6;
-        const cp2x = p2.x - (p3.x - p1.x) / 6;
-        let cp1y = p1.y + (p2.y - p0.y) / 6;
-        let cp2y = p2.y - (p3.y - p1.y) / 6;
-        if (p1.val === 0 && p2.val === 0) {
-          cp1y = baseY;
-          cp2y = baseY;
-        } else {
-          if (p1.val === 0) cp1y = baseY;
-          if (p2.val === 0) cp2y = baseY;
-          cp1y = Math.min(baseY, Math.max(padT, cp1y));
-          cp2y = Math.min(baseY, Math.max(padT, cp2y));
-        }
-        pathD += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
-      }
-      const areaD = `${pathD} L ${pts.at(-1).x.toFixed(1)},${baseY.toFixed(1)} L ${pts[0].x.toFixed(1)},${baseY.toFixed(1)} Z`;
+      const { pathD, areaD } = compileCatmullRomSvgPathFallback(pts, baseY, 0.5, padT);
       const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", height, preserveAspectRatio: "none" });
       svg.style.overflow = "visible";
       const defs = svgEl("defs");

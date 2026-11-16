@@ -3,7 +3,7 @@ import {
   type GeneratorMetadataLike,
   type TrajectoryStepLike,
 } from '../identity.ts';
-import { tokenCount } from '../metrics/index.ts';
+import { isSupportedCacheProvider, tokenCount } from '../metrics/index.ts';
 
 const HASH = /^[a-f0-9]{64}$/;
 export const TASK_FIELDS = [
@@ -29,9 +29,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 const provider = (value: unknown): string =>
-  typeof value === 'string' && /^(?:API_PROVIDER_)?(?:GOOGLE_GEMINI|OPENAI|ANTHROPIC)$/.test(value)
-    ? value
-    : '';
+  isSupportedCacheProvider(value) ? (value as string) : '';
 
 const coverage = (row: TaskUsageRecord): number =>
   TASK_FIELDS.reduce((n, key) => n + (row[key] !== null ? 1 : 0), 0);

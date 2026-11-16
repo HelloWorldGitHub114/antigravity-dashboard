@@ -873,6 +873,7 @@ var RuntimeUi = class {
         this.sessions.size ? "Renderer connected; waiting for a conversation composer if needed" : "Waiting for the app renderer"
       );
     } catch {
+      if (this.stopping) return;
       await this.setHealth(
         "reconnecting",
         "Inline connection unavailable; the side panel remains available. Retrying automatically."

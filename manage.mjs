@@ -4,8 +4,8 @@
 // src/lifecycle/manage-cli.ts
 import { readFileSync as readFileSync10 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname9, join as join8 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname as dirname10, join as join9 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/lifecycle/cli-installer.ts
 import { execFileSync } from "node:child_process";
@@ -42,10 +42,29 @@ var PACKAGER_IGNORED_NAMES = /* @__PURE__ */ new Set([
   "node_modules",
   ".git",
   "dist",
+  "internal",
+  "target",
+  "ag-pulse-statusline",
+  "ag-pulse-statusline.exe",
+  "ag-pulse-statusline.darwin-x64",
+  "ag-pulse-statusline.darwin-arm64",
+  "ag-pulse-statusline.linux-x64",
+  "ag-pulse-statusline.linux-arm64",
   "REFACTORING_ROADMAP.md",
   ...PRIVATE_RUNTIME_DIRS
 ]);
-var PACKAGER_IGNORED_SUFFIXES = /* @__PURE__ */ new Set([".log", ".pyc"]);
+var PACKAGER_IGNORED_SUFFIXES = /* @__PURE__ */ new Set([
+  ".log",
+  ".pyc",
+  ".node",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".pdb",
+  ".exp",
+  ".exe",
+  ".lib"
+]);
 var IDE_VSIX_MODULES = [
   "compat/runtime-ui.mjs",
   "compat/platform.mjs",
@@ -123,6 +142,8 @@ var OPENSOURCE_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   ".data",
   "dist",
   "scratch",
+  "internal",
+  "target",
   "node_modules",
   "__pycache__",
   ".pytest_cache",
@@ -136,12 +157,27 @@ var OPENSOURCE_EXCLUDED_REL_FILES = /* @__PURE__ */ new Set([
   "settings.json",
   "patch.json",
   "tools/export-opensource.py",
-  "tools/export-opensource.mjs"
+  "tools/export-opensource.mjs",
+  "cli/bin/ag-pulse-statusline",
+  "cli/bin/ag-pulse-statusline.exe",
+  "cli/bin/ag-pulse-statusline.darwin-x64",
+  "cli/bin/ag-pulse-statusline.darwin-arm64",
+  "cli/bin/ag-pulse-statusline.linux-x64",
+  "cli/bin/ag-pulse-statusline.linux-arm64",
+  "ag-pulse-statusline"
 ]);
 var OPENSOURCE_EXCLUDED_SUFFIXES = /* @__PURE__ */ new Set([
   ".pyc",
   ".pyo",
   ".pyd",
+  ".node",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".lib",
+  ".exp",
+  ".pdb",
+  ".exe",
   ".log",
   ".asar",
   ".original"
@@ -151,6 +187,8 @@ var OPENSOURCE_TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
   ".mjs",
   ".cjs",
   ".ts",
+  ".rs",
+  ".toml",
   ".py",
   ".json",
   ".md",
@@ -300,12 +338,12 @@ function atomicWriteFileSync(file, data, options = {}) {
 // src/lifecycle/fs-helpers.ts
 function isReparseOrSymlink(targetPath) {
   try {
-    const lstat = lstatSync(targetPath);
+    const absPath = resolve(targetPath);
+    const lstat = lstatSync(absPath);
     if (lstat.isSymbolicLink()) return true;
-    const abs = resolve(targetPath);
-    const parent = dirname2(abs);
-    if (parent === abs) return false;
-    return realpathSync(abs) !== join(realpathSync(parent), basename(abs));
+    const resolved = realpathSync(absPath);
+    const parentResolved = realpathSync(dirname2(absPath));
+    return resolved !== join(parentResolved, basename(absPath));
   } catch (error) {
     const code = error?.code;
     return code !== "ENOENT";
@@ -344,11 +382,26 @@ function writeJsonObjectSync(filePath, value, mode = 420) {
     fsync: true
   });
 }
+function copyFileIfChangedSync(src, dst) {
+  if (existsSync(dst)) {
+    try {
+      const srcStat = statSync(src);
+      const dstStat = statSync(dst);
+      if (srcStat.isFile() && dstStat.isFile() && srcStat.size === dstStat.size) {
+        if (readFileSync2(src).equals(readFileSync2(dst))) {
+          return;
+        }
+      }
+    } catch {
+    }
+  }
+  copyFileSync(src, dst);
+}
 function copyTreeFilteredSync(source, dest, shouldSkip, relPrefix = "") {
   const st = statSync(source);
   if (!st.isDirectory()) {
     mkdirSync2(dirname2(dest), { recursive: true });
-    copyFileSync(source, dest);
+    copyFileIfChangedSync(source, dest);
     return;
   }
   mkdirSync2(dest, { recursive: true });
@@ -361,7 +414,7 @@ function copyTreeFilteredSync(source, dest, shouldSkip, relPrefix = "") {
     if (isDir) {
       copyTreeFilteredSync(srcChild, dstChild, shouldSkip, rel);
     } else if (entry.isFile()) {
-      copyFileSync(srcChild, dstChild);
+      copyFileIfChangedSync(srcChild, dstChild);
     }
   }
 }
@@ -983,10 +1036,10 @@ function resolveTargets(options) {
   return { pro, vertex };
 }
 function ownPlugin(pluginDir, homeDir) {
-  const geminiDir = join5(homeDir, ".gemini");
-  const configDir = join5(geminiDir, "config");
-  const pluginsRoot = resolve3(join5(configDir, "plugins"));
-  if (isReparseOrSymlink(geminiDir) || isReparseOrSymlink(configDir) || isReparseOrSymlink(pluginsRoot) || isReparseOrSymlink(pluginDir) || existsSync5(pluginDir) && dirname6(realpathSync3(pluginDir)) !== realpathSync3(pluginsRoot)) {
+  const geminiRoot = resolve3(join5(homeDir, ".gemini"));
+  const configRoot = resolve3(join5(geminiRoot, "config"));
+  const pluginsRoot = resolve3(join5(configRoot, "plugins"));
+  if (isReparseOrSymlink(geminiRoot) || isReparseOrSymlink(configRoot) || isReparseOrSymlink(pluginsRoot) || isReparseOrSymlink(pluginDir) || existsSync5(pluginDir) && realpathSync3(dirname6(resolve3(pluginDir))) !== realpathSync3(pluginsRoot)) {
     throw new Error("Plugin destination must be a regular directory inside the customization root.");
   }
   if (existsSync5(pluginDir)) {
@@ -1094,10 +1147,10 @@ function updateInstanceEnabled(enabled, inst, checkSettingsDir = false) {
 }
 function removePluginDir(pluginDir, homeDir) {
   const resolved = resolve3(pluginDir);
-  const geminiDir = join5(homeDir, ".gemini");
-  const configDir = join5(geminiDir, "config");
-  const expectedParent = resolve3(join5(configDir, "plugins"));
-  if (isReparseOrSymlink(geminiDir) || isReparseOrSymlink(configDir) || isReparseOrSymlink(expectedParent) || isReparseOrSymlink(pluginDir) || dirname6(resolved) !== expectedParent || resolved !== resolve3(join5(expectedParent, PLUGIN_NAME)) || existsSync5(resolved) && dirname6(realpathSync3(resolved)) !== realpathSync3(expectedParent)) {
+  const geminiRoot = resolve3(join5(homeDir, ".gemini"));
+  const configRoot = resolve3(join5(geminiRoot, "config"));
+  const expectedParent = resolve3(join5(configRoot, "plugins"));
+  if (isReparseOrSymlink(geminiRoot) || isReparseOrSymlink(configRoot) || isReparseOrSymlink(expectedParent) || isReparseOrSymlink(pluginDir) || dirname6(resolved) !== expectedParent || resolved !== resolve3(join5(expectedParent, PLUGIN_NAME))) {
     throw new Error("Plugin target is outside the expected directory; refusing to delete it.");
   }
   rmSync2(resolved, { recursive: true, force: true });
@@ -1139,11 +1192,10 @@ function installDesktop(options) {
         const src = join5(options.sourceRoot, name);
         const dst = join5(dest, name);
         if (resolve3(src) === resolve3(dst)) continue;
-        copyTreeFilteredSync(
-          src,
-          dst,
-          (_rel, entryName) => PACKAGER_IGNORED_NAMES.has(entryName) || entryName.endsWith(".pyc") || entryName.endsWith(".log")
-        );
+        copyTreeFilteredSync(src, dst, (_rel, entryName) => {
+          const lower = entryName.toLowerCase();
+          return PACKAGER_IGNORED_NAMES.has(entryName) || lower.endsWith(".pyc") || lower.endsWith(".log") || lower.endsWith(".pdb") || lower.endsWith(".exp") || lower.endsWith(".lib") || lower.endsWith(".exe");
+        });
       }
       if (existsSync5(localAccounts) && statSync4(localAccounts).isFile()) {
         const targetAccounts = join5(dest, ".data", "usage-accounts.local.json");
@@ -1445,10 +1497,12 @@ function writeSha256Sidecar(archivePath, bytes, ext) {
 `, "utf8");
   return { checksum: checksumPath, sha256: digest };
 }
-function shouldIgnorePackageEntry(name) {
+function shouldIgnorePackageEntry(name, relPosix) {
+  if (relPosix === "cli/bin" || relPosix?.startsWith("cli/bin/")) return true;
   if (PACKAGER_IGNORED_NAMES.has(name)) return true;
+  const lower = name.toLowerCase();
   for (const suffix of PACKAGER_IGNORED_SUFFIXES) {
-    if (name.endsWith(suffix)) return true;
+    if (lower.endsWith(suffix)) return true;
   }
   return false;
 }
@@ -1459,9 +1513,10 @@ function collectPackageEntries(source, zipPrefix, entries) {
     return;
   }
   for (const entry of readdirSync4(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (shouldIgnorePackageEntry(entry.name)) continue;
     const childPath = join6(source, entry.name);
     const childPrefix = zipPrefix ? `${zipPrefix}/${entry.name}` : entry.name;
+    const relFromRoot = childPrefix.includes("/") ? childPrefix.slice(childPrefix.indexOf("/") + 1) : childPrefix;
+    if (shouldIgnorePackageEntry(entry.name, relFromRoot)) continue;
     if (entry.isDirectory()) {
       collectPackageEntries(childPath, childPrefix, entries);
     } else if (entry.isFile()) {
@@ -1526,7 +1581,7 @@ function packageIdeVsix(rootDir, outputFile) {
 import { execFileSync as execFileSync3 } from "node:child_process";
 import {
   copyFileSync as copyFileSync4,
-  existsSync as existsSync7,
+  existsSync as existsSync8,
   mkdirSync as mkdirSync7,
   readdirSync as readdirSync5,
   readFileSync as readFileSync9,
@@ -1534,7 +1589,135 @@ import {
   unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname8, extname, join as join7, resolve as resolve5 } from "node:path";
+import { dirname as dirname9, extname, join as join8, resolve as resolve6 } from "node:path";
+
+// src/platform/native-bridge.ts
+import { existsSync as existsSync7 } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname as dirname8, join as join7, resolve as resolve5 } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join7(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join7(dir, platformAddonFilename()), join7(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve5(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname8(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join7(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join7(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join7(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve5(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync7(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function callSingleJsonAddon(methodName, payload, validate) {
+  const addon = getAddon();
+  const fn = addon?.[methodName];
+  if (typeof fn !== "function") return null;
+  try {
+    const json = fn(JSON.stringify(payload));
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (validate && !validate(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function auditOpenSourcePrivacy(options) {
+  if (!options?.rootDir) return null;
+  return callSingleJsonAddon(
+    "auditOpenSourcePrivacyJson",
+    options,
+    (parsed) => Array.isArray(parsed.findings)
+  );
+}
+function syncAndAuditOpenSource(options) {
+  if (!options?.sourceDir || !options?.destDir) return null;
+  return callSingleJsonAddon(
+    "syncAndAuditOpenSourceJson",
+    options,
+    (parsed) => Array.isArray(parsed.findings)
+  );
+}
+
+// src/lifecycle/sanitizer.ts
 var GENERIC_SECRET_PATTERNS = [
   { regex: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/, label: "private key block" }
 ];
@@ -1542,7 +1725,7 @@ var ALL_ACCOUNTS_LABEL_RE = /accounts\.push\(\s*\{\s*id:\s*(['"])all\1\s*,\s*nam
 function sanitizeUsageMjs(text) {
   return text.replace(
     ALL_ACCOUNTS_LABEL_RE,
-    (match) => match.replace(/(?:全部账号 \(汇总\)|\\u5168\\u90E8\\u8D26\\u53F7 \(\\u6C47\\u603B\))/gi, "All Accounts (Aggregated)")
+    "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });"
   );
 }
 function sanitizeMultiAccountTest(text) {
@@ -1557,8 +1740,8 @@ var SANITIZERS = {
   "sidecars/panel/tests/multi-account-features.test.mjs": sanitizeMultiAccountTest
 };
 function parseLegacyPythonExportConfig(rootDir) {
-  const pyPath = join7(resolve5(rootDir), "tools", "export-opensource.py");
-  if (!existsSync7(pyPath)) return {};
+  const pyPath = join8(resolve6(rootDir), "tools", "export-opensource.py");
+  if (!existsSync8(pyPath)) return {};
   try {
     const text = readFileSync9(pyPath, "utf8");
     const destMatch = text.match(/DEFAULT_DEST\s*=\s*Path\(r'([^']+)'\)/);
@@ -1585,8 +1768,8 @@ function parseLegacyPythonExportConfig(rootDir) {
 }
 function loadLocalExportConfig(rootDir) {
   const fallback = parseLegacyPythonExportConfig(rootDir);
-  const configPath = join7(resolve5(rootDir), ".data", "export-opensource.local.json");
-  if (!existsSync7(configPath)) return fallback;
+  const configPath = join8(resolve6(rootDir), ".data", "export-opensource.local.json");
+  if (!existsSync8(configPath)) return fallback;
   const local = readJsonObjectSync(configPath, {});
   return {
     defaultDest: local.defaultDest ?? fallback.defaultDest,
@@ -1607,6 +1790,7 @@ function buildForbiddenPatterns(rootDir, extraPatterns = []) {
   return [...GENERIC_SECRET_PATTERNS, ...compiledLocal, ...extraPatterns];
 }
 function isExcludedFromOpenSource(relPosix) {
+  if (relPosix === "cli/bin" || relPosix.startsWith("cli/bin/")) return true;
   const parts = relPosix.split("/").filter(Boolean);
   if (parts.some((part) => OPENSOURCE_EXCLUDED_DIRS.has(part))) return true;
   if (OPENSOURCE_EXCLUDED_REL_FILES.has(relPosix)) return true;
@@ -1616,14 +1800,14 @@ function isExcludedFromOpenSource(relPosix) {
   return ext.length > 0 && OPENSOURCE_EXCLUDED_SUFFIXES.has(ext);
 }
 function collectSanitizedFiles(rootDir) {
-  const root = resolve5(rootDir);
+  const root = resolve6(rootDir);
   const files = [];
   function walk(absDir, relPrefix) {
     const entries = readdirSync5(absDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
       if (isExcludedFromOpenSource(relPosix)) continue;
-      const absChild = join7(absDir, entry.name);
+      const absChild = join8(absDir, entry.name);
       if (entry.isDirectory()) {
         walk(absChild, relPosix);
       } else if (entry.isFile()) {
@@ -1635,12 +1819,12 @@ function collectSanitizedFiles(rootDir) {
   return files.sort();
 }
 function pruneStaleDestinationFiles(destRoot, expectedSet, absDir, relPrefix) {
-  if (!existsSync7(absDir)) return;
+  if (!existsSync8(absDir)) return;
   for (const entry of readdirSync5(absDir, { withFileTypes: true })) {
     if (entry.name === ".git" && relPrefix === "") continue;
     const relPosix = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
     if (relPosix.split("/").includes(".git")) continue;
-    const absChild = join7(absDir, entry.name);
+    const absChild = join8(absDir, entry.name);
     if (entry.isDirectory()) {
       pruneStaleDestinationFiles(destRoot, expectedSet, absChild, relPosix);
       try {
@@ -1655,16 +1839,16 @@ function pruneStaleDestinationFiles(destRoot, expectedSet, absDir, relPrefix) {
   }
 }
 function syncSanitizedTree(sourceDir, destDir) {
-  const source = resolve5(sourceDir);
-  const dest = resolve5(destDir);
+  const source = resolve6(sourceDir);
+  const dest = resolve6(destDir);
   mkdirSync7(dest, { recursive: true });
   const files = collectSanitizedFiles(source);
   const expectedSet = new Set(files);
   pruneStaleDestinationFiles(dest, expectedSet, dest, "");
   for (const relPosix of files) {
-    const srcFile = join7(source, ...relPosix.split("/"));
-    const dstFile = join7(dest, ...relPosix.split("/"));
-    mkdirSync7(dirname8(dstFile), { recursive: true });
+    const srcFile = join8(source, ...relPosix.split("/"));
+    const dstFile = join8(dest, ...relPosix.split("/"));
+    mkdirSync7(dirname9(dstFile), { recursive: true });
     const transform = SANITIZERS[relPosix];
     if (transform) {
       const text = readFileSync9(srcFile, "utf8");
@@ -1675,8 +1859,29 @@ function syncSanitizedTree(sourceDir, destDir) {
   }
   return files;
 }
+function buildNativeFilterPayload(patterns) {
+  return {
+    excludedDirs: [...OPENSOURCE_EXCLUDED_DIRS],
+    excludedRelFiles: [...OPENSOURCE_EXCLUDED_REL_FILES],
+    excludedSuffixes: [...OPENSOURCE_EXCLUDED_SUFFIXES],
+    textExtensions: [...OPENSOURCE_TEXT_EXTENSIONS],
+    patterns: patterns.map((spec) => ({
+      pattern: spec.regex.source,
+      flags: spec.regex.flags,
+      label: spec.label
+    }))
+  };
+}
 function auditPrivacy(rootDir, files, patterns) {
-  const root = resolve5(rootDir);
+  const root = resolve6(rootDir);
+  const nativeResult = auditOpenSourcePrivacy({
+    rootDir: root,
+    files,
+    ...buildNativeFilterPayload(patterns)
+  });
+  if (nativeResult) {
+    return nativeResult.findings;
+  }
   const findings = [];
   for (const relPosix of files) {
     const parts = relPosix.split("/");
@@ -1685,7 +1890,7 @@ function auditPrivacy(rootDir, files, patterns) {
     if (!OPENSOURCE_TEXT_EXTENSIONS.has(ext) && !OPENSOURCE_TEXT_EXTENSIONS.has(baseName)) {
       continue;
     }
-    const filePath = join7(root, ...parts);
+    const filePath = join8(root, ...parts);
     let text;
     try {
       const bytes = readFileSync9(filePath);
@@ -1708,9 +1913,9 @@ function auditPrivacy(rootDir, files, patterns) {
   return findings;
 }
 function removePycacheDirs(dir) {
-  if (!existsSync7(dir)) return;
+  if (!existsSync8(dir)) return;
   for (const entry of readdirSync5(dir, { withFileTypes: true })) {
-    const full = join7(dir, entry.name);
+    const full = join8(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "__pycache__") {
         rmSync3(full, { recursive: true, force: true });
@@ -1721,15 +1926,15 @@ function removePycacheDirs(dir) {
   }
 }
 function verifyReleaseTree(destDir, nodeExe = process.execPath) {
-  const dest = resolve5(destDir);
+  const dest = resolve6(destDir);
   const testDirs = [
-    join7(dest, "sidecars", "panel", "tests"),
-    join7(dest, "cli", "tests"),
-    join7(dest, "ide", "tests")
+    join8(dest, "sidecars", "panel", "tests"),
+    join8(dest, "cli", "tests"),
+    join8(dest, "ide", "tests")
   ];
   const nodeTests = [];
   for (const dir of testDirs) {
-    if (!existsSync7(dir)) continue;
+    if (!existsSync8(dir)) continue;
     const relPrefix = dir.slice(dest.length + 1).replace(/\\/g, "/");
     for (const name of readdirSync5(dir).sort()) {
       if (name.endsWith(".test.mjs")) nodeTests.push(`${relPrefix}/${name}`);
@@ -1739,7 +1944,7 @@ function verifyReleaseTree(destDir, nodeExe = process.execPath) {
   if (nodeTests.length > 0) {
     execFileSync3(nodeExe, ["--test", ...nodeTests], { cwd: dest, env, stdio: "inherit" });
   }
-  if (existsSync7(join7(dest, "tests"))) {
+  if (existsSync8(join8(dest, "tests"))) {
     const pyExe = process.platform === "win32" ? "python" : "python3";
     try {
       execFileSync3(pyExe, ["-B", "-m", "unittest", "discover", "-s", "tests", "-v"], {
@@ -1752,38 +1957,58 @@ function verifyReleaseTree(destDir, nodeExe = process.execPath) {
     }
   }
 }
+function syncAndAuditDestination(source, dest, patterns) {
+  const nativeResult = syncAndAuditOpenSource({
+    sourceDir: source,
+    destDir: dest,
+    ...buildNativeFilterPayload(patterns)
+  });
+  if (nativeResult) {
+    return { exported: nativeResult.exported, findings: nativeResult.findings };
+  }
+  const files = syncSanitizedTree(source, dest);
+  const findings = auditPrivacy(dest, files, patterns);
+  return { exported: files.length, findings };
+}
 function exportOpenSource(options) {
-  const source = resolve5(options.sourceDir);
+  const source = resolve6(options.sourceDir);
   const patterns = buildForbiddenPatterns(source, options.extraPatterns);
   if (options.check) {
-    const files2 = collectSanitizedFiles(source);
-    const findings2 = auditPrivacy(source, files2, patterns);
-    return { checked: files2.length, findings: findings2 };
+    const nativeCheck = auditOpenSourcePrivacy({
+      rootDir: source,
+      ...buildNativeFilterPayload(patterns)
+    });
+    if (nativeCheck) {
+      return { checked: nativeCheck.checked, findings: nativeCheck.findings };
+    }
+    const files = collectSanitizedFiles(source);
+    const findings = auditPrivacy(source, files, patterns);
+    return { checked: files.length, findings };
   }
   const localCfg = loadLocalExportConfig(source);
   const destInput = options.destDir ?? localCfg.defaultDest;
   if (!destInput) {
     throw new Error("No --dest specified and .data/export-opensource.local.json defaultDest is not configured.");
   }
-  const dest = resolve5(destInput);
-  const files = syncSanitizedTree(source, dest);
-  const findings = auditPrivacy(dest, files, patterns);
-  if (findings.length > 0) return { exported: files.length, dest, findings };
+  const dest = resolve6(destInput);
+  const primary = syncAndAuditDestination(source, dest, patterns);
+  if (primary.findings.length > 0) return { exported: primary.exported, dest, findings: primary.findings };
   if (!options.skipTests) verifyReleaseTree(dest);
   if (options.all) {
     if (!localCfg.defaultGdriveDest) {
       throw new Error("--all requested without .data/export-opensource.local.json defaultGdriveDest.");
     }
-    const gdriveDest = resolve5(localCfg.defaultGdriveDest);
-    const parent = dirname8(gdriveDest);
-    if (!existsSync7(parent)) {
+    const gdriveDest = resolve6(localCfg.defaultGdriveDest);
+    const parent = dirname9(gdriveDest);
+    if (!existsSync8(parent)) {
       throw new Error(`Mounted cloud sync parent not found: ${parent}`);
     }
-    const gFiles = syncSanitizedTree(source, gdriveDest);
-    const gFindings = auditPrivacy(gdriveDest, gFiles, patterns);
-    if (gFindings.length > 0) return { exported: gFiles.length, dest: gdriveDest, findings: gFindings };
+    const gdrive = syncAndAuditDestination(source, gdriveDest, patterns);
+    if (gdrive.findings.length > 0) {
+      return { exported: gdrive.exported, dest: gdriveDest, findings: gdrive.findings };
+    }
   }
-  return { exported: files.length, dest, findings: [] };
+  return { exported: primary.exported, dest, findings: [] };
 }
 
 // src/lifecycle/manage-cli.ts
@@ -1854,7 +2079,7 @@ function runManageCli(argv = process.argv.slice(2)) {
     );
     return 1;
   }
-  const rootDir = dirname9(fileURLToPath(import.meta.url));
+  const rootDir = dirname10(fileURLToPath2(import.meta.url));
   const resolvedHome = home ?? homedir2();
   if (command === "install") {
     installDesktop({ sourceRoot: rootDir, home: resolvedHome, appPath, panelOnly, instance });
@@ -1877,7 +2102,7 @@ function runManageCli(argv = process.argv.slice(2)) {
     return 0;
   }
   if (command === "install-cli") {
-    const resolvedLanguage = language ?? JSON.parse(readFileSync10(join8(rootDir, "plugin.json"), "utf8")).language;
+    const resolvedLanguage = language ?? JSON.parse(readFileSync10(join9(rootDir, "plugin.json"), "utf8")).language;
     installCli(rootDir, resolvedHome, nodeCandidate, resolvedLanguage);
     return 0;
   }

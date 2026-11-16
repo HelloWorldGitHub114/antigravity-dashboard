@@ -7,6 +7,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { setImmediate as yieldLoop } from 'node:timers/promises';
 import type { TranscriptReason, TranscriptStats } from '../../contracts/metrics.ts';
+import * as nativeBridge from '../../platform/native-bridge.ts';
 import { TrajectoryJson, type ProjectionNode } from '../projector/trajectory-json.ts';
 import {
   aggregateTranscriptEntry,
@@ -19,6 +20,7 @@ import {
   type Anchor,
   type TranscriptEntry,
   type TranscriptFileState,
+  type TranscriptRow,
 } from './transcript-stats.ts';
 
 export { safeTranscriptStats, transcriptBrainRoot, type TranscriptEntry };
@@ -29,6 +31,75 @@ export interface TranscriptReaderOptions {
   maxRows?: number;
   bytesPerPass?: number;
   passMs?: number;
+  nativeScan?: ((inputJson: string) => string | null) | null;
+}
+
+interface NativeScanAnchor {
+  offset?: unknown;
+  length?: unknown;
+  hash?: unknown;
+}
+
+interface NativeScanRow {
+  index?: unknown;
+  type?: unknown;
+  createdAt?: unknown;
+  userTokens?: unknown;
+  assistantTokens?: unknown;
+  toolTokens?: unknown;
+  systemTokens?: unknown;
+  compaction?: unknown;
+  image?: unknown;
+  unknown?: unknown;
+}
+
+interface NativeScanOutput {
+  nextOffset?: unknown;
+  eof?: unknown;
+  needsChunkedFallback?: unknown;
+  incompleteTrailingLine?: unknown;
+  invalid?: unknown;
+  limit?: unknown;
+  anchors?: unknown;
+  rows?: unknown;
+}
+
+const parseTranscriptTimestamp = (value: unknown): number | null =>
+  typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+const transcriptTimeQuantum = (value: unknown): number =>
+  typeof value === 'string'
+    ? 10 ** Math.max(0, 3 - (value.match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1].length || 0))
+    : 1000;
+
+function nativeRowToTranscriptRow(raw: unknown): TranscriptRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as NativeScanRow;
+  if (!isNonNegInt(r.index) || typeof r.type !== 'string' || !r.type.length || r.type.length > 128) {
+    return null;
+  }
+  if (
+    !isNonNegInt(r.userTokens) ||
+    !isNonNegInt(r.assistantTokens) ||
+    !isNonNegInt(r.toolTokens) ||
+    !isNonNegInt(r.systemTokens)
+  ) {
+    return null;
+  }
+  const compaction = r.compaction === 1 ? 1 : 0;
+  const image = r.image === 1 ? 1 : 0;
+  return {
+    index: r.index,
+    type: r.type.replace(/^CORTEX_STEP_TYPE_/, ''),
+    time: parseTranscriptTimestamp(r.createdAt),
+    quantum: transcriptTimeQuantum(r.createdAt),
+    userTokens: r.userTokens,
+    assistantTokens: r.assistantTokens,
+    toolTokens: r.toolTokens,
+    systemTokens: r.systemTokens,
+    compaction,
+    image,
+    unknown: r.unknown === true,
+  };
 }
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,6 +125,7 @@ export class TranscriptReader {
   maxRows: number;
   bytesPerPass: number;
   passMs: number;
+  nativeScan: ((inputJson: string) => string | null) | null;
   entries = new Map<string, TranscriptEntry>();
   generation = 0;
   running: Promise<void> | null = null;
@@ -61,12 +133,13 @@ export class TranscriptReader {
   #lastContinuedKey: string | null = null;
   #drainWaiters = new Set<() => void>();
 
-  constructor({ root = transcriptBrainRoot(), maxEntries = 8, maxRows = 8192, bytesPerPass = 2 * 1024 * 1024, passMs = 100 }: TranscriptReaderOptions = {}) {
+  constructor({ root = transcriptBrainRoot(), maxEntries = 8, maxRows = 8192, bytesPerPass = 2 * 1024 * 1024, passMs = 100, nativeScan = null }: TranscriptReaderOptions = {}) {
     this.root = root;
     this.maxEntries = isNonNegInt(maxEntries) && maxEntries > 0 ? Math.min(8, maxEntries) : 8;
     this.maxRows = isNonNegInt(maxRows) && maxRows > 0 ? Math.min(8192, maxRows) : 8192;
     this.bytesPerPass = isNonNegInt(bytesPerPass) ? Math.max(65536, Math.min(2 * 1024 * 1024, bytesPerPass)) : 2 * 1024 * 1024;
     this.passMs = isNonNegInt(passMs) ? Math.max(1, Math.min(100, passMs)) : 100;
+    this.nativeScan = typeof nativeScan === 'function' ? nativeScan : null;
   }
 
   #notifyDrain(): void { for (const resolve of this.#drainWaiters) resolve(); this.#drainWaiters.clear(); }
@@ -93,6 +166,10 @@ export class TranscriptReader {
     this.#lastContinuedKey = null;
     if (this.nextImmediate) { clearImmediate(this.nextImmediate); this.nextImmediate = null; }
     this.#notifyDrain();
+  }
+
+  dispose(): void {
+    this.reset();
   }
 
   request(scope: string | undefined, id: string | undefined, raw: unknown): TranscriptStats {
@@ -206,40 +283,127 @@ export class TranscriptReader {
       }
       s.size = info.size; s.mtime = info.mtimeMs;
       if (s.limit) return;
-      const buffer = Buffer.alloc(65536);
       const end = Math.min(info.size, s.offset + this.bytesPerPass);
-      const deadline = performance.now() + this.passMs;
-      while (s.offset < end && current()) {
-        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, end - s.offset), s.offset);
-        if (!bytesRead) break;
-        const anchor: Anchor = { offset: s.offset, length: bytesRead, hash: digest(buffer.subarray(0, bytesRead)) };
-        s.anchors = s.anchors.length ? [s.anchors[0], anchor] : [anchor];
-        s.offset += bytesRead;
-        const text = s.decoder.write(buffer.subarray(0, bytesRead));
-        let start = 0;
-        for (let i = 0; i <= text.length; i++) {
-          if (i !== text.length && text[i] !== '\n') continue;
-          const part = text.slice(start, i); start = i + 1;
-          if (part.trim().length || s.lineStarted) {
-            s.lineStarted = true; s.parser ??= new TrajectoryJson({ projection, maxRetainedBytes: 32768 });
-            if (!s.badLine) { try { s.parser.write(part); } catch { s.badLine = true; s.invalid = true; } }
+      const tryScan =
+        process.env.PULSE_DISABLE_NATIVE_ACCEL === '1'
+          ? null
+          : (this.nativeScan ??
+              (nativeBridge as { tryScanTranscriptFileJson?: (inputJson: string) => string | null })
+                .tryScanTranscriptFileJson ??
+              null);
+
+      let skipChunkLoop = false;
+      if (tryScan && s.offset < end && !s.lineStarted && !s.badLine && current()) {
+        try {
+          const payload: Record<string, unknown> = {
+            filePath: file,
+            offset: s.offset,
+            maxBytes: end - s.offset,
+            maxRows: this.maxRows,
+            includeAllRows: true,
+          };
+          if (s.rows.size > 0) {
+            payload.knownIndices = [...s.rows.keys()];
           }
-          if (i === text.length) break;
-          if (s.lineStarted && !s.badLine) {
-            try {
-              const row = summarizeTranscriptRecord(s.parser!.end());
-              if (!row) s.invalid = true;
-              else if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) { s.limit = true; break; }
-              else s.rows.set(row.index, row);
-            } catch { s.invalid = true; }
+          const rawScan = tryScan(JSON.stringify(payload));
+          if (typeof rawScan === 'string' && rawScan.length > 0 && current()) {
+            const parsed = JSON.parse(rawScan) as NativeScanOutput;
+            if (parsed && typeof parsed === 'object' && parsed.needsChunkedFallback !== true) {
+              const nextOffset =
+                typeof parsed.nextOffset === 'number' &&
+                Number.isSafeInteger(parsed.nextOffset) &&
+                parsed.nextOffset >= s.offset &&
+                parsed.nextOffset <= end
+                  ? parsed.nextOffset
+                  : s.offset;
+              if (nextOffset > s.offset || parsed.eof === true || parsed.limit === true) {
+                if (Array.isArray(parsed.rows)) {
+                  for (const item of parsed.rows) {
+                    const row = nativeRowToTranscriptRow(item);
+                    if (!row) continue;
+                    if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) {
+                      s.limit = true;
+                      break;
+                    }
+                    s.rows.set(row.index, row);
+                  }
+                }
+                if (parsed.invalid === true) s.invalid = true;
+                if (parsed.limit === true) s.limit = true;
+                if (Array.isArray(parsed.anchors) && parsed.anchors.length > 0) {
+                  const validAnchors = parsed.anchors
+                    .filter((a): a is NativeScanAnchor => Boolean(a && typeof a === 'object'))
+                    .map((a) => ({
+                      offset: a.offset as number,
+                      length: a.length as number,
+                      hash: a.hash as string,
+                    }))
+                    .filter(
+                      (a) =>
+                        isNonNegInt(a.offset) &&
+                        isNonNegInt(a.length) &&
+                        a.length > 0 &&
+                        typeof a.hash === 'string' &&
+                        a.hash.length > 0,
+                    );
+                  if (validAnchors.length > 0) {
+                    const lastAnchor = validAnchors[validAnchors.length - 1];
+                    s.anchors = s.anchors.length
+                      ? [s.anchors[0], lastAnchor]
+                      : validAnchors.length > 1
+                        ? [validAnchors[0], lastAnchor]
+                        : [validAnchors[0]];
+                  }
+                }
+                s.offset = nextOffset;
+                await yieldLoop();
+                if (!current()) return;
+                // Keep pure-TS chunk parser active for an uncommitted incomplete trailing line
+                // so s.parser retains the partial JSON prefix across subsequent appends.
+                skipChunkLoop = parsed.incompleteTrailingLine !== true;
+              }
+            }
           }
-          s.parser = null; s.lineStarted = false; s.badLine = false;
+        } catch {
+          // Fall back cleanly to pure-TS chunked reader when native scan fails.
         }
-        await yieldLoop();
-        if (s.limit || performance.now() >= deadline) break;
+      }
+
+      if (!skipChunkLoop) {
+        const buffer = Buffer.alloc(65536);
+        const deadline = performance.now() + this.passMs;
+        while (s.offset < end && current()) {
+          const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, end - s.offset), s.offset);
+          if (!bytesRead) break;
+          const anchor: Anchor = { offset: s.offset, length: bytesRead, hash: digest(buffer.subarray(0, bytesRead)) };
+          s.anchors = s.anchors.length ? [s.anchors[0], anchor] : [anchor];
+          s.offset += bytesRead;
+          const text = s.decoder.write(buffer.subarray(0, bytesRead));
+          let start = 0;
+          for (let i = 0; i <= text.length; i++) {
+            if (i !== text.length && text[i] !== '\n') continue;
+            const part = text.slice(start, i); start = i + 1;
+            if (part.trim().length || s.lineStarted) {
+              s.lineStarted = true; s.parser ??= new TrajectoryJson({ projection, maxRetainedBytes: 32768 });
+              if (!s.badLine) { try { s.parser.write(part); } catch { s.badLine = true; s.invalid = true; } }
+            }
+            if (i === text.length) break;
+            if (s.lineStarted && !s.badLine) {
+              try {
+                const row = summarizeTranscriptRecord(s.parser!.end());
+                if (!row) s.invalid = true;
+                else if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) { s.limit = true; break; }
+                else s.rows.set(row.index, row);
+              } catch { s.invalid = true; }
+            }
+            s.parser = null; s.lineStarted = false; s.badLine = false;
+          }
+          await yieldLoop();
+          if (s.limit || performance.now() >= deadline) break;
+        }
       }
       if (!current()) return;
-      s.eof = s.offset === info.size;
+      s.eof = s.offset === info.size && !s.limit;
     } finally { await handle.close(); }
   }
 }

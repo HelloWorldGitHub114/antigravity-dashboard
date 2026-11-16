@@ -1,7 +1,15 @@
-import { build } from 'esbuild';
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+let cachedEsbuild = null;
+async function getEsbuild() {
+  if (!cachedEsbuild) {
+    cachedEsbuild = await import('esbuild');
+  }
+  return cachedEsbuild;
+}
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, posix, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createContext, Script } from 'node:vm';
 
@@ -242,6 +250,7 @@ function inlinePanelFormatExports(code) {
 }
 
 async function compileNodeEsmTarget({ entry, out, shebang = false }, { allowCrossTargets = false } = {}) {
+  const { build } = await getEsbuild();
   const banner = shebang ? `#!/usr/bin/env node\n${GENERATED_BANNER}` : GENERATED_BANNER;
   const result = await build({
     entryPoints: [resolve(ROOT, entry)],
@@ -266,6 +275,7 @@ async function compileNodeEsmTarget({ entry, out, shebang = false }, { allowCros
 }
 
 async function compileNodeCjsTarget({ entry, out, external, allowedExternal, requiredExports }) {
+  const { build } = await getEsbuild();
   const result = await build({
     entryPoints: [resolve(ROOT, entry)],
     bundle: true,
@@ -288,6 +298,7 @@ async function compileNodeCjsTarget({ entry, out, external, allowedExternal, req
 }
 
 async function compileCjsFactoryTarget({ entry, out, factoryName, platform, bindSelf = false }) {
+  const { build } = await getEsbuild();
   const result = await build({
     entryPoints: [resolve(ROOT, entry)],
     bundle: true,
@@ -326,6 +337,7 @@ async function compileCjsFactoryTarget({ entry, out, factoryName, platform, bind
 }
 
 async function compilePanelFormatTarget() {
+  const { build } = await getEsbuild();
   const exportList = PANEL_FORMAT_EXPORTS.join(', ');
   const result = await build({
     stdin: {
@@ -351,6 +363,7 @@ async function compilePanelFormatTarget() {
 }
 
 async function compilePanelWebviewTargets() {
+  const { build } = await getEsbuild();
   const result = await build({
     entryPoints: [resolve(ROOT, 'src/ui/panel-webview/index.ts')],
     bundle: true,
@@ -382,6 +395,7 @@ async function compilePanelWebviewTargets() {
 }
 
 async function loadTsManifest() {
+  const { build } = await getEsbuild();
   const result = await build({
     entryPoints: [resolve(ROOT, 'src/platform/manifest.ts')],
     bundle: false,
@@ -488,9 +502,220 @@ async function verifyManifestDependencyGraph(compiled) {
   return manifest;
 }
 
+export const NATIVE_TARGET_MATRIX = [
+  {
+    triple: 'x86_64-pc-windows-gnu',
+    platform: 'win32',
+    arch: 'x64',
+    libName: 'pulse_accel.dll',
+    binName: 'ag-pulse-statusline.exe',
+  },
+  {
+    triple: 'x86_64-pc-windows-msvc',
+    platform: 'win32',
+    arch: 'x64',
+    libName: 'pulse_accel.dll',
+    binName: 'ag-pulse-statusline.exe',
+  },
+  {
+    triple: 'aarch64-pc-windows-msvc',
+    platform: 'win32',
+    arch: 'arm64',
+    libName: 'pulse_accel.dll',
+    binName: 'ag-pulse-statusline.exe',
+  },
+  {
+    triple: 'x86_64-apple-darwin',
+    platform: 'darwin',
+    arch: 'x64',
+    libName: 'libpulse_accel.dylib',
+    binName: 'ag-pulse-statusline',
+  },
+  {
+    triple: 'aarch64-apple-darwin',
+    platform: 'darwin',
+    arch: 'arm64',
+    libName: 'libpulse_accel.dylib',
+    binName: 'ag-pulse-statusline',
+  },
+  {
+    triple: 'x86_64-unknown-linux-gnu',
+    platform: 'linux',
+    arch: 'x64',
+    libName: 'libpulse_accel.so',
+    binName: 'ag-pulse-statusline',
+  },
+  {
+    triple: 'aarch64-unknown-linux-gnu',
+    platform: 'linux',
+    arch: 'arm64',
+    libName: 'libpulse_accel.so',
+    binName: 'ag-pulse-statusline',
+  },
+];
+
+export function resolveNativeTargetSpec({
+  targetTriple = null,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
+  const normalizedTriple = typeof targetTriple === 'string' && targetTriple.trim() ? targetTriple.trim() : null;
+  let entry;
+  if (normalizedTriple) {
+    entry = NATIVE_TARGET_MATRIX.find((item) => item.triple === normalizedTriple);
+    if (!entry) {
+      throw new Error(`Unsupported Rust target triple: ${normalizedTriple}`);
+    }
+  } else {
+    entry = NATIVE_TARGET_MATRIX.find((item) => item.platform === platform && item.arch === arch) ?? {
+      triple: null,
+      platform,
+      arch,
+      libName:
+        platform === 'win32'
+          ? 'pulse_accel.dll'
+          : platform === 'darwin'
+            ? 'libpulse_accel.dylib'
+            : 'libpulse_accel.so',
+      binName: platform === 'win32' ? 'ag-pulse-statusline.exe' : 'ag-pulse-statusline',
+    };
+  }
+  const tag = `${entry.platform}-${entry.arch}`;
+  const exeSuffix = entry.platform === 'win32' ? '.exe' : '';
+  return {
+    triple: normalizedTriple,
+    platform: entry.platform,
+    arch: entry.arch,
+    tag,
+    libName: entry.libName,
+    binName: entry.binName,
+    untaggedNodeName: 'pulse-accel.node',
+    taggedNodeName: `pulse-accel.${tag}.node`,
+    cliBinName: entry.binName,
+    taggedCliBinName: `ag-pulse-statusline.${tag}${exeSuffix}`,
+    isHostMatch: entry.platform === platform && entry.arch === arch,
+  };
+}
+
+export function parseBuildArgs(argv = process.argv.slice(2)) {
+  let checkOnly = false;
+  let skipNative = false;
+  let nativeTag = false;
+  let nativeOnly = false;
+  let targetTriple = null;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--check') checkOnly = true;
+    else if (arg === '--skip-native') skipNative = true;
+    else if (arg === '--native-tag') nativeTag = true;
+    else if (arg === '--native-only') nativeOnly = true;
+    else if (arg === '--target') {
+      const next = argv[i + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('Missing value for --target');
+      }
+      targetTriple = next;
+      i += 1;
+    } else if (arg.startsWith('--target=')) {
+      targetTriple = arg.slice('--target='.length);
+      if (!targetTriple) {
+        throw new Error('Missing value for --target');
+      }
+    } else {
+      throw new Error(`Unknown build argument: ${arg}`);
+    }
+  }
+
+  return { checkOnly, skipNative, nativeTag, nativeOnly, targetTriple };
+}
+
+export function resolveCargoTargetDir() {
+  if (process.env.CARGO_TARGET_DIR) return process.env.CARGO_TARGET_DIR;
+  const localCfgPath = resolve(ROOT, '.data', 'export-opensource.local.json');
+  if (existsSync(localCfgPath)) {
+    try {
+      const cfg = JSON.parse(readFileSync(localCfgPath, 'utf8'));
+      if (typeof cfg?.cargoTargetDir === 'string' && cfg.cargoTargetDir.trim()) {
+        return cfg.cargoTargetDir.trim();
+      }
+      if (typeof cfg?.defaultDest === 'string' && /^[A-Za-z]:[\\/]/.test(cfg.defaultDest)) {
+        const driveRoot = cfg.defaultDest.slice(0, 3);
+        return join(driveRoot, 'ai_data', 'tmp', 'pulse-accel-target');
+      }
+    } catch {}
+  }
+  return join(ROOT, 'native', 'pulse-accel', 'target');
+}
+
+function buildNativeAccel({ nativeTag = false, targetTriple = null, strict = false } = {}) {
+  if (process.env.PULSE_SKIP_NATIVE_BUILD === '1') return;
+  const manifestPath = resolve(ROOT, 'native', 'pulse-accel', 'Cargo.toml');
+  if (!existsSync(manifestPath)) return;
+  const targetDir = resolveCargoTargetDir();
+  const spec = resolveNativeTargetSpec({ targetTriple });
+  const cargoArgs = ['build', '--release', '--manifest-path', manifestPath];
+  if (spec.triple) {
+    cargoArgs.push('--target', spec.triple);
+  }
+  try {
+    execFileSync('cargo', cargoArgs, {
+      cwd: resolve(ROOT, 'native', 'pulse-accel'),
+      env: { ...process.env, CARGO_TARGET_DIR: targetDir },
+      stdio: 'inherit',
+    });
+    const releaseDir = spec.triple ? join(targetDir, spec.triple, 'release') : join(targetDir, 'release');
+    const builtLib = join(releaseDir, spec.libName);
+    if (existsSync(builtLib)) {
+      if (spec.isHostMatch) {
+        const destNode = resolve(ROOT, 'sidecars', 'panel', spec.untaggedNodeName);
+        copyFileSync(builtLib, destNode);
+        console.log(`Built native accelerator -> sidecars/panel/${spec.untaggedNodeName}`);
+      }
+      if (nativeTag) {
+        const destTaggedNode = resolve(ROOT, 'sidecars', 'panel', spec.taggedNodeName);
+        copyFileSync(builtLib, destTaggedNode);
+        console.log(`Built tagged native accelerator -> sidecars/panel/${spec.taggedNodeName}`);
+      }
+    }
+    const builtBin = join(releaseDir, spec.binName);
+    if (existsSync(builtBin)) {
+      const cliBinDir = resolve(ROOT, 'cli', 'bin');
+      mkdirSync(cliBinDir, { recursive: true });
+      if (spec.isHostMatch) {
+        const destBin = join(cliBinDir, spec.cliBinName);
+        copyFileSync(builtBin, destBin);
+        if (spec.platform !== 'win32' && process.platform !== 'win32') chmodSync(destBin, 0o755);
+        console.log(`Built native CLI -> cli/bin/${spec.cliBinName}`);
+      }
+      if (nativeTag) {
+        const destTaggedBin = join(cliBinDir, spec.taggedCliBinName);
+        copyFileSync(builtBin, destTaggedBin);
+        if (spec.platform !== 'win32' && process.platform !== 'win32') chmodSync(destTaggedBin, 0o755);
+        console.log(`Built tagged native CLI -> cli/bin/${spec.taggedCliBinName}`);
+      }
+    }
+  } catch (error) {
+    if (strict) throw error;
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`Warning: native pulse-accel build skipped or failed (${msg}); using JS fallback.`);
+  }
+}
+
 async function run() {
-  const args = new Set(process.argv.slice(2));
-  const checkOnly = args.has('--check');
+  const { checkOnly, skipNative, nativeTag, nativeOnly, targetTriple } = parseBuildArgs();
+  const strictNative = nativeOnly || nativeTag || Boolean(targetTriple);
+
+  if (nativeOnly && checkOnly) {
+    throw new Error('--native-only cannot be combined with --check');
+  }
+
+  if (nativeOnly) {
+    if (!skipNative) {
+      buildNativeAccel({ nativeTag, targetTriple, strict: strictNative });
+    }
+    return;
+  }
 
   const compiledBundles = await Promise.all([
     ...STANDALONE_NODE_ESM_TARGETS.map((target) => compileNodeEsmTarget(target)),
@@ -507,6 +732,7 @@ async function run() {
   const manifest = await verifyManifestDependencyGraph(compiled);
 
   if (checkOnly) {
+    const opensourceExcludedRelFiles = new Set(manifest.OPENSOURCE_EXCLUDED_REL_FILES ?? []);
     const stale = [];
     for (const { out, text } of compiled) {
       const targetPath = resolve(ROOT, out);
@@ -514,7 +740,9 @@ async function run() {
       try {
         current = await readFile(targetPath, 'utf8');
       } catch {
-        if (manifest.OPENSOURCE_EXCLUDED_REL_FILES?.has(out)) continue;
+        if (opensourceExcludedRelFiles.has(out)) {
+          continue;
+        }
         stale.push(`${out} (missing)`);
         continue;
       }
@@ -537,9 +765,18 @@ async function run() {
     await writeFile(targetPath, text, 'utf8');
   }
   console.log(`Built ${compiled.length} targets: ${compiled.map((item) => item.out).join(', ')}`);
+  if (!skipNative) {
+    buildNativeAccel({ nativeTag, targetTriple, strict: strictNative });
+  }
 }
 
-run().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const isMain =
+  typeof process !== 'undefined' &&
+  Boolean(process.argv[1]) &&
+  resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+if (isMain) {
+  run().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

@@ -17,6 +17,7 @@ import type {
   PreferencesUpdateInput,
 } from '../../contracts/preferences.ts';
 import { PREFERENCE_KEYS } from '../../contracts/preferences.ts';
+import { appendBoundedLogLine } from '../../shared/logger.ts';
 import { createHostStatusHelpers, type FsWithPromises } from './helpers.ts';
 import type {
   AuthoritiesMap,
@@ -83,7 +84,6 @@ export default function installAgPulseIpc(
   );
   const sidecarLogFile = path.join(diagLogDir, 'sidecar.log');
   const diagLogFile = path.join(diagLogDir, 'widget.log');
-  let diagDirReady = false;
 
   const { isDisabled, getFallbackEndpoint, resetFallbackEndpoint } = createHostStatusHelpers(
     fs,
@@ -163,17 +163,13 @@ export default function installAgPulseIpc(
         composerFound: state.composerFound === true,
       };
       const line = `${new Date().toISOString()} ${JSON.stringify(safe)}\n`;
-      Promise.resolve()
-        .then(async () => {
-          if (!diagDirReady) {
-            await fs.promises.mkdir(diagLogDir, { recursive: true });
-            diagDirReady = true;
-          }
-          await fs.promises.appendFile(diagLogFile, line);
-        })
-        .catch(() => {
-          diagDirReady = false;
-        });
+      void appendBoundedLogLine(diagLogFile, line, {
+        maxBytes: 2 * 1024 * 1024,
+        keepLines: 2000,
+        allowNative: false,
+      }).catch(() => {
+        // Diagnostic logging failures must not interfere with renderer IPC.
+      });
     } catch {
       // Diagnostic logging failures must not interfere with renderer IPC.
     }

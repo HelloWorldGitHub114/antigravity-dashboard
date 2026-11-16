@@ -258,6 +258,23 @@ function safeMetrics(value, conversationId) {
   const rt = isRec(value.timingReasons) ? value.timingReasons : null;
   const timingReasons = Object.fromEntries(RATE_REASONS.map((k) => [k, isNum(rt?.[k]) ? rt[k] : 0]));
   const latestRateStatus = value.latestRateStatus === "ok" || value.latestRateStatus === "missing" || value.latestRateStatus === "unreliable" ? value.latestRateStatus : "missing";
+  const tokens = buildTokenSummary(value, counts, cache, numFields.requests);
+  if (isRec(value.tokens) && !tokens.coverageUnknown && cache.hitRate === null && (cache.measuredRequests ?? 0) === 0 && tokens.inputRequests !== null && tokens.inputRequests > 0 && tokens.uncachedRequests === tokens.inputRequests && tokens.cachedRequests === tokens.inputRequests && tokens.cacheWriteRequests === tokens.inputRequests && tokens.inputTokens !== null && tokens.inputTokens > 0 && tokens.uncachedTokens !== null && tokens.cachedTokens !== null && tokens.cacheWriteTokens !== null && tokens.inputTokens === tokens.uncachedTokens + tokens.cachedTokens + tokens.cacheWriteTokens && tokens.cachedTokens + tokens.cacheWriteTokens <= tokens.inputTokens) {
+    const out = tokens.outputTokens ?? 0;
+    const total = tokens.inputTokens + out;
+    if (isTok(total)) {
+      cache.inputTokens = tokens.inputTokens;
+      cache.uncachedTokens = tokens.uncachedTokens;
+      cache.cachedTokens = tokens.cachedTokens;
+      cache.cacheWriteTokens = tokens.cacheWriteTokens;
+      cache.outputTokens = out;
+      cache.totalTokens = total;
+      cache.measuredRequests = tokens.inputRequests;
+      cache.missingRequests = tokens.missingInputRequests ?? 0;
+      cache.hitRate = tokens.cachedTokens / tokens.inputTokens;
+      cache.complete = cache.missingRequests === 0;
+    }
+  }
   const result = {
     ...numFields,
     source: "Antigravity request metadata",
@@ -268,7 +285,7 @@ function safeMetrics(value, conversationId) {
     timingReasons,
     rateVersion,
     counts,
-    tokens: buildTokenSummary(value, counts, cache, numFields.requests),
+    tokens,
     cache,
     latestRateStatus,
     rateBasis: value.rateBasis === "response" ? "response" : "all-output",

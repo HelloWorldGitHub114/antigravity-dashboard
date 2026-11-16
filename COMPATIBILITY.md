@@ -8,11 +8,11 @@
 
 上表面向 **Antigravity 桌面 App 2.21.1 / 2.22.0**。CLI 使用独立 `statusLine` 适配；独立 Antigravity IDE 使用专用 VSIX。VS Code、Visual Studio、JetBrains、Zed、Xcode 中的 Antigravity 扩展以及 iOS 尚未兼容。Linux/macOS 官方资源检查固定为桌面 App 2.21.1，不等同于验证 IDE 或其 2.22.0 登录界面。
 
-自 **v0.11.0** 起，生命周期管理支持原生 Node.js（`node manage.mjs <action>`，或通过 `./install.ps1` / `sh install.sh` 自动调用本机 Node.js 20+ 或宿主内置 `ELECTRON_RUN_AS_NODE=1`）以及 Python 3.10+ 兼容入口（`python manage.py <action>`），零第三方 npm / pip 运行时依赖。后台使用宿主 Node，内嵌桥接需原生 WebSocket，建议 Node 20+ / 24。Linux/macOS 架构跟随宿主，不分发平台二进制。官方系统要求见 [Antigravity 下载页](https://antigravity.google/download)。
+自 **v0.11.0** 起，生命周期管理支持原生 Node.js（`node manage.mjs <action>`，或通过 `./install.ps1` / `sh install.sh` 自动调用本机 Node.js 20+ 或宿主内置 `ELECTRON_RUN_AS_NODE=1`）以及 Python 3.10+ 兼容入口（`python manage.py <action>`），零第三方 npm / pip 运行时依赖。自 **v0.12.0** 起，可选原生 Rust 加速模块（`sidecars/panel/pulse-accel*.node` 与独立 CLI 二进制 `ag-pulse-statusline`）在可用时自动启用；未编译原生模块或设置 `PULSE_DISABLE_NATIVE_ACCEL=1` 时自动无缝回退至纯 TypeScript 实现。后台使用宿主 Node，内嵌桥接需原生 WebSocket，建议 Node 20+ / 24。官方系统要求见 [Antigravity 下载页](https://antigravity.google/download)。
 
 ## Antigravity 自带 IDE
 
-专用包为 `antigrative-dashboard-ide-0.11.0.vsix`，安装入口与桌面 App 独立。
+专用包为 `antigrative-dashboard-ide-0.12.0.vsix`，安装入口与桌面 App 独立。
 Windows 11 / IDE 2.5.5（VS Code base 1.107.0）已用真实对话验证速率、缓存、上下文、重启历史恢复和窄宽布局。
 Linux/macOS 的 IDE 进程筛选、端口归属、安装打包（含解包 Node 入口冒烟测试）和 Trusted Types 浏览器 fixture 纳入 CI；登录后的 IDE GUI 仍待实机验收。
 当前仅支持默认用户 profile；私有 Preact/DOM 或 RPC 变化可能需要适配，不能保证未来 IDE 版本无需维护。

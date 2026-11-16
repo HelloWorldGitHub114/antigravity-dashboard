@@ -1,6 +1,15 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises';
 import type { TaskUsageState, TaskUsageSummary } from '../../contracts/metrics.ts';
+import {
+  isNativeAccelAvailable,
+  readSqliteConversationMeta,
+  readSqliteTrajectory,
+} from '../../platform/native-bridge.ts';
 import { trajectoryMetrics } from '../metrics/index.ts';
+import {
+  defaultConversationsDir,
+  resolveLocalConversationDbPath,
+} from '../reader/local-conversations.ts';
 import type {
   ChildTimelineSummary,
   DelegatedClientLike,
@@ -85,6 +94,109 @@ export interface CollectContext {
   onUpdate: NonNullable<DelegatedUsageOptions['onUpdate']>;
 }
 
+function resolveChildDbPath(client: DelegatedClientLike, id: string): string | null {
+  const c = client as {
+    conversationsDir?: string | null;
+    reader?: { conversationsDir?: string | null; resolveDbPath?: (id: string) => string | null } | null;
+    paths?: () => { home?: string; conversationsDir?: string };
+    profile?: string;
+    call?: unknown;
+  };
+  if (typeof c?.reader?.resolveDbPath === 'function') {
+    return c.reader.resolveDbPath(id);
+  }
+  const explicitDir = c?.conversationsDir ?? c?.reader?.conversationsDir ?? null;
+  if (explicitDir) {
+    return resolveLocalConversationDbPath(id, explicitDir);
+  }
+  if (!c || Object.hasOwn(c, 'call') || typeof c.paths !== 'function') {
+    return null;
+  }
+  try {
+    const p = c.paths();
+    if (typeof p?.conversationsDir === 'string' && p.conversationsDir) {
+      return resolveLocalConversationDbPath(id, p.conversationsDir);
+    }
+    if (typeof p?.home === 'string' && p.home) {
+      const host = typeof c.profile === 'string' && c.profile.length > 0 ? 'ide' : 'app';
+      return resolveLocalConversationDbPath(id, defaultConversationsDir(host, p.home));
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export async function fetchChildTrajectory(
+  ctx: CollectContext,
+  id: string,
+  summary: Record<string, unknown>,
+  force: boolean,
+  current: () => boolean,
+): Promise<unknown> {
+  const dbPath = resolveChildDbPath(ctx.client, id);
+  const status = typeof summary.status === 'string' ? summary.status : '';
+  const isRunning = /RUNNING|ACTIVE|GENERATING/i.test(status);
+  const hasReader = typeof (ctx.client.reader as { read?: unknown } | null)?.read === 'function';
+
+  const trySqlite = (allowPartial = false): Record<string, unknown> | null => {
+    if (!dbPath || !isNativeAccelAvailable()) return null;
+    const sqliteRaw = readSqliteTrajectory<Record<string, unknown>>(dbPath, id, {
+      modelTimelineEnabled: ctx.modelTimelineEnabled,
+    });
+    const traj =
+      sqliteRaw?.trajectory && typeof sqliteRaw.trajectory === 'object'
+        ? (sqliteRaw.trajectory as { steps?: unknown[]; generatorMetadata?: unknown[] })
+        : null;
+    if (!sqliteRaw || !traj || !Array.isArray(traj.steps) || !Array.isArray(traj.generatorMetadata)) {
+      return null;
+    }
+    const count = typeof summary.stepCount === 'number' ? summary.stepCount : null;
+    if (!allowPartial && count !== null && traj.steps.length < count) {
+      return null;
+    }
+    if (!traj.steps.length && !traj.generatorMetadata.length && (count === null || count > 0)) {
+      return null;
+    }
+    const meta = readSqliteConversationMeta(dbPath, id);
+    return {
+      ...sqliteRaw,
+      status: status || sqliteRaw.status || 'CASCADE_RUN_STATUS_IDLE',
+      numTotalSteps: traj.steps.length,
+      numTotalGeneratorMetadata: traj.generatorMetadata.length,
+      ...(meta && !sqliteRaw.trajectoryMetadata ? { trajectoryMetadata: meta } : {}),
+    };
+  };
+
+  if (!isRunning && !hasReader && dbPath && isNativeAccelAvailable()) {
+    const fast = trySqlite(false);
+    if (fast) return fast;
+  }
+
+  try {
+    const raw = await ctx.client.trajectory(id, { summary, force, isCurrent: current });
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      !(raw as Record<string, unknown>).trajectoryMetadata &&
+      !summary.trajectoryMetadata &&
+      dbPath &&
+      isNativeAccelAvailable()
+    ) {
+      const meta = readSqliteConversationMeta(dbPath, id);
+      if (meta) {
+        return { ...(raw as Record<string, unknown>), trajectoryMetadata: meta };
+      }
+    }
+    return raw;
+  } catch (err) {
+    if (!current()) throw err;
+    const fallback = trySqlite(true);
+    if (fallback) return fallback;
+    throw err;
+  }
+}
+
 export async function collectTaskChildren(
   ctx: CollectContext,
   task: DelegatedTaskState,
@@ -115,7 +227,7 @@ export async function collectTaskChildren(
       try {
         const summaries = ctx.client.reader?.summaries || {};
         const summary = findSummaryEntry(summaries, id);
-        const raw = await ctx.client.trajectory(id, { summary, force, isCurrent: current });
+        const raw = await fetchChildTrajectory(ctx, id, summary, force, current);
         if (!current()) return;
         const rawObj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
         const traj =

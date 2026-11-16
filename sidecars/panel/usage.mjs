@@ -310,11 +310,13 @@ var LedgerStorage = class {
   source;
   knownAccounts;
   fs;
+  hasCustomFs;
   scope;
   writeQueue = Promise.resolve();
   revision = 0;
   cache = null;
   fileIndex = /* @__PURE__ */ new Map();
+  dirtyRelPaths = /* @__PURE__ */ new Set();
   keyVersions = /* @__PURE__ */ new Map();
   metaCache = null;
   metaVersion = 0;
@@ -325,6 +327,7 @@ var LedgerStorage = class {
     this.timeZone = timeZone;
     this.source = source;
     this.knownAccounts = knownAccounts && typeof knownAccounts === "object" ? knownAccounts : {};
+    this.hasCustomFs = Boolean(fs);
     this.fs = {
       readFile: readFile2,
       writeFile: writeFile2,
@@ -365,12 +368,16 @@ var LedgerStorage = class {
   async _atomicWrite(_dir, file, data) {
     await atomicWriteFile(file, data, { fs: this.fs, mode: 384 });
   }
+  _markDirtyRelPath(scope, name) {
+    this.dirtyRelPaths.add(`${scope}/${name}`);
+  }
   _bumpKeyVersion(scope, name) {
     const key = `${scope}/${name}`;
     this.keyVersions.set(key, (this.keyVersions.get(key) || 0) + 1);
   }
   async _setFileIndexFromWrite(scope, name, file, record) {
     this._bumpKeyVersion(scope, name);
+    this._markDirtyRelPath(scope, name);
     let st = null;
     try {
       st = await this._stat(file);
@@ -453,6 +460,7 @@ var LedgerStorage = class {
     } catch (error) {
       if (!isErrno(error, "ENOENT")) throw error;
     }
+    scopes.sort();
     return scopes;
   }
   ingestRows(scope, id, rows) {
@@ -483,6 +491,7 @@ var LedgerStorage = class {
       const records = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id));
       if (previous && JSON.stringify(previous.records) === JSON.stringify(records)) return;
       const nextDoc = { schema: 1, account: scope, records };
+      this._markDirtyRelPath(scope, fileName);
       await this._atomicWrite(join(this.directory, scope), file, JSON.stringify(nextDoc));
       await this._setFileIndexFromWrite(scope, fileName, file, nextDoc);
     });
@@ -490,10 +499,157 @@ var LedgerStorage = class {
 };
 
 // src/telemetry/ledger/summary.ts
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
+
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join2(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join2(dir, platformAddonFilename()), join2(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname2(fileURLToPath2(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join2(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join2(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join2(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function isNativeAccelAvailable() {
+  return getAddon() !== null;
+}
+function extractSqliteUsageRecords(dbPath, conversationId2) {
+  if (!dbPath || !conversationId2) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  try {
+    const json = addon.extractSqliteUsageRecordsJson(dbPath, conversationId2);
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function readSqliteConversationMeta(dbPath, conversationId2) {
+  if (!dbPath || !conversationId2) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  try {
+    const json = addon.readSqliteConversationMetaJson(dbPath, conversationId2);
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function callSingleJsonAddon(methodName, payload, validate) {
+  const addon = getAddon();
+  const fn = addon?.[methodName];
+  if (typeof fn !== "function") return null;
+  try {
+    const json = fn(JSON.stringify(payload));
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (validate && !validate(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function diffSessionSnapshots(inputs) {
+  if (!Array.isArray(inputs)) return null;
+  return callSingleJsonAddon("diffSessionSnapshotsJson", inputs);
+}
+function queryUsageLedgerSummary(query) {
+  if (!query?.directory || !query?.scope) return null;
+  return callSingleJsonAddon("queryUsageLedgerSummaryJson", query);
+}
 
 // src/telemetry/ledger/accounts.ts
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 async function loadAccountsMetaHelper(storage) {
   return await storage._loadStampCachedJson(
     storage.accountsFile(),
@@ -584,7 +740,7 @@ async function otherScopeFilesHelper(storage, scope) {
   const scopes = await storage.scopeDirectories();
   for (const s of scopes) {
     try {
-      const fls = await storage.fs.readdir(join2(storage.directory, s));
+      const fls = await storage.fs.readdir(join3(storage.directory, s));
       for (const f of fls) {
         if (!LEDGER_FILE_RE.test(f)) continue;
         if (s === scope) ownFiles.add(f);
@@ -611,7 +767,7 @@ async function inspectOtherAccountsHelper(storage, scope, id) {
   let inOwn = false;
   for (const s of scopes) {
     try {
-      const text = await storage.fs.readFile(join2(storage.directory, s, fileName), "utf8");
+      const text = await storage.fs.readFile(join3(storage.directory, s, fileName), "utf8");
       if (text.length > MAX_RECORD_FILE_BYTES) continue;
       const doc = JSON.parse(text);
       if (doc.schema !== 1 || doc.account !== s || !Array.isArray(doc.records)) continue;
@@ -632,7 +788,7 @@ async function inspectOtherAccountsHelper(storage, scope, id) {
 async function getAccountsHelper(storage, meta, activeScope = null) {
   const allScopes = await storage.scopeDirectories();
   const accounts = [];
-  accounts.push({ id: "all", name: "All Accounts (Aggregated)", email: "All Accounts (Aggregated)", active: activeScope === "all" });
+  accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });
   const scopes = new Set(allScopes);
   if (activeScope && HASH_RE.test(activeScope)) scopes.add(activeScope);
   for (const k of Object.keys(meta)) if (HASH_RE.test(k)) scopes.add(k);
@@ -816,7 +972,7 @@ function buildSummarySnapshot(params) {
 
 // src/telemetry/ledger/manual.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 function addManualUsageHelper(storage, scope, data = {}) {
   if (!scope || !HASH_RE.test(scope)) return Promise.reject(Error("Invalid usage scope"));
   return storage.enqueueWrite(async () => {
@@ -848,9 +1004,10 @@ function addManualUsageHelper(storage, scope, data = {}) {
       }
     ];
     const content = { schema: 1, account: scope, id, hash: fileHash, metadata, records };
-    const dir = join3(storage.directory, scope);
+    const dir = join4(storage.directory, scope);
     const fileName = `${fileHash}.json`;
-    const file = join3(dir, fileName);
+    const file = join4(dir, fileName);
+    storage._markDirtyRelPath(scope, fileName);
     await storage._atomicWrite(dir, file, JSON.stringify(content));
     await storage._setFileIndexFromWrite(scope, fileName, file, content);
     return { id, hash: fileHash, file: fileName, ...metadata };
@@ -866,13 +1023,14 @@ function deleteManualUsageHelper(storage, scope, id) {
       if (HASH_RE.test(clean)) targets.add(clean);
       targets.add(sha256(clean));
     }
-    const dir = join3(storage.directory, scope);
+    const dir = join4(storage.directory, scope);
     for (const h of targets) {
       const fileName = `${h}.json`;
       try {
-        await storage.fs.unlink(join3(dir, fileName));
+        await storage.fs.unlink(join4(dir, fileName));
         deleted = true;
         storage._bumpKeyVersion(scope, fileName);
+        storage._markDirtyRelPath(scope, fileName);
         storage.fileIndex.get(scope)?.delete(fileName);
       } catch (error) {
         if (!isErrno(error, "ENOENT")) throw error;
@@ -882,13 +1040,14 @@ function deleteManualUsageHelper(storage, scope, id) {
       try {
         const files = await storage.fs.readdir(dir);
         for (const name of files.filter((n) => LEDGER_FILE_RE.test(n))) {
-          const file = join3(dir, name);
+          const file = join4(dir, name);
           try {
             const data = JSON.parse(await storage.fs.readFile(file, "utf8"));
             if (data.id === id || data.metadata?.id === id || data.hash === id || data.metadata?.projectName === id) {
               await storage.fs.unlink(file);
               deleted = true;
               storage._bumpKeyVersion(scope, name);
+              storage._markDirtyRelPath(scope, name);
               storage.fileIndex.get(scope)?.delete(name);
               break;
             }
@@ -907,12 +1066,12 @@ function deleteManualUsageHelper(storage, scope, id) {
 async function listManualUsageHelper(storage, scope) {
   if (!scope || !HASH_RE.test(scope)) return [];
   const list = [];
-  const dir = join3(storage.directory, scope);
+  const dir = join4(storage.directory, scope);
   try {
     const files = await storage.fs.readdir(dir);
     for (const name of files.filter((n) => LEDGER_FILE_RE.test(n))) {
       try {
-        const doc = JSON.parse(await storage.fs.readFile(join3(dir, name), "utf8"));
+        const doc = JSON.parse(await storage.fs.readFile(join4(dir, name), "utf8"));
         if (doc.metadata?.source === "remote-manual") {
           list.push({
             id: doc.id || "",
@@ -935,6 +1094,95 @@ async function listManualUsageHelper(storage, scope) {
 }
 
 // src/telemetry/ledger/summary.ts
+var UTC_ZONES = /* @__PURE__ */ new Set(["UTC", "Etc/UTC", "GMT", "Etc/GMT"]);
+var UTC8_MODERN_ZONES = /* @__PURE__ */ new Set([
+  "Asia/Shanghai",
+  "Asia/Chongqing",
+  "Asia/Harbin",
+  "Asia/Taipei",
+  "Asia/Hong_Kong",
+  "Asia/Singapore"
+]);
+var UTC9_MODERN_ZONES = /* @__PURE__ */ new Set(["Asia/Tokyo", "Asia/Seoul"]);
+var MODERN_FIXED_MIN_MS = Date.UTC(1992, 0, 1);
+var tzTransitionCache = /* @__PURE__ */ new Map();
+function resolveTimeZoneSpec(zone, nowMs) {
+  if (UTC_ZONES.has(zone)) {
+    return { fixedOffsetSecs: 0, tzMinMs: null, tzMaxMs: null, tzTransitions: null };
+  }
+  if (UTC8_MODERN_ZONES.has(zone)) {
+    return { fixedOffsetSecs: 28800, tzMinMs: MODERN_FIXED_MIN_MS, tzMaxMs: null, tzTransitions: null };
+  }
+  if (UTC9_MODERN_ZONES.has(zone)) {
+    return { fixedOffsetSecs: 32400, tzMinMs: MODERN_FIXED_MIN_MS, tzMaxMs: null, tzTransitions: null };
+  }
+  const nowYear = new Date(nowMs).getUTCFullYear();
+  const minYear = Math.min(2020, nowYear - 2);
+  const maxYear = Math.max(2031, nowYear + 2);
+  const cacheKey = `${zone}:${minYear}:${maxYear}`;
+  const cached = tzTransitionCache.get(cacheKey);
+  if (cached) return cached;
+  const minMs = Date.UTC(minYear, 0, 1);
+  const maxMs = Date.UTC(maxYear, 0, 1);
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  });
+  const offsetAt = (ms) => {
+    const parts = dtf.formatToParts(ms);
+    let y = 1970;
+    let m = 1;
+    let d = 1;
+    let h = 0;
+    let min = 0;
+    let s = 0;
+    for (const p of parts) {
+      if (p.type === "year") y = Number.parseInt(p.value, 10);
+      else if (p.type === "month") m = Number.parseInt(p.value, 10);
+      else if (p.type === "day") d = Number.parseInt(p.value, 10);
+      else if (p.type === "hour") h = Number.parseInt(p.value, 10);
+      else if (p.type === "minute") min = Number.parseInt(p.value, 10);
+      else if (p.type === "second") s = Number.parseInt(p.value, 10);
+    }
+    const localSec = Math.floor(Date.UTC(y, m - 1, d, h, min, s) / 1e3);
+    const utcSec = Math.floor(ms / 1e3);
+    return localSec - utcSec;
+  };
+  const stepMs = 7 * 86400 * 1e3;
+  let curMs = minMs;
+  let curOff = offsetAt(curMs);
+  const transitions = [{ atMs: minMs, offsetSecs: curOff }];
+  while (curMs < maxMs) {
+    const nextMs = Math.min(maxMs, curMs + stepMs);
+    const nextOff = offsetAt(nextMs);
+    if (nextOff !== curOff) {
+      let loSec = Math.floor(curMs / 1e3);
+      let hiSec = Math.floor(nextMs / 1e3);
+      while (loSec + 1 < hiSec) {
+        const midSec = Math.floor((loSec + hiSec) / 2);
+        if (offsetAt(midSec * 1e3) === curOff) loSec = midSec;
+        else hiSec = midSec;
+      }
+      curOff = nextOff;
+      transitions.push({ atMs: hiSec * 1e3, offsetSecs: curOff });
+    }
+    curMs = nextMs;
+  }
+  const spec = {
+    fixedOffsetSecs: null,
+    tzMinMs: minMs,
+    tzMaxMs: maxMs,
+    tzTransitions: transitions
+  };
+  tzTransitionCache.set(cacheKey, spec);
+  return spec;
+}
 var UsageLedger = class extends LedgerStorage {
   _loadAccountsMeta() {
     return loadAccountsMetaHelper(this);
@@ -993,6 +1241,31 @@ var UsageLedger = class extends LedgerStorage {
     if (!scope || !HASH_RE.test(scope) && scope !== "all") return null;
     const startRevision = this.revision;
     const today = dateKey(now, this.timeZone);
+    if (!this.hasCustomFs && isNativeAccelAvailable()) {
+      const dirtySnapshot = [...this.dirtyRelPaths];
+      const tzSpec = resolveTimeZoneSpec(this.timeZone, now);
+      const nativeSummary = queryUsageLedgerSummary({
+        directory: this.directory,
+        scope,
+        nowMs: now,
+        today,
+        timeZone: this.timeZone,
+        source: this.source,
+        knownAccounts: this.knownAccounts,
+        fallbackScope: this.scope ?? null,
+        ...tzSpec,
+        dirtyRelPaths: dirtySnapshot
+      });
+      if (nativeSummary) {
+        const prefix = scope === "all" ? null : `${scope}/`;
+        for (const rel of dirtySnapshot) {
+          if (prefix === null || rel.startsWith(prefix)) {
+            this.dirtyRelPaths.delete(rel);
+          }
+        }
+        return nativeSummary;
+      }
+    }
     const cacheKey = `${scope}:${this.timeZone}:${today}`;
     const [{ stamp: metaStamp, value: meta }, { stamp: ownershipStamp, value: ownership }, allScopes] = await Promise.all([
       this._loadAccountsMeta(),
@@ -1017,7 +1290,7 @@ var UsageLedger = class extends LedgerStorage {
     for (const s of scanScopes) {
       let files = [];
       try {
-        files = await this.fs.readdir(join4(this.directory, s));
+        files = await this.fs.readdir(join5(this.directory, s));
       } catch (error) {
         if (!isErrno(error, "ENOENT")) throw error;
       }
@@ -1035,7 +1308,7 @@ var UsageLedger = class extends LedgerStorage {
         }
       }
       const slots = await mapPool(validFiles, 16, async (name) => {
-        const fullPath = join4(this.directory, s, name);
+        const fullPath = join5(this.directory, s, name);
         const key = `${s}/${name}`;
         const verBefore = this.keyVersions.get(key) || 0;
         let st;
@@ -1128,8 +1401,127 @@ async function deleteManualUsage(scope, id, ledger = new UsageLedger()) {
 import { setImmediate as yieldToLiveRequests } from "node:timers/promises";
 import { discoverLocalConversations } from "./local-conversations.mjs";
 
+// src/telemetry/snapshot-diff.ts
+var FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+var FNV_PRIME = 0x0100000001b3n;
+var U64_MASK = 0xffffffffffffffffn;
+var UTF8 = new TextEncoder();
+var RUNNING_STATUS_RE = /(?:RUNNING|GENERATING|WAITING|QUEUED)/i;
+var SETTLED_STATUS_RE = /(?:IDLE|DONE|COMPLETED|CANCELLED|CANCELED|STOPPED|FAILED|ERROR)/i;
+function fnv1aByte(hash, byte) {
+  return (hash ^ BigInt(byte & 255)) * FNV_PRIME & U64_MASK;
+}
+function fnv1aU64Le(hash, value) {
+  let v = BigInt.asUintN(64, value);
+  for (let i = 0; i < 8; i++) {
+    hash = (hash ^ v & 0xffn) * FNV_PRIME & U64_MASK;
+    v >>= 8n;
+  }
+  return hash;
+}
+function fnv1aI32Le(hash, value) {
+  let v = value | 0;
+  for (let i = 0; i < 4; i++) {
+    hash = (hash ^ BigInt(v & 255)) * FNV_PRIME & U64_MASK;
+    v >>= 8;
+  }
+  return hash;
+}
+function fnv1aU32Le(hash, value) {
+  let v = value >>> 0;
+  for (let i = 0; i < 4; i++) {
+    hash = (hash ^ BigInt(v & 255)) * FNV_PRIME & U64_MASK;
+    v >>>= 8;
+  }
+  return hash;
+}
+function computeSessionFingerprintHex(mtimeMs, sizeBytes, stepCount, lastUserInputStepIndex, status) {
+  const safeMtime = Number.isFinite(mtimeMs) ? Math.trunc(mtimeMs) : 0;
+  const safeSize = Number.isFinite(sizeBytes) && sizeBytes > 0 ? Math.trunc(sizeBytes) : 0;
+  const safeSteps = Number.isFinite(stepCount) ? Math.trunc(stepCount) : 0;
+  const safeUserIdx = Number.isFinite(lastUserInputStepIndex) ? Math.trunc(lastUserInputStepIndex) : -1;
+  const statusBytes = UTF8.encode(typeof status === "string" ? status : "");
+  let hash = FNV_OFFSET_BASIS;
+  hash = fnv1aU64Le(hash, BigInt(safeMtime));
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aU64Le(hash, BigInt(safeSize));
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aI32Le(hash, safeSteps);
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aI32Le(hash, safeUserIdx);
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aU32Le(hash, statusBytes.length);
+  for (let i = 0; i < statusBytes.length; i++) {
+    hash = (hash ^ BigInt(statusBytes[i])) * FNV_PRIME & U64_MASK;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+function classifySnapshotStatus(status) {
+  if (RUNNING_STATUS_RE.test(status)) return "running";
+  if (SETTLED_STATUS_RE.test(status)) return "settled";
+  return "unknown";
+}
+function diffSessionSnapshotsFallback(inputs) {
+  const dirtyIds = [];
+  const newlySettledIds = [];
+  const runningIds = [];
+  const items = new Array(inputs.length);
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    const status = typeof input.status === "string" ? input.status : "";
+    const sizeBytes = Number.isFinite(input.sizeBytes) && input.sizeBytes > 0 ? Math.trunc(input.sizeBytes) : 0;
+    const fingerprint = computeSessionFingerprintHex(
+      input.mtimeMs,
+      sizeBytes,
+      input.stepCount,
+      input.lastUserInputStepIndex,
+      status
+    );
+    const statusKind = classifySnapshotStatus(status);
+    const isRunning = statusKind === "running";
+    const isSettled = statusKind === "settled";
+    const prevFp = input.prevFingerprint ?? null;
+    const fpChanged = prevFp !== fingerprint;
+    let transition;
+    if (prevFp === null) {
+      transition = "newly_discovered";
+    } else if (input.prevSettled === false && isSettled) {
+      transition = "newly_settled";
+    } else if (fpChanged) {
+      transition = "modified";
+    } else {
+      transition = "unchanged";
+    }
+    const needsPoll = isRunning || fpChanged;
+    const preferSqlite = sizeBytes > 0 && !isRunning;
+    if (isRunning) runningIds.push(input.cascadeId);
+    if (transition === "newly_settled") newlySettledIds.push(input.cascadeId);
+    if (needsPoll || transition === "newly_settled") dirtyIds.push(input.cascadeId);
+    items[i] = {
+      cascadeId: input.cascadeId,
+      fingerprint,
+      statusKind,
+      transition,
+      needsPoll,
+      preferSqlite
+    };
+  }
+  return { dirtyIds, newlySettledIds, runningIds, items };
+}
+function diffSessionSnapshotsWithFallback(inputs) {
+  return diffSessionSnapshots(inputs) ?? diffSessionSnapshotsFallback(inputs);
+}
+function parseSummaryMtimeMs(modifiedAt) {
+  if (typeof modifiedAt !== "string" || !modifiedAt) return 0;
+  const ms = Date.parse(modifiedAt);
+  return Number.isFinite(ms) ? Math.trunc(ms) : 0;
+}
+
 // src/telemetry/ledger/backfill-sync.ts
-import { conversationId } from "./local-conversations.mjs";
+import {
+  conversationId,
+  resolveLocalConversationDbPath
+} from "./local-conversations.mjs";
 function buildSyncCandidates(params) {
   const { scope, listed, local, ownership, ownFiles, otherFiles, resolveFile } = params;
   const isForeign = (id) => {
@@ -1156,7 +1548,7 @@ function buildSyncCandidates(params) {
   return candidates;
 }
 async function syncOneCandidate(params) {
-  const { candidate: c, scope, forced, store, ledger, current } = params;
+  const { candidate: c, scope, forced, store, ledger, current, conversationsDir } = params;
   const s = c.listed;
   const summary = s ? {
     stepCount: s.stepCount,
@@ -1164,19 +1556,54 @@ async function syncOneCandidate(params) {
     status: s.status,
     lastUserInputStepIndex: s.lastUserInputStepIndex
   } : {};
-  const raw = await store.client?.trajectory(c.id, {
-    summary,
-    force: forced || !!c.signature,
-    isCurrent: current
-  });
+  const isRunning = Boolean(s?.status && /RUNNING|ACTIVE|GENERATING|WAITING|QUEUED/i.test(String(s.status)));
+  const explicitDir = conversationsDir ?? store.conversationsDir ?? store.client?.conversationsDir ?? null;
+  const dbPath = c.dbPath || (explicitDir ? resolveLocalConversationDbPath(c.id, explicitDir) : null);
+  let rows = null;
+  if (!isRunning && dbPath && isNativeAccelAvailable()) {
+    const expectedSteps = typeof s?.stepCount === "number" && Number.isSafeInteger(s.stepCount) ? s.stepCount : 0;
+    let freshEnough = true;
+    if (expectedSteps > 0) {
+      const meta = readSqliteConversationMeta(dbPath, c.id);
+      freshEnough = typeof meta?.stepCount === "number" && meta.stepCount >= expectedSteps;
+    }
+    if (freshEnough) {
+      const sqliteRows = extractSqliteUsageRecords(dbPath, c.id);
+      if (sqliteRows !== null && (sqliteRows.length > 0 || expectedSteps === 0)) {
+        rows = sqliteRows;
+      }
+    }
+  }
+  if (rows === null) {
+    try {
+      const raw = await store.client?.trajectory(c.id, {
+        summary,
+        force: forced || !!c.signature,
+        isCurrent: current
+      });
+      if (!current()) return { cancelled: true };
+      if (!raw?.trajectory || !Array.isArray(raw.trajectory.steps) || !Array.isArray(raw.trajectory.generatorMetadata)) {
+        throw Error("Incomplete historical statistics");
+      }
+      if (!s && !raw.trajectory.steps.length && !raw.trajectory.generatorMetadata.length) {
+        throw Error("History not yet readable");
+      }
+      rows = usageRecords(raw, c.id);
+    } catch (rpcError) {
+      if (!current()) return { cancelled: true };
+      if (dbPath && isNativeAccelAvailable()) {
+        const rescueRows = extractSqliteUsageRecords(dbPath, c.id);
+        if (rescueRows && rescueRows.length > 0) {
+          rows = rescueRows;
+        } else {
+          throw rpcError;
+        }
+      } else {
+        throw rpcError;
+      }
+    }
+  }
   if (!current()) return { cancelled: true };
-  if (!raw?.trajectory || !Array.isArray(raw.trajectory.steps) || !Array.isArray(raw.trajectory.generatorMetadata)) {
-    throw Error("Incomplete historical statistics");
-  }
-  if (!s && !raw.trajectory.steps.length && !raw.trajectory.generatorMetadata.length) {
-    throw Error("History not yet readable");
-  }
-  const rows = usageRecords(raw, c.id);
   const other = await ledger.inspectOtherAccounts(scope, c.id);
   const filteredRows = other.recordIds.size ? rows.filter((r) => !other.recordIds.has(r.id)) : rows;
   if (filteredRows.length || !other.recordIds.size) {
@@ -1237,7 +1664,9 @@ var DesktopUsage = class {
   store;
   ledger;
   fingerprints = /* @__PURE__ */ new Map();
+  snapshotStates = /* @__PURE__ */ new Map();
   host;
+  conversationsDir;
   owns;
   now;
   discoverLocal;
@@ -1260,10 +1689,19 @@ var DesktopUsage = class {
   disposed = false;
   continuation = null;
   pending = null;
-  constructor(store, ledger = new UsageLedger(), { host = null, discoverLocal = null, owns = () => true, now = Date.now, sliceMs = 3e3, continueDelay = 250 } = {}) {
+  constructor(store, ledger = new UsageLedger(), {
+    host = null,
+    conversationsDir = null,
+    discoverLocal = null,
+    owns = () => true,
+    now = Date.now,
+    sliceMs = 3e3,
+    continueDelay = 250
+  } = {}) {
     this.store = store;
     this.ledger = ledger;
     this.host = host;
+    this.conversationsDir = conversationsDir;
     this.owns = owns;
     this.now = now;
     this.discoverLocal = discoverLocal || (() => host ? discoverLocalConversations({ host }) : Promise.resolve({ conversations: [], errors: 0 }));
@@ -1321,6 +1759,7 @@ var DesktopUsage = class {
       this.scope = scope;
       this.scopeEpoch = epoch;
       this.fingerprints.clear();
+      this.snapshotStates.clear();
       this.fullRemaining.clear();
       this.passSeen.clear();
       this.passFailures.clear();
@@ -1356,34 +1795,75 @@ var DesktopUsage = class {
       this.passSeen.clear();
       this.passFailures.clear();
     }
+    const candidateList = [...candidates.values()];
+    const descriptors = new Array(candidateList.length);
+    for (let i = 0; i < candidateList.length; i++) {
+      const c = candidateList[i];
+      const s = c.listed;
+      const prevState = this.snapshotStates.get(c.id);
+      const sameRawModified = prevState ? prevState.rawModifiedAt === s?.modifiedAt : false;
+      descriptors[i] = {
+        cascadeId: c.id,
+        mtimeMs: parseSummaryMtimeMs(s?.modifiedAt),
+        sizeBytes: c.sizeBytes ?? 0,
+        stepCount: typeof s?.stepCount === "number" && Number.isFinite(s.stepCount) ? Math.trunc(s.stepCount) : 0,
+        lastUserInputStepIndex: typeof s?.lastUserInputStepIndex === "number" && Number.isFinite(s.lastUserInputStepIndex) ? Math.trunc(s.lastUserInputStepIndex) : -1,
+        status: String(s?.status || ""),
+        prevFingerprint: prevState && sameRawModified ? prevState.fingerprint : null,
+        prevSettled: prevState ? prevState.settled : null
+      };
+    }
+    const diffResult = diffSessionSnapshotsWithFallback(descriptors);
+    const recordDiffState = (c, diffItem, synced) => {
+      if (!diffItem) return;
+      this.snapshotStates.set(c.id, {
+        fingerprint: diffItem.fingerprint,
+        settled: diffItem.statusKind === "settled",
+        signature: c.signature,
+        rawModifiedAt: c.listed?.modifiedAt,
+        synced
+      });
+    };
     const started = this.now();
     let processed = 0;
     let more = false;
     let dirty = false;
     let cancelled = false;
     try {
-      for (const c of candidates.values()) {
+      for (let i = 0; i < candidateList.length; i++) {
         if (!current()) {
           cancelled = true;
           break;
         }
-        const key = sha256(c.id);
+        const c = candidateList[i];
+        const diffItem = diffResult.items[i];
         const s = c.listed;
+        const prevState = this.snapshotStates.get(c.id);
+        const forced = this.fullRemaining.has(c.id);
+        if (!forced && this.passSeen.has(c.id)) continue;
+        if (!forced && (s || c.signature) && diffItem && diffItem.transition === "unchanged" && !diffItem.needsPoll && prevState?.synced && prevState.signature === c.signature) {
+          continue;
+        }
+        const key = sha256(c.id);
         const mark = candidateMark(s);
         const signature = candidateSignature(c.signature, mark);
         const old = journal[key];
         const unchanged = old?.signature === signature;
-        const forced = this.fullRemaining.has(c.id);
-        if (!forced && this.passSeen.has(c.id)) continue;
         if (!forced && unchanged && old.state === "retry" && old.retryAt > this.now()) {
           this.passFailures.add(c.id);
+          recordDiffState(c, diffItem, false);
           continue;
         }
-        const cached = Boolean(s && this.fingerprints.get(c.id) === mark && !/RUNNING/.test(s.status || ""));
+        const cached = Boolean(
+          s && this.fingerprints.get(c.id) === mark && !/RUNNING|GENERATING|WAITING|QUEUED/i.test(s.status || "")
+        );
         const settled = Boolean(
           s?.modifiedAt && /IDLE|DONE|COMPLETED|CANCELLED|CANCELED|STOPPED|FAILED|ERROR/.test(String(s.status || ""))
         );
-        if (!forced && (c.signature ? unchanged && old?.state === "complete" && (!s || cached || settled) : cached)) continue;
+        if (!forced && (c.signature ? unchanged && old?.state === "complete" && (!s || cached || settled) : cached)) {
+          recordDiffState(c, diffItem, true);
+          continue;
+        }
         if (processed && this.now() - started >= this.sliceMs) {
           more = true;
           break;
@@ -1392,12 +1872,21 @@ var DesktopUsage = class {
         this.passSeen.add(c.id);
         this.fullRemaining.delete(c.id);
         try {
-          const outcome = await syncOneCandidate({ candidate: c, scope, forced, store: this.store, ledger: this.ledger, current });
+          const outcome = await syncOneCandidate({
+            candidate: c,
+            scope,
+            forced,
+            store: this.store,
+            ledger: this.ledger,
+            current,
+            conversationsDir: this.conversationsDir
+          });
           if (outcome.cancelled) {
             cancelled = true;
             break;
           }
           this.fingerprints.set(c.id, mark);
+          recordDiffState(c, diffItem, true);
           this.passFailures.delete(c.id);
           this.readFailures.delete(c.id);
           if (this.host && c.signature) {
@@ -1409,6 +1898,7 @@ var DesktopUsage = class {
             cancelled = true;
             break;
           }
+          recordDiffState(c, diffItem, false);
           this.passFailures.add(c.id);
           const failures = c.signature ? unchanged ? (old?.failures || 0) + 1 : 1 : (this.readFailures.get(c.id) || 0) + 1;
           this.readFailures.set(c.id, failures);

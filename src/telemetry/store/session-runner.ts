@@ -12,7 +12,9 @@ import type {
   SessionEntry,
   StoreTimelineStoreLike,
   StoreTranscriptsLike,
+  SummarySnapshotState,
 } from './types.ts';
+import type { SnapshotDiffOutput } from '../../platform/native-bridge.ts';
 
 export interface SessionRunnerHost extends AncestorResolutionHost {
   timelineStore: StoreTimelineStoreLike | null;
@@ -32,6 +34,11 @@ export interface QuotaRefreshHost {
   rawSummaries: AncestorResolutionHost['rawSummaries'];
   summaries: unknown[];
   summariesAt: number;
+  summaryStates?: Map<string, SummarySnapshotState>;
+  dirtySessionIds?: Set<string>;
+  newlySettledSessionIds?: Set<string>;
+  runningSessionIds?: Set<string>;
+  lastSummaryDiff?: SnapshotDiffOutput | null;
   quota: ReturnType<typeof quotaMetrics> | null;
   quotaAt: number;
   identity: string | null;
@@ -127,6 +134,8 @@ export async function executeQuotaRefresh(host: QuotaRefreshHost): Promise<void>
     host.quota = null; host.quotaAt = 0;
     host.sessions.clear(); host.ancestorPending.clear(); host.ancestorRaws.clear();
     host.summaries = []; host.rawSummaries = null; host.summariesAt = 0; host.registeredAccount = null;
+    host.summaryStates?.clear(); host.dirtySessionIds?.clear(); host.newlySettledSessionIds?.clear(); host.runningSessionIds?.clear();
+    if ('lastSummaryDiff' in host) host.lastSummaryDiff = null;
   }
   host.identity = identity;
   const accountName: string = user.userStatus?.name || email || '';
@@ -177,6 +186,18 @@ async function persistSessionHistory(
   }
 }
 
+function markSessionSummaryPolled(host: SessionRunnerHost, id: string, entry: SessionEntry): void {
+  const summaryState = host.summaryStates?.get(id);
+  if (summaryState) {
+    entry.summaryFingerprint = summaryState.fingerprint;
+    entry.summaryStatusKind = summaryState.statusKind;
+    entry.summarySettled = summaryState.settled;
+    entry.polledSummaryFingerprint = summaryState.fingerprint;
+  }
+  host.dirtySessionIds?.delete(id);
+  host.newlySettledSessionIds?.delete(id);
+}
+
 export async function runSessionPoll(
   host: SessionRunnerHost, id: string, entry: SessionEntry, force: boolean,
 ): Promise<SpeedMetrics> {
@@ -214,6 +235,7 @@ export async function runSessionPoll(
       if (!current()) throw new Error('后台已重新连接，请等待刷新');
       if (sameTranscriptStats(nextTranscript, prev.transcriptStats) && sameTaskUsage(nextTaskUsage, prev.taskUsage) && sameStringList(nextDelegated, prev.delegatedConversations)) {
         entry.updatedAt = Date.now();
+        markSessionSummaryPolled(host, id, entry);
         return prev;
       }
       const fresh: SpeedMetrics = { ...entry.baseMetrics! };
@@ -225,6 +247,7 @@ export async function runSessionPoll(
       entry.updatedAt = Date.now();
       await persistSessionHistory(host, scope, id, entry, current);
       if (!current()) throw new Error('后台已重新连接，请等待刷新');
+      markSessionSummaryPolled(host, id, entry);
       return entry.data;
     }
     if (host.onTrajectory && scope) {
@@ -252,6 +275,7 @@ export async function runSessionPoll(
     entry.baseMetrics = readerRev !== null ? baseMetrics : null;
     await persistSessionHistory(host, scope, id, entry, current);
     if (!current()) throw new Error('后台已重新连接，请等待刷新');
+    markSessionSummaryPolled(host, id, entry);
     return entry.data;
   } catch (error) {
     if (current() && entry.data && usableMetrics(entry.data)) {

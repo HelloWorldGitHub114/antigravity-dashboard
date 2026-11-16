@@ -183,3 +183,18 @@ test('safe summaries whitelist only aggregates, reject malformed counts and down
   assert.equal(safeTaskUsage({...value,state:'unavailable'}).state,'partial');
   assert.equal(safeTaskUsage(null),null);assert.equal(safeTaskUsage([]),null);assert.equal(safeTaskUsage({}),null);
 });
+
+test('commercial Vertex providers survive task record normalization and cache aggregation',()=>{
+  const vertexRows=records(
+    parent,
+    generator('v1',{apiProvider:'API_PROVIDER_GOOGLE_VERTEX',inputTokens:200,cacheReadTokens:800,cacheWriteTokens:0,outputTokens:50}),
+    generator('v2',{apiProvider:'API_PROVIDER_ANTHROPIC_VERTEX',inputTokens:100,cacheReadTokens:700,cacheWriteTokens:200,outputTokens:40}),
+  );
+  assert.equal(vertexRows[0].apiProvider,'API_PROVIDER_GOOGLE_VERTEX');
+  assert.equal(vertexRows[1].apiProvider,'API_PROVIDER_ANTHROPIC_VERTEX');
+  const agg=aggregateTaskUsage(vertexRows,[],{subagents:0,loadedSubagents:0,state:'ready'});
+  assert.equal(agg.cache.hitRate,1500/2000);
+  assert.equal(agg.cache.missingRequests,0);
+  assert.equal(agg.cache.complete,true);
+  assert.deepEqual(safeTaskUsage(agg),agg);
+});

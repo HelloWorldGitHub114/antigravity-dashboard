@@ -27,7 +27,7 @@ RUNTIME_FILES = ('assets', 'compat', 'sidecars', 'plugin.json')
 DIST_FILES = ('plugin.json', 'assets', 'sidecars', 'compat', 'cli', 'ide', 'manage.mjs', 'manage.py', 'install.ps1',
               'uninstall.ps1', 'install.sh', 'uninstall.sh', 'README.md', 'LICENSE', 'CHANGELOG.md', 'COMPATIBILITY.md', 'docs', 'package.json',
               '.gitignore', '.gitattributes', '.github', 'tests', 'tools', 'GITHUB_RELEASE.md', 'README.zh-CN.md')
-IGNORED = {'__pycache__', '.data', 'node_modules', '.git', 'dist', 'REFACTORING_ROADMAP.md', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'}
+IGNORED = {'__pycache__', '.data', 'node_modules', '.git', 'dist', 'internal', 'target', 'REFACTORING_ROADMAP.md', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'}
 
 def lifecycle_operation(function):
     @wraps(function)
@@ -75,10 +75,26 @@ def vertex_paths():
         'health': v_data / 'integration-state.json',
     }
 
+def _is_reparse_or_symlink(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    if not path.exists():
+        return False
+    return path.resolve() != (path.parent.resolve() / path.name)
+
 def own_plugin(plugin_dir=None, home_dir=None):
     plugin = PLUGIN if plugin_dir is None else plugin_dir
     home = HOME if home_dir is None else home_dir
-    if plugin.is_symlink() or (plugin.exists() and plugin.resolve().parent != (home / '.gemini' / 'config' / 'plugins').resolve()):
+    gemini_root = home / '.gemini'
+    config_root = gemini_root / 'config'
+    plugins_root = config_root / 'plugins'
+    if (
+        _is_reparse_or_symlink(gemini_root)
+        or _is_reparse_or_symlink(config_root)
+        or _is_reparse_or_symlink(plugins_root)
+        or _is_reparse_or_symlink(plugin)
+        or (plugin.exists() and plugin.resolve().parent != plugins_root.resolve())
+    ):
         raise RuntimeError('Plugin destination must be a regular directory inside the customization root.')
     if plugin.exists() and json_read(plugin / 'plugin.json').get('name') != 'antigravity-pulse':
         raise RuntimeError('Destination is not an Antigrative Dashboard installation; refusing to overwrite it.')
@@ -152,8 +168,17 @@ def _update_instance_enabled(enabled, plugin_dir, home_dir, config_file, setting
 
 def _remove_plugin_dir(plugin_dir, home_dir):
     resolved = plugin_dir.resolve()
-    expected_parent = (home_dir / '.gemini' / 'config' / 'plugins').resolve()
-    if plugin_dir.is_symlink() or resolved.parent != expected_parent or resolved.name != 'antigravity-pulse':
+    gemini_root = home_dir / '.gemini'
+    config_root = gemini_root / 'config'
+    expected_parent = config_root / 'plugins'
+    if (
+        _is_reparse_or_symlink(gemini_root)
+        or _is_reparse_or_symlink(config_root)
+        or _is_reparse_or_symlink(expected_parent)
+        or _is_reparse_or_symlink(plugin_dir)
+        or resolved.parent != expected_parent.resolve()
+        or resolved.name != 'antigravity-pulse'
+    ):
         raise RuntimeError('Plugin target is outside the expected directory; refusing to delete it.')
     shutil.rmtree(resolved)
 
@@ -220,7 +245,7 @@ def install(panel_only=False, legacy_loader=False, instance='all'):
                 continue
             if source.is_dir():
                 shutil.copytree(source, target, dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.log', '.data', 'node_modules', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'))
+                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.log', '*.pdb', '*.exp', '*.lib', '*.exe', '.data', 'node_modules', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'))
             else:
                 shutil.copy2(source, target)
         if local_accounts.is_file():
@@ -335,9 +360,10 @@ def package(output=None):
                 raise RuntimeError(f'Required release file missing: {name}')
             files = sorted(path.rglob('*')) if path.is_dir() else [path]
             for file in files:
-                if not file.is_file() or any(p in IGNORED for p in file.relative_to(SOURCE).parts):
+                rel_parts = file.relative_to(SOURCE).parts
+                if not file.is_file() or any(p in IGNORED for p in rel_parts) or rel_parts[:2] == ('cli', 'bin'):
                     continue
-                if file.suffix in {'.log', '.pyc'}:
+                if file.suffix.lower() in {'.log', '.pyc', '.node', '.dll', '.so', '.dylib', '.pdb', '.exp', '.exe', '.lib'}:
                     continue
                 bundle.write(file, Path('antigrative-dashboard') / file.relative_to(SOURCE))
     digest = hashlib.sha256(output.read_bytes()).hexdigest()

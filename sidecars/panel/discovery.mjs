@@ -3,8 +3,116 @@
 // src/telemetry/discovery.ts
 import { execFile } from "node:child_process";
 import { readFile, readdir, readlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 import { promisify } from "node:util";
+
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join(dir, platformAddonFilename()), join(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function tryDiscoverWin32ProcessesJson() {
+  const addon = getAddon();
+  const fn = addon?.discoverWin32ProcessesJson;
+  if (typeof fn !== "function") return null;
+  try {
+    const out = fn();
+    return typeof out === "string" && out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+// src/telemetry/discovery.ts
 var exec = promisify(execFile);
 var LANGUAGE_SERVER_RE = /(?:^|[\/\\])language_server(?:_(?:linux|macos|darwin)(?:_(?:x64|arm64))?)?(?:\.exe)?(?:\s|$)/;
 async function mapLimit(items, limit, fn) {
@@ -71,13 +179,13 @@ function parseNetstat(text) {
   return new Map([...ports].map(([pid, values]) => [pid, [...values]]));
 }
 async function linuxPorts(pid, { proc = "/proc" } = {}) {
-  const pidDir = join(proc, String(pid));
-  const fdDir = join(pidDir, "fd");
+  const pidDir = join2(proc, String(pid));
+  const fdDir = join2(pidDir, "fd");
   const [fds, netTables] = await Promise.all([
     readdir(fdDir),
     Promise.all(["tcp", "tcp6"].map(async (name) => {
       try {
-        return parseProcNet(await readFile(join(pidDir, "net", name), "utf8"));
+        return parseProcNet(await readFile(join2(pidDir, "net", name), "utf8"));
       } catch {
         return [];
       }
@@ -85,7 +193,7 @@ async function linuxPorts(pid, { proc = "/proc" } = {}) {
   ]);
   const links = await mapLimit(fds, 32, async (fd) => {
     try {
-      return await readlink(join(fdDir, fd));
+      return await readlink(join2(fdDir, fd));
     } catch {
       return "";
     }
@@ -103,7 +211,89 @@ async function linuxPorts(pid, { proc = "/proc" } = {}) {
   }
   return [...ports];
 }
-async function discoverWin32Processes(run) {
+function parseNativeWin32Processes(rawJson) {
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson.replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
+  }
+  const rawList = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && Array.isArray(parsed.processes) ? parsed.processes : null;
+  if (!rawList) return null;
+  const out = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== "object") return null;
+    const row = item;
+    const pid = row.pid;
+    const cmd = row.commandLine;
+    if (typeof pid !== "number" || typeof cmd !== "string") {
+      return null;
+    }
+    if (!Number.isSafeInteger(pid) || pid <= 0 || !/(?:^|\s)--standalone(?:\s|=|$)/.test(cmd)) {
+      continue;
+    }
+    const ports = [];
+    if (Array.isArray(row.listenPorts)) {
+      for (const p of row.listenPorts) {
+        if (typeof p === "number" && Number.isInteger(p) && p >= 1 && p <= 65535 && !ports.includes(p)) {
+          ports.push(p);
+        }
+      }
+    }
+    out.push({ ProcessId: pid, CommandLine: cmd, Ports: ports });
+  }
+  return out;
+}
+async function resolveMissingWin32Ports(run, rows) {
+  const missingPids = rows.filter((row) => !row.Ports.length).map((row) => row.ProcessId);
+  if (!missingPids.length) return rows;
+  const { stdout: sockets } = await run("netstat.exe", ["-ano", "-p", "tcp"], {
+    windowsHide: true,
+    timeout: 4e3,
+    maxBuffer: 4194304
+  }).catch(() => ({ stdout: "" }));
+  const ports = parseNetstat(sockets);
+  const stillMissing = missingPids.filter((pid) => !ports.get(pid)?.length);
+  if (stillMissing.length) {
+    const fallbackScript = `$pulsePids = @(${stillMissing.join(",")}); Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $pulsePids -contains $_.OwningProcess } | Select-Object OwningProcess,LocalPort | ConvertTo-Json -Compress`;
+    try {
+      const { stdout: psOut } = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", fallbackScript], {
+        windowsHide: true,
+        timeout: 8e3,
+        maxBuffer: 1048576
+      });
+      const value = psOut.trim() ? JSON.parse(psOut.replace(/^\uFEFF/, "")) : [];
+      const items = Array.isArray(value) ? value : [value];
+      for (const item of items) {
+        const pid = Number(item?.OwningProcess);
+        const port = Number(item?.LocalPort);
+        if (!stillMissing.includes(pid) || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+        let list = ports.get(pid);
+        if (!list) {
+          list = [];
+          ports.set(pid, list);
+        }
+        if (!list.includes(port)) list.push(port);
+      }
+    } catch {
+    }
+  }
+  return rows.map((row) => row.Ports.length ? row : { ...row, Ports: ports.get(row.ProcessId) || [] });
+}
+async function discoverWin32Processes(run, nativeDiscover) {
+  if (process.env.PULSE_DISABLE_NATIVE_ACCEL !== "1" && (nativeDiscover || run === exec)) {
+    const tryNative = nativeDiscover ?? tryDiscoverWin32ProcessesJson;
+    if (typeof tryNative === "function") {
+      try {
+        const rawJson = tryNative();
+        if (typeof rawJson === "string" && rawJson.length > 0) {
+          const nativeRows = parseNativeWin32Processes(rawJson);
+          if (nativeRows !== null) return nativeRows;
+        }
+      } catch {
+      }
+    }
+  }
   const script = `Get-CimInstance Win32_Process -Filter "Name='language_server.exe'" | Where-Object { $_.CommandLine -match '(?:^|\\s)--standalone(?:\\s|=|$)' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`;
   const { stdout } = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
     windowsHide: true,
@@ -118,49 +308,19 @@ async function discoverWin32Processes(run) {
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0 || typeof cmd !== "string" || !/(?:^|\s)--standalone(?:\s|=|$)/.test(cmd)) {
       return [];
     }
-    return [{ ProcessId: pid, CommandLine: cmd }];
+    return [{ ProcessId: pid, CommandLine: cmd, Ports: [] }];
   });
   if (!rows.length) return [];
-  const { stdout: sockets } = await run("netstat.exe", ["-ano", "-p", "tcp"], {
-    windowsHide: true,
-    timeout: 4e3,
-    maxBuffer: 4194304
-  }).catch(() => ({ stdout: "" }));
-  const ports = parseNetstat(sockets);
-  const missing = rows.filter((row) => !ports.get(row.ProcessId)?.length).map((row) => row.ProcessId);
-  if (missing.length) {
-    const fallbackScript = `$pulsePids = @(${missing.join(",")}); Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $pulsePids -contains $_.OwningProcess } | Select-Object OwningProcess,LocalPort | ConvertTo-Json -Compress`;
-    try {
-      const { stdout: psOut } = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", fallbackScript], {
-        windowsHide: true,
-        timeout: 8e3,
-        maxBuffer: 1048576
-      });
-      const value = psOut.trim() ? JSON.parse(psOut.replace(/^\uFEFF/, "")) : [];
-      const items = Array.isArray(value) ? value : [value];
-      for (const item of items) {
-        const pid = Number(item?.OwningProcess);
-        const port = Number(item?.LocalPort);
-        if (!missing.includes(pid) || !Number.isInteger(port) || port < 1 || port > 65535) continue;
-        let list = ports.get(pid);
-        if (!list) {
-          list = [];
-          ports.set(pid, list);
-        }
-        if (!list.includes(port)) list.push(port);
-      }
-    } catch {
-    }
-  }
-  return rows.map((row) => ({ ...row, Ports: ports.get(row.ProcessId) || [] }));
+  return resolveMissingWin32Ports(run, rows);
 }
 async function discoverProcesses({
   platform = process.platform,
   run = exec,
   uid = process.getuid?.(),
-  proc = "/proc"
+  proc = "/proc",
+  nativeDiscover
 } = {}) {
-  if (platform === "win32") return discoverWin32Processes(run);
+  if (platform === "win32") return discoverWin32Processes(run, nativeDiscover);
   if (platform === "darwin") {
     const { stdout } = await run("/bin/ps", ["-ww", "-axo", "pid=,uid=,args="], {
       timeout: 8e3,
@@ -185,9 +345,9 @@ async function discoverProcesses({
     const pids = (await readdir(proc)).filter((p) => /^\d+$/.test(p));
     const found = await mapLimit(pids, 16, async (pid) => {
       try {
-        const status = await readFile(join(proc, pid, "status"), "utf8");
+        const status = await readFile(join2(proc, pid, "status"), "utf8");
         if (Number(status.match(/^Uid:\s+(\d+)/m)?.[1]) !== uid) return null;
-        const command = (await readFile(join(proc, pid, "cmdline"), "utf8")).split("\0").filter(Boolean).join(" ");
+        const command = (await readFile(join2(proc, pid, "cmdline"), "utf8")).split("\0").filter(Boolean).join(" ");
         if (!LANGUAGE_SERVER_RE.test(command) || !/--standalone\b/.test(command)) return null;
         return { ProcessId: Number(pid), CommandLine: command, Ports: await linuxPorts(pid, { proc }) };
       } catch {

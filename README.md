@@ -7,7 +7,7 @@
 Token throughput, cache hits and context usage in the model selector row. Hover over context for five-hour and weekly quotas too.<br>
 Keep the summary visible. Hover for the details.
 
-[![Version 0.11.0](https://img.shields.io/badge/version-0.11.0-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.0](https://img.shields.io/badge/version-0.12.0-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -19,7 +19,12 @@ Keep the summary visible. Hover for the details.
 > [!NOTE]
 > **Independent Continuation Fork:** This repository is an independent continuation fork based on `v0.8.7` of the MIT-licensed open-source project `antigrative-dashboard` (`Copyright (c) 2026 AG Pulse contributors`; the original upstream repository has been deleted by its author). Releases from **v0.8.8 onward** are independently developed and maintained by this repository (`ShZbz/antigravity-dashboard`), with no affiliation with or endorsement from the original authors.
 
-**v0.11.0:** Complete the zero-dependency TypeScript + `esbuild` architecture (`src/`), unify the single-source-of-truth packaging/release manifest, migrate lifecycle/CLI/VSIX tools to Node.js (`manage.mjs`, `ide/package.mjs`) while retaining Python compatibility, add incremental `UsageLedger` file indexing, continuous async `TranscriptReader` progression, streaming `64 KiB` remote snapshot projection, `WeakRef`-bounded trajectory caches, and parallelized Playwright UI regression suites. [Release notes](CHANGELOG.md).
+> [!IMPORTANT]
+> **Rust Native Engine in `v0.12.0` (`pulse-accel`) & Fallback Guidance:** `v0.12.0` introduces an optional Rust N-API native engine (`pulse-accel`) that dramatically speeds up UI responsiveness, SQLite conversation backfills, ledger queries, transcript scanning, and SVG rendering while substantially reducing V8 heap memory usage. As this is a major new native engine, if you run into any unexpected glitches or regressions, please [open an issue](https://github.com/ShZbz/antigravity-dashboard/issues) promptly with reproduction details. You can immediately fall back to the pure TypeScript runtime by setting `PULSE_DISABLE_NATIVE_ACCEL=1` in the environment, or roll back to release **`v0.11.0`** if the issue prevents normal use.
+
+**v0.12.0:** Introduce the Rust N-API acceleration engine (`native/pulse-accel`) and zero-RPC SQLite direct-read bypass (`pulse-accel.node` + standalone `ag-pulse-statusline`), cutting startup/backfill latency and memory footprint with transparent JS/RPC fallback; add binary ledger indexing (`ledger-compact-v1.bin`), shared SQLite usage caching (`shared-usage-cache-v1.db`), lazy `.antigravity-vertex` polling, commercial/Vertex cache-hit fixes, and cross-platform CI/macOS symlink hardening. [Release notes](CHANGELOG.md).
+
+**v0.11.0:** Complete the zero-dependency TypeScript + `esbuild` architecture (`src/`), unify the single-source-of-truth packaging/release manifest, migrate lifecycle/CLI/VSIX tools to Node.js (`manage.mjs`, `ide/package.mjs`) while retaining Python compatibility, add incremental `UsageLedger` file indexing, continuous async `TranscriptReader` progression, streaming `64 KiB` remote snapshot projection, `WeakRef`-bounded trajectory caches, and parallelized Playwright UI regression suites.
 
 **v0.9.0 – v0.10.2:** Add Cloud Remote Agent support with tiered tail loading and incremental slicing, hybrid Orchestrator identity and multi-model SVG donut rings, opt-in structural call timeline trees (`modelTimelineEnabled`), multi-account isolation & viewing (`All Accounts (Aggregated)`, `By Model` / `By User`, `Simple` / `Detailed` variant grouping, manual remote-project entries), 24-hour trend line charts, custom date ranges, single-bar drilldown, and hierarchical subagent/Swarm status & context rings.
 
@@ -81,7 +86,7 @@ Keep the summary visible. Hover for the details.
 ## Antigravity IDE
 
 **v0.7.0+** includes a separate VSIX for Google's standalone Antigravity IDE. Download
-`antigrative-dashboard-ide-0.11.0.vsix` from the release and choose **Install from VSIX…**
+`antigrative-dashboard-ide-0.12.0.vsix` from the release and choose **Install from VSIX…**
 in the IDE's Extensions view. No desktop App installation is required.
 
 Fully quit the IDE, then start it with

@@ -5,7 +5,146 @@ import { trajectoryMetrics as trajectoryMetrics2 } from "./metrics.mjs";
 
 // src/telemetry/delegation/delegated-collector.ts
 import { setImmediate as yieldLoop } from "node:timers/promises";
+
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join(dir, platformAddonFilename()), join(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function isNativeAccelAvailable() {
+  return getAddon() !== null;
+}
+function readSqliteTrajectory(dbPath, conversationId, options) {
+  if (!dbPath || !conversationId) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  let parsed;
+  try {
+    const json = addon.readSqliteTrajectoryJson(
+      dbPath,
+      conversationId,
+      options?.modelTimelineEnabled === true,
+      options?.maxOutputBytes
+    );
+    if (typeof json !== "string" || !json) return null;
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.__budgetExceeded === true) {
+    throw new Error("\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u5185\u5B58\u9884\u7B97");
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+}
+function readSqliteConversationMeta(dbPath, conversationId) {
+  if (!dbPath || !conversationId) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  try {
+    const json = addon.readSqliteConversationMetaJson(dbPath, conversationId);
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// src/telemetry/delegation/delegated-collector.ts
 import { trajectoryMetrics } from "./metrics.mjs";
+import {
+  defaultConversationsDir,
+  resolveLocalConversationDbPath
+} from "./local-conversations.mjs";
 import { delegatedHints, delegatedIds } from "./delegation.mjs";
 
 // src/telemetry/delegation/hints.ts
@@ -169,6 +308,82 @@ function buildTimelineChildren(task, summaries) {
     };
   }).filter((item) => item !== null);
 }
+function resolveChildDbPath(client, id) {
+  const c = client;
+  if (typeof c?.reader?.resolveDbPath === "function") {
+    return c.reader.resolveDbPath(id);
+  }
+  const explicitDir = c?.conversationsDir ?? c?.reader?.conversationsDir ?? null;
+  if (explicitDir) {
+    return resolveLocalConversationDbPath(id, explicitDir);
+  }
+  if (!c || Object.hasOwn(c, "call") || typeof c.paths !== "function") {
+    return null;
+  }
+  try {
+    const p = c.paths();
+    if (typeof p?.conversationsDir === "string" && p.conversationsDir) {
+      return resolveLocalConversationDbPath(id, p.conversationsDir);
+    }
+    if (typeof p?.home === "string" && p.home) {
+      const host = typeof c.profile === "string" && c.profile.length > 0 ? "ide" : "app";
+      return resolveLocalConversationDbPath(id, defaultConversationsDir(host, p.home));
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+async function fetchChildTrajectory(ctx, id, summary, force, current) {
+  const dbPath = resolveChildDbPath(ctx.client, id);
+  const status = typeof summary.status === "string" ? summary.status : "";
+  const isRunning = /RUNNING|ACTIVE|GENERATING/i.test(status);
+  const hasReader = typeof ctx.client.reader?.read === "function";
+  const trySqlite = (allowPartial = false) => {
+    if (!dbPath || !isNativeAccelAvailable()) return null;
+    const sqliteRaw = readSqliteTrajectory(dbPath, id, {
+      modelTimelineEnabled: ctx.modelTimelineEnabled
+    });
+    const traj = sqliteRaw?.trajectory && typeof sqliteRaw.trajectory === "object" ? sqliteRaw.trajectory : null;
+    if (!sqliteRaw || !traj || !Array.isArray(traj.steps) || !Array.isArray(traj.generatorMetadata)) {
+      return null;
+    }
+    const count = typeof summary.stepCount === "number" ? summary.stepCount : null;
+    if (!allowPartial && count !== null && traj.steps.length < count) {
+      return null;
+    }
+    if (!traj.steps.length && !traj.generatorMetadata.length && (count === null || count > 0)) {
+      return null;
+    }
+    const meta = readSqliteConversationMeta(dbPath, id);
+    return {
+      ...sqliteRaw,
+      status: status || sqliteRaw.status || "CASCADE_RUN_STATUS_IDLE",
+      numTotalSteps: traj.steps.length,
+      numTotalGeneratorMetadata: traj.generatorMetadata.length,
+      ...meta && !sqliteRaw.trajectoryMetadata ? { trajectoryMetadata: meta } : {}
+    };
+  };
+  if (!isRunning && !hasReader && dbPath && isNativeAccelAvailable()) {
+    const fast = trySqlite(false);
+    if (fast) return fast;
+  }
+  try {
+    const raw = await ctx.client.trajectory(id, { summary, force, isCurrent: current });
+    if (raw && typeof raw === "object" && !raw.trajectoryMetadata && !summary.trajectoryMetadata && dbPath && isNativeAccelAvailable()) {
+      const meta = readSqliteConversationMeta(dbPath, id);
+      if (meta) {
+        return { ...raw, trajectoryMetadata: meta };
+      }
+    }
+    return raw;
+  } catch (err) {
+    if (!current()) throw err;
+    const fallback = trySqlite(true);
+    if (fallback) return fallback;
+    throw err;
+  }
+}
 async function collectTaskChildren(ctx, task, force, current) {
   const deadline = ctx.now() + 3e4;
   let failed = false;
@@ -192,7 +407,7 @@ async function collectTaskChildren(ctx, task, force, current) {
       try {
         const summaries = ctx.client.reader?.summaries || {};
         const summary = findSummaryEntry(summaries, id);
-        const raw = await ctx.client.trajectory(id, { summary, force, isCurrent: current });
+        const raw = await fetchChildTrajectory(ctx, id, summary, force, current);
         if (!current()) return;
         const rawObj = raw && typeof raw === "object" ? raw : null;
         const traj = rawObj?.trajectory && typeof rawObj.trajectory === "object" ? rawObj.trajectory : null;

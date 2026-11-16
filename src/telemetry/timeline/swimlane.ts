@@ -1,4 +1,5 @@
 import type { ModelTimelineSnapshot, TimelineLane, TimelineRole, TimelineSwimlaneItem } from '../../contracts/timeline.ts';
+import * as nativeBridge from '../../platform/native-bridge.ts';
 import { formatModelName, isOrchestratorModel } from '../context.ts';
 import { normalizeConversationId } from '../delegation/delegation.ts';
 import { extractPlanModel } from '../metrics/index.ts';
@@ -10,6 +11,11 @@ import {
   type TimelineRawInput, type TimelineStepLike, type TimelineSubagentInput,
 } from './categorizer.ts';
 import { compactTimeline, MAX_TIMELINE_BYTES, MAX_TIMELINE_NODES } from './compactor.ts';
+import {
+  coalesceSwimlanesFallback,
+  type CoalesceSwimlanesInput,
+  type CoalesceSwimlanesOutput,
+} from './swimlane-coalesce.ts';
 
 interface PendingHandoff {
   stepIndex: number;
@@ -26,6 +32,36 @@ interface TimelineBuildState {
 }
 
 const VALID_LANES = new Set<TimelineLane>(['plan', 'worker', 'tool', 'subagent', 'handoff']);
+const SWIMLANE_COALESCE_THRESHOLD = 120;
+
+interface SwimlaneNativeBridge {
+  tryCoalesceSwimlanesJson?: (inputJson: string) => string | null;
+}
+
+/**
+ * Coalesces swimlane segments via the Rust `pulse-accel` N-API bridge when available,
+ * transparently falling back to `coalesceSwimlanesFallback` on error, null, or when
+ * `PULSE_DISABLE_NATIVE_ACCEL=1`.
+ */
+export function coalesceSwimlanes(input: CoalesceSwimlanesInput): CoalesceSwimlanesOutput {
+  if (process.env.PULSE_DISABLE_NATIVE_ACCEL !== '1') {
+    const tryCoalesceSwimlanesJson = (nativeBridge as SwimlaneNativeBridge).tryCoalesceSwimlanesJson;
+    if (typeof tryCoalesceSwimlanesJson === 'function') {
+      try {
+        const raw = tryCoalesceSwimlanesJson(JSON.stringify(input));
+        if (typeof raw === 'string' && raw.length > 0) {
+          const parsed = JSON.parse(raw) as Partial<CoalesceSwimlanesOutput> | null;
+          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.lanes)) {
+            return parsed as CoalesceSwimlanesOutput;
+          }
+        }
+      } catch {
+        // Fall back to pure-TS coalescer on native error.
+      }
+    }
+  }
+  return coalesceSwimlanesFallback(input);
+}
 
 function buildSwimlanes(
   turns: InternalTimelineNode[],
@@ -101,8 +137,17 @@ function buildSwimlanes(
     pushLane('subagent', formatModelName(item.activeModel || item.model), cleanStr(item.role, 64) || 'subagent', sMs, eMs, 0, item.steps || 0, item.requests || 0);
   }
 
+  const finalSwimlanes: TimelineSwimlaneItem[] =
+    swimlanes.length > SWIMLANE_COALESCE_THRESHOLD
+      ? coalesceSwimlanes({ lanes: swimlanes, totalStartMs: startedAtMs, spanMs }).lanes.map(
+          ({ kind, model, label, startMs, endMs, startRatio, widthRatio, stepStart, stepEnd, calls }) => ({
+            kind, model, label, startMs, endMs, startRatio, widthRatio, stepStart, stepEnd, calls,
+          }),
+        )
+      : swimlanes;
+
   return {
-    swimlanes,
+    swimlanes: finalSwimlanes,
     startedAt: allTimes.length ? iso(startedAtMs) : null,
     endedAt: allTimes.length ? iso(endedAtMs) : null,
     durationMs: allTimes.length ? Math.max(0, Math.round(endedAtMs - startedAtMs)) : 0,

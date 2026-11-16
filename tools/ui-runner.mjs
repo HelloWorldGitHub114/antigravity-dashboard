@@ -35,7 +35,7 @@ export function createScopedBrowser(sharedBrowser) {
       const rawClose = ctx.close.bind(ctx);
       ctx.close = async (...args) => {
         try {
-          return await rawClose(...args);
+          await rawClose(...args);
         } finally {
           contexts.delete(ctx);
         }
@@ -166,42 +166,35 @@ export async function runUiSuite({
     return { passed: 0, total: 0 };
   }
 
-  let ownedBrowser = null;
   let ownedBrowserPromise = null;
-  const sharedBrowser = providedBrowser ?? null;
-
-  const ensureBrowser = () => {
-    if (sharedBrowser) return Promise.resolve(sharedBrowser);
+  const ensureBrowser = async () => {
+    if (providedBrowser) return providedBrowser;
     if (!ownedBrowserPromise) {
       ownedBrowserPromise = (async () => {
-        if (launchBrowser) {
-          ownedBrowser = await launchBrowser();
-        } else {
-          const chromium = await loadPlaywrightChromium();
-          ownedBrowser = await chromium.launch(getBrowserLaunchOptions());
+        if (typeof launchBrowser === 'function') {
+          return await launchBrowser();
         }
-        return ownedBrowser;
-      })().catch((err) => {
-        ownedBrowserPromise = null;
-        throw err;
-      });
+        const chromium = await loadPlaywrightChromium();
+        return await chromium.launch(getBrowserLaunchOptions());
+      })();
     }
     return ownedBrowserPromise;
   };
 
   const runTask = async (task) => {
-    const label = task.args?.length > 0 ? `${task.file} ${task.args.join(' ')}` : task.file;
+    const args = task.args ?? [];
+    const label = args.length > 0 ? `${task.file} ${args.join(' ')}` : task.file;
     const started = performance.now();
-    const browser = await ensureBrowser();
-    if (typeof task.run === 'function') {
-      await withSharedBrowser(browser, () => task.run(task.args ?? []));
-    } else {
+    let runCheckFn = task.run;
+    if (typeof runCheckFn !== 'function') {
       const mod = await import(pathToFileURL(join(ROOT_TOOLS, task.file)).href);
       if (typeof mod.runCheck !== 'function') {
         throw new Error(`${task.file} does not export runCheck(args)`);
       }
-      await withSharedBrowser(browser, () => mod.runCheck(task.args));
+      runCheckFn = mod.runCheck;
     }
+    const browser = await ensureBrowser();
+    await withSharedBrowser(browser, () => runCheckFn(args));
     const ms = Math.round(performance.now() - started);
     console.log(`[ui-runner] PASS ${label} (${ms}ms)`);
   };
@@ -227,15 +220,18 @@ export async function runUiSuite({
       }
     }
   } finally {
-    const browserToClose = ownedBrowserPromise ? await ownedBrowserPromise.catch(() => null) : ownedBrowser;
-    if (browserToClose) {
-      await browserToClose.close().catch(() => {});
+    if (ownedBrowserPromise) {
+      const ownedBrowser = await ownedBrowserPromise.catch(() => null);
+      if (ownedBrowser) {
+        await ownedBrowser.close().catch(() => {});
+      }
     }
   }
 
   if (failures.length > 0) {
     for (const { item, error } of failures) {
-      const label = item.args?.length > 0 ? `${item.file} ${item.args.join(' ')}` : item.file;
+      const args = item.args ?? [];
+      const label = args.length > 0 ? `${item.file} ${args.join(' ')}` : item.file;
       console.error(`[ui-runner] FAIL ${label}:`, error instanceof Error ? error.stack || error.message : error);
     }
     throw new Error(`${failures.length} of ${total} UI checks failed.`);

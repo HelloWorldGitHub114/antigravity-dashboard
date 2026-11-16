@@ -2,10 +2,25 @@
 
 // src/telemetry/reader/local-conversations.ts
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { lstat, opendir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 var conversationId = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+function defaultConversationsDir(host = "app", home = homedir()) {
+  return join(home, ".gemini", host === "ide" ? "antigravity-ide" : "antigravity", "conversations");
+}
+function resolveLocalConversationDbPath(id, conversationsDir = defaultConversationsDir()) {
+  if (typeof id !== "string" || !conversationId.test(id)) return null;
+  if (!conversationsDir || typeof conversationsDir !== "string") return null;
+  const candidate = join(conversationsDir, `${id.toLowerCase()}.db`);
+  if (existsSync(candidate)) return candidate;
+  if (id !== id.toLowerCase()) {
+    const exactCandidate = join(conversationsDir, `${id}.db`);
+    if (existsSync(exactCandidate)) return exactCandidate;
+  }
+  return null;
+}
 var digest = (value) => createHash("sha256").update(value).digest("hex");
 function isMissingCode(error) {
   const code = error?.code;
@@ -93,7 +108,10 @@ async function discoverLocalConversations({
       };
       try {
         const signature = await readSignature();
-        if (signature) slots[index] = { id, signature, readSignature };
+        if (signature) {
+          const dbPart = parts.find((p) => !p.directory && p.file.toLowerCase().endsWith(".db"));
+          slots[index] = dbPart ? { id, signature, readSignature, dbPath: dbPart.file } : { id, signature, readSignature };
+        }
       } catch {
         errors++;
       }
@@ -111,5 +129,7 @@ async function discoverLocalConversations({
 }
 export {
   conversationId,
-  discoverLocalConversations
+  defaultConversationsDir,
+  discoverLocalConversations,
+  resolveLocalConversationDbPath
 };

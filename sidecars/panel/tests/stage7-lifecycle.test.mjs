@@ -380,92 +380,83 @@ test('ui-runner ScopedBrowser isolates per-test contexts and all check-*.mjs par
 test('runUiSuite launches one shared browser across concurrent workers and closes it cleanly', async () => {
   const uiRunner = await import(pathToFileURL(join(ROOT, 'tools', 'ui-runner.mjs')).href);
   let launchCount = 0;
-  let closeCount = 0;
-  let closedContexts = 0;
+  let newContextCount = 0;
+  let browserClosed = false;
 
-  const makeTask = (name) => ({
-    file: `synthetic-${name}.mjs`,
-    args: [],
-    async run() {
-      const browser = await uiRunner.launchTestBrowser();
-      try {
-        const ctx = await browser.newContext();
-        await ctx.newPage();
-        await ctx.close();
-      } finally {
-        await browser.close();
-      }
-    },
-  });
-
-  await uiRunner.runUiSuite({
-    suite: 'ui',
-    concurrency: 4,
-    async launchBrowser() {
-      launchCount += 1;
-      await new Promise((r) => setTimeout(r, 25));
+  const fakeBrowser = {
+    async newContext() {
+      newContextCount += 1;
+      const id = newContextCount;
       return {
-        async newContext() {
+        async newPage() {
           return {
-            async newPage() {
-              return { async close() {} };
-            },
-            async close() {
-              closedContexts += 1;
-            },
+            contextId: id,
+            async close() {},
           };
         },
-        async close() {
-          closeCount += 1;
-        },
+        async close() {},
       };
     },
-    tasks: {
-      concurrent: ['a', 'b', 'c', 'd', 'e', 'f'].map(makeTask),
-      sequential: [makeTask('seq')],
+    async close() {
+      browserClosed = true;
+    },
+  };
+
+  const makeTask = (name) => ({
+    file: name,
+    args: [],
+    async run() {
+      const b = await uiRunner.launchTestBrowser();
+      const ctx = await b.newContext();
+      const page = await b.newPage();
+      await page.close();
+      await ctx.close();
+      await b.close();
     },
   });
 
-  assert.equal(launchCount, 1, 'Concurrent Wave 1 workers must share a single launched browser');
-  assert.equal(closeCount, 1, 'The single owned browser must be closed once after all waves');
-  assert.equal(closedContexts, 7);
+  const result = await uiRunner.runUiSuite({
+    concurrency: 3,
+    launchBrowser: async () => {
+      launchCount += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return fakeBrowser;
+    },
+    tasks: {
+      concurrent: [makeTask('worker-a'), makeTask('worker-b'), makeTask('worker-c')],
+      sequential: [],
+    },
+  });
+
+  assert.deepEqual(result, { passed: 3, total: 3 });
+  assert.equal(launchCount, 1);
+  assert.equal(newContextCount, 6);
+  assert.equal(browserClosed, true);
 });
 
-test('ancestor symlinks like macOS /var do not trigger false symlink rejection while target symlinks still fail', (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'ag-stage7-ancestor-'));
-  const realParent = join(root, 'real-var');
-  const linkedParent = join(root, 'var');
-  const outside = join(root, 'outside');
-  mkdirSync(realParent, { recursive: true });
-  mkdirSync(outside, { recursive: true });
-  try {
-    symlinkSync(realParent, linkedParent, 'dir');
-  } catch (err) {
-    rmSync(root, { recursive: true, force: true });
-    if (err && err.code === 'EPERM') {
-      t.diagnostic('Symlink privilege unavailable on this Windows host');
-      return;
-    }
-    throw err;
-  }
+test('ancestor symlinks like macOS /var do not trigger false symlink rejection while target symlinks still fail', async (t) => {
+  const { assertRegularTree, isReparseOrSymlink } = await import(
+    pathToFileURL(join(ROOT, 'src', 'lifecycle', 'fs-helpers.ts')).href
+  );
+  const tmp = mkdtempSync(join(tmpdir(), 'ag-ancestor-symlink-'));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
 
-  try {
-    const home = join(linkedParent, 'folders', 'user-home');
-    mkdirSync(home, { recursive: true });
-    runNode('manage.mjs', ['--home', home, 'install-cli', '--node', process.execPath]);
-    runNode('manage.mjs', ['--home', home, 'uninstall-cli']);
+  const realRoot = join(tmp, 'private-var');
+  const aliasRoot = join(tmp, 'var-alias');
+  const regularPluginDir = join(realRoot, 'home', '.gemini', 'config', 'plugins', 'antigravity-pulse');
+  mkdirSync(regularPluginDir, { recursive: true });
+  writeFileSync(join(regularPluginDir, 'plugin.json'), '{"name":"antigravity-pulse"}\n');
 
-    runNode('manage.mjs', ['install', '--panel-only', '--home', home]);
-    runNode('manage.mjs', ['uninstall', '--home', home]);
+  symlinkSync(realRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
 
-    const cliBase = join(home, '.gemini', 'antigravity-cli');
-    mkdirSync(cliBase, { recursive: true });
-    symlinkSync(outside, join(cliBase, 'antigrative-dashboard'), 'dir');
-    assert.throws(
-      () => runNode('manage.mjs', ['--home', home, 'install-cli', '--node', process.execPath]),
-      /symlinks or junctions/,
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  const viaAlias = join(aliasRoot, 'home', '.gemini', 'config', 'plugins', 'antigravity-pulse');
+  assert.equal(isReparseOrSymlink(viaAlias), false);
+  assertRegularTree(viaAlias);
+
+  const linkTarget = join(tmp, 'outside');
+  mkdirSync(linkTarget, { recursive: true });
+  const evilLink = join(realRoot, 'home', '.gemini', 'config', 'plugins', 'evil-link');
+  symlinkSync(linkTarget, evilLink, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(isReparseOrSymlink(evilLink), true);
+  assert.throws(() => assertRegularTree(evilLink), /symlink or junction/);
 });

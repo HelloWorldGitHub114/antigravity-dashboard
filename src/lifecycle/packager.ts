@@ -120,10 +120,12 @@ function verifyChecksumFile(archivePath: string, checksumPath: string, label: st
   }
 }
 
-function shouldIgnorePackageEntry(name: string): boolean {
+function shouldIgnorePackageEntry(name: string, relPosix?: string): boolean {
+  if (relPosix === 'cli/bin' || relPosix?.startsWith('cli/bin/')) return true;
   if (PACKAGER_IGNORED_NAMES.has(name)) return true;
+  const lower = name.toLowerCase();
   for (const suffix of PACKAGER_IGNORED_SUFFIXES) {
-    if (name.endsWith(suffix)) return true;
+    if (lower.endsWith(suffix)) return true;
   }
   return false;
 }
@@ -135,9 +137,10 @@ function collectPackageEntries(source: string, zipPrefix: string, entries: ZipIn
     return;
   }
   for (const entry of readdirSync(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (shouldIgnorePackageEntry(entry.name)) continue;
     const childPath = join(source, entry.name);
     const childPrefix = zipPrefix ? `${zipPrefix}/${entry.name}` : entry.name;
+    const relFromRoot = childPrefix.includes('/') ? childPrefix.slice(childPrefix.indexOf('/') + 1) : childPrefix;
+    if (shouldIgnorePackageEntry(entry.name, relFromRoot)) continue;
     if (entry.isDirectory()) {
       collectPackageEntries(childPath, childPrefix, entries);
     } else if (entry.isFile()) {

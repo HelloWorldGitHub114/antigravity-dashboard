@@ -4,6 +4,7 @@ import type {
   TranscriptStats,
 } from '../../contracts/metrics.ts';
 import type { ClearTimelineResult, ModelTimelineSnapshot } from '../../contracts/timeline.ts';
+import type { SnapshotDiffOutput, SnapshotStatusKind } from '../../platform/native-bridge.ts';
 import type { ChildTimelineSummary } from '../delegation/delegated-usage.ts';
 
 export const GUID = /^(?:[a-zA-Z0-9_.-]+\/)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,6 +26,13 @@ export interface RawSummaryRecord {
   [key: string]: unknown;
 }
 
+export interface SummarySnapshotState {
+  fingerprint: string;
+  settled: boolean;
+  statusKind: SnapshotStatusKind;
+  preferSqlite: boolean;
+}
+
 export interface SessionEntry {
   data?: SpeedMetrics;
   baseMetrics?: SpeedMetrics | null;
@@ -35,6 +43,10 @@ export interface SessionEntry {
   updatedAt?: number;
   pending?: Promise<SpeedMetrics> | null;
   raw?: unknown;
+  summaryFingerprint?: string | null;
+  summaryStatusKind?: SnapshotStatusKind;
+  summarySettled?: boolean;
+  polledSummaryFingerprint?: string | null;
 }
 
 export interface StoreReaderEntryLike {
@@ -93,6 +105,11 @@ export interface AncestorResolutionHost {
   ancestorPending: Map<string, Promise<void>>;
   ancestorRaws: Map<string, WeakRef<object>>;
   rawSummaries: Record<string, RawSummaryRecord> | null;
+  summaryStates?: Map<string, SummarySnapshotState>;
+  dirtySessionIds?: Set<string>;
+  newlySettledSessionIds?: Set<string>;
+  runningSessionIds?: Set<string>;
+  lastSummaryDiff?: SnapshotDiffOutput | null;
   identity: string | null;
   epoch: number;
   modelTimelineEnabled: boolean;

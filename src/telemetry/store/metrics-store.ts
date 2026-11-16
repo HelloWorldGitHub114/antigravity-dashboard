@@ -9,9 +9,11 @@ import type {
   TaskUsageSummary,
 } from '../../contracts/metrics.ts';
 import type { ClearTimelineResult } from '../../contracts/timeline.ts';
+import type { SessionDescriptorInput, SnapshotDiffOutput } from '../../platform/native-bridge.ts';
 import { AntigravityClient } from '../client/index.ts';
 import { DelegatedUsage, type DelegatedClientLike } from '../delegation/delegated-usage.ts';
 import { TranscriptReader } from '../reader/transcript.ts';
+import { diffSessionSnapshotsWithFallback, parseSummaryMtimeMs } from '../snapshot-diff.ts';
 import { TimelineStore } from '../timeline/store.ts';
 import { SessionHistory } from './history.ts';
 import { executeQuotaRefresh, handleDelegatedUpdate, loadCachedSession, runSessionPoll } from './session-runner.ts';
@@ -35,6 +37,7 @@ import {
   type StoreHistoryLike,
   type StoreTimelineStoreLike,
   type StoreTranscriptsLike,
+  type SummarySnapshotState,
   type TrajectorySummaryMeta,
 } from './types.ts';
 
@@ -61,6 +64,11 @@ export class MetricsStore {
   summaries: ConversationSummary[] = [];
   rawSummaries: Record<string, RawSummaryRecord> | null = null;
   summariesAt = 0;
+  summaryStates = new Map<string, SummarySnapshotState>();
+  dirtySessionIds = new Set<string>();
+  newlySettledSessionIds = new Set<string>();
+  runningSessionIds = new Set<string>();
+  lastSummaryDiff: SnapshotDiffOutput | null = null;
   sessions = new Map<string, SessionEntry>();
   ancestorPending = new Map<string, Promise<void>>();
   ancestorRaws = new Map<string, WeakRef<object>>();
@@ -196,6 +204,18 @@ export class MetricsStore {
     return this.quotaPending;
   }
 
+  getSummaryDiff(): SnapshotDiffOutput | null {
+    return this.lastSummaryDiff;
+  }
+
+  private clearSummaryDiffState(): void {
+    this.summaryStates.clear();
+    this.dirtySessionIds.clear();
+    this.newlySettledSessionIds.clear();
+    this.runningSessionIds.clear();
+    this.lastSummaryDiff = null;
+  }
+
   async listConversations(force = false): Promise<ConversationSummary[]> {
     if (!force && Date.now() - this.summariesAt < 5000) return this.summaries;
     const scope = this.identity;
@@ -208,6 +228,48 @@ export class MetricsStore {
     this.client?.reader?.seedSummaries?.(rawSummaries, now, this.client?.server);
     this.summaries = mapConversationSummaries(rawSummaries);
     this.summariesAt = now;
+
+    const descriptors: SessionDescriptorInput[] = new Array(this.summaries.length);
+    for (let i = 0; i < this.summaries.length; i++) {
+      const item = this.summaries[i];
+      const prev = this.summaryStates.get(item.id);
+      descriptors[i] = {
+        cascadeId: item.id,
+        mtimeMs: parseSummaryMtimeMs(item.modifiedAt),
+        sizeBytes: 0,
+        stepCount: typeof item.stepCount === 'number' && Number.isFinite(item.stepCount) ? Math.trunc(item.stepCount) : 0,
+        lastUserInputStepIndex:
+          typeof item.lastUserInputStepIndex === 'number' && Number.isFinite(item.lastUserInputStepIndex)
+            ? Math.trunc(item.lastUserInputStepIndex)
+            : -1,
+        status: item.status || '',
+        prevFingerprint: prev?.fingerprint ?? null,
+        prevSettled: prev ? prev.settled : null,
+      };
+    }
+    const diff = diffSessionSnapshotsWithFallback(descriptors);
+    this.lastSummaryDiff = diff;
+    this.dirtySessionIds = new Set(diff.dirtyIds);
+    this.newlySettledSessionIds = new Set(diff.newlySettledIds);
+    this.runningSessionIds = new Set(diff.runningIds);
+    const nextStates = new Map<string, SummarySnapshotState>();
+    for (const item of diff.items) {
+      const settled = item.statusKind === 'settled';
+      nextStates.set(item.cascadeId, {
+        fingerprint: item.fingerprint,
+        settled,
+        statusKind: item.statusKind,
+        preferSqlite: item.preferSqlite,
+      });
+      const entry = this.sessions.get(item.cascadeId);
+      if (entry) {
+        entry.summaryFingerprint = item.fingerprint;
+        entry.summaryStatusKind = item.statusKind;
+        entry.summarySettled = settled;
+      }
+    }
+    this.summaryStates = nextStates;
+
     return this.summaries;
   }
 
@@ -215,7 +277,13 @@ export class MetricsStore {
     if (!GUID.test(id)) throw new Error('会话标识无效');
     let entry = this.sessions.get(id);
     if (entry?.pending) return entry.pending;
-    if (!force && entry?.data && Date.now() - (entry.updatedAt ?? 0) < 1800) return entry.data;
+    const summaryState = this.summaryStates.get(id);
+    const summaryChanged =
+      Boolean(summaryState && entry?.polledSummaryFingerprint !== summaryState.fingerprint) ||
+      this.newlySettledSessionIds.has(id);
+    if (!force && !summaryChanged && entry?.data && Date.now() - (entry.updatedAt ?? 0) < 1800) {
+      return entry.data;
+    }
     if (!entry) { entry = {}; this.sessions.set(id, entry); }
     entry.pending = runSessionPoll(this, id, entry, force).finally(() => { entry!.pending = null; });
     return entry.pending;
@@ -232,6 +300,7 @@ export class MetricsStore {
         this.epoch++; this.delegated?.reset?.(); this.transcripts?.reset();
         this.quota = null; this.quotaAt = 0; this.sessions.clear(); this.ancestorPending.clear(); this.ancestorRaws.clear();
         this.identity = null; this.registeredAccount = null; this.summaries = []; this.rawSummaries = null; this.summariesAt = 0;
+        this.clearSummaryDiffState();
         this.serverPid = server.pid; this.lastActiveConversationId = null;
       }
       try { await this.refreshQuota(force); } catch (e) { connection = this.quota ? 'stale' : 'offline'; error = errorMessage(e); }
@@ -278,6 +347,7 @@ export class MetricsStore {
     this.delegated?.dispose?.();
     this.transcripts?.dispose?.();
     this.sessions.clear();
+    this.clearSummaryDiffState();
     this.ancestorPending.clear();
     this.ancestorRaws.clear();
   }

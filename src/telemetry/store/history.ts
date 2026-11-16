@@ -96,13 +96,47 @@ export function safeMetrics(value: unknown, conversationId: string): SpeedMetric
   const latestRateStatus: LatestRateStatus =
     value.latestRateStatus === 'ok' || value.latestRateStatus === 'missing' || value.latestRateStatus === 'unreliable'
       ? value.latestRateStatus : 'missing';
+  const tokens = buildTokenSummary(value, counts, cache, numFields.requests);
+  if (
+    isRec(value.tokens) &&
+    !tokens.coverageUnknown &&
+    cache.hitRate === null &&
+    (cache.measuredRequests ?? 0) === 0 &&
+    tokens.inputRequests !== null &&
+    tokens.inputRequests > 0 &&
+    tokens.uncachedRequests === tokens.inputRequests &&
+    tokens.cachedRequests === tokens.inputRequests &&
+    tokens.cacheWriteRequests === tokens.inputRequests &&
+    tokens.inputTokens !== null &&
+    tokens.inputTokens > 0 &&
+    tokens.uncachedTokens !== null &&
+    tokens.cachedTokens !== null &&
+    tokens.cacheWriteTokens !== null &&
+    tokens.inputTokens === tokens.uncachedTokens + tokens.cachedTokens + tokens.cacheWriteTokens &&
+    tokens.cachedTokens + tokens.cacheWriteTokens <= tokens.inputTokens
+  ) {
+    const out = tokens.outputTokens ?? 0;
+    const total = tokens.inputTokens + out;
+    if (isTok(total)) {
+      cache.inputTokens = tokens.inputTokens;
+      cache.uncachedTokens = tokens.uncachedTokens;
+      cache.cachedTokens = tokens.cachedTokens;
+      cache.cacheWriteTokens = tokens.cacheWriteTokens;
+      cache.outputTokens = out;
+      cache.totalTokens = total;
+      cache.measuredRequests = tokens.inputRequests;
+      cache.missingRequests = tokens.missingInputRequests ?? 0;
+      cache.hitRate = tokens.cachedTokens / tokens.inputTokens;
+      cache.complete = cache.missingRequests === 0;
+    }
+  }
 
   const result: SpeedMetrics = {
     ...(numFields as Pick<SpeedMetrics, (typeof NUMERIC_KEYS)[number]>),
     source: 'Antigravity request metadata',
     status: typeof value.status === 'string' && /^[A-Z0-9_]+$/.test(value.status) ? value.status : null,
     conversationId, planModel: formatModelName(value.planModel), activeModel: formatModelName(value.activeModel),
-    timingReasons, rateVersion, counts, tokens: buildTokenSummary(value, counts, cache, numFields.requests), cache,
+    timingReasons, rateVersion, counts, tokens, cache,
     latestRateStatus, rateBasis: value.rateBasis === 'response' ? 'response' : 'all-output',
     latestShortSample: value.latestShortSample === true,
     model: typeof value.model === 'string' ? value.model.slice(0, 256) : null,

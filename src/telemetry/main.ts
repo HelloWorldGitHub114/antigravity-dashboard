@@ -19,9 +19,12 @@ import type {
   PreferencesUpdateInput,
 } from '../contracts/index.ts';
 import { platformPaths } from '../platform/paths.ts';
+import { discoverDevToolsTargets } from '../platform/devtools.ts';
 import { PreferencesStore } from '../platform/preferences-store.ts';
 import { SidecarOwner } from '../platform/sidecar-owner.ts';
 import { AntigravityClient } from './client/index.ts';
+import { HostLivenessWatchdog } from './host-watchdog.ts';
+import { LazyVertexController } from './lazy-vertex.ts';
 import { DesktopUsage, UsageLedger } from './ledger/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
 import { startPreviewServer } from './preview-server.ts';
@@ -62,11 +65,13 @@ const store = new MetricsStore(undefined, {
   modelTimelineEnabled: initialTimeline,
   owns: () => !ownership || ownership.running,
 });
-let vStore: MetricsStore | null = null;
+let timelineEnabled = initialTimeline;
+let vertexController: LazyVertexController<MetricsStore, DesktopUsage, RuntimeUi> | null = null;
 const syncTimelinePreference = (enabled: boolean): void => {
   const next = enabled === true;
+  timelineEnabled = next;
   store.setModelTimelineEnabled(next);
-  vStore?.setModelTimelineEnabled(next);
+  vertexController?.getStore()?.setModelTimelineEnabled(next);
 };
 const livePreferences: Required<RuntimePreferencesBridge> = {
   get: () => preferences.get(),
@@ -166,34 +171,39 @@ const integration = new RuntimeUi({
 const vertexRoot = join(homedir(), '.antigravity-vertex');
 const vertexHome = join(vertexRoot, 'home');
 const vertexProfile = join(vertexRoot, 'user-data');
-let vertexIntegration: RuntimeUi | null = null;
-let vertexUsage: DesktopUsage | null = null;
-if (existsSync(vertexProfile) && homedir().toLowerCase() !== vertexHome.toLowerCase()) {
+const canActivateVertex = (): boolean =>
+  existsSync(vertexProfile) && homedir().toLowerCase() !== vertexHome.toLowerCase();
+
+const createVertexInstance = () => {
   const vDataDir = join(vertexHome, '.gemini', 'antigravity', 'sidecar_data', 'antigravity-pulse', 'panel', 'data');
   const vPathsValue = platformPaths({
     home: vertexHome,
     env: { ...process.env, USERPROFILE: vertexHome, HOME: vertexHome, AG_PULSE_PROFILE: vertexProfile, ANTIGRAVITY_EXECUTABLE_DATA_DIR: vDataDir },
   });
   const vClient = new AntigravityClient({ paths: () => vPathsValue });
-  vStore = new MetricsStore(vClient, {
+  const vStore = new MetricsStore(vClient, {
     dataDir: vDataDir,
-    modelTimelineEnabled: initialTimeline,
+    modelTimelineEnabled: timelineEnabled,
     owns: () => !ownership || ownership.running,
     history: new SessionHistory(join(vDataDir, 'history-v1')),
     transcripts: new TranscriptReader({ root: join(vertexHome, '.gemini', 'antigravity', 'brain') }),
   });
-  vertexUsage = new DesktopUsage(vStore, new UsageLedger(join(vDataDir, 'usage-v1')), {
+  const vertexUsage = new DesktopUsage(vStore, new UsageLedger(join(vDataDir, 'usage-v1')), {
     host: 'app',
     discoverLocal: () => discoverLocalConversations({ host: 'app', home: vertexHome }),
     owns: () => (!ownership || ownership.running) && runtimeSettings().enabled !== false,
   });
-  vStore.onTrajectory = (scope, id, raw) => vertexUsage!.ingest(scope, id, raw);
-  vStore.onAccount = (scope, meta) => vertexUsage!.ledger.registerAccount(scope, meta);
+  vStore.onTrajectory = (scope, id, raw) => vertexUsage.ingest(scope, id, raw);
+  vStore.onAccount = (scope, meta) => vertexUsage.ledger.registerAccount(scope, meta);
   const vToken = ownership?.token ? `${ownership.token}-vertex` : null;
-  const vMetrics = createMetrics(vStore, vertexUsage, () => vertexIntegration!.health);
+  let vertexIntegration!: RuntimeUi;
+  const vMetrics = createMetrics(vStore, vertexUsage, () => vertexIntegration.health);
   vertexIntegration = new RuntimeUi({
     profile: vertexProfile,
-    snapshot: (input) => vMetrics(input),
+    snapshot: (input) => {
+      vertexController?.recordActivity('runtime-ui-snapshot');
+      return vMetrics(input);
+    },
     preferences: livePreferences,
     updater,
     owner: vToken,
@@ -201,17 +211,54 @@ if (existsSync(vertexProfile) && homedir().toLowerCase() !== vertexHome.toLowerC
     source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, vToken, ownership?.startedAt, sharedExtras),
     dataDir: vDataDir,
     enabled: isEnabled,
-    addManualUsage: (input) => vertexUsage!.addManualUsage(input?.scope || '', input?.data || input),
-    deleteManualUsage: (input) =>
-      vertexUsage!.deleteManualUsage(
+    addManualUsage: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return vertexUsage.addManualUsage(input?.scope || '', input?.data || input);
+    },
+    deleteManualUsage: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return vertexUsage.deleteManualUsage(
         typeof input === 'object' && input !== null ? input.scope || '' : '',
         typeof input === 'string' ? input : input?.id || '',
-      ),
-    getAccounts: () => vertexUsage!.getAccounts(),
-    switchAccount: (input) => vertexUsage!.switchAccount(input),
-    clearTimeline: (input) => vStore!.clearTimeline(input?.conversationId || null),
+      );
+    },
+    getAccounts: () => {
+      vertexController?.recordActivity('runtime-ui-accounts');
+      return vertexUsage.getAccounts();
+    },
+    switchAccount: (input) => {
+      vertexController?.recordActivity('runtime-ui-switch');
+      return vertexUsage.switchAccount(input);
+    },
+    clearTimeline: (input) => {
+      vertexController?.recordActivity('runtime-ui-timeline');
+      return vStore.clearTimeline(input?.conversationId || null);
+    },
   });
-}
+  return { store: vStore, usage: vertexUsage, integration: vertexIntegration };
+};
+
+const probeVertexActive = async (): Promise<boolean> => {
+  if (!existsSync(join(vertexProfile, 'DevToolsActivePort'))) return false;
+  try {
+    const { targets } = await discoverDevToolsTargets(vertexProfile, { mode: 'desktop', timeoutMs: 800 });
+    return targets.length > 0;
+  } catch {
+    return false;
+  }
+};
+
+vertexController = new LazyVertexController({
+  createInstance: createVertexInstance,
+  canActivate: canActivateVertex,
+  probeActive: probeVertexActive,
+});
+
+const runVertexMetrics = async (input?: MetricsRequestInput): Promise<MetricsSnapshot | null> => {
+  const instance = await vertexController?.ensureStarted('http-metrics');
+  if (!instance) return null;
+  return createMetrics(instance.store, instance.usage, () => instance.integration.health)(input);
+};
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const prefError = (error: unknown): string =>
@@ -233,7 +280,22 @@ if (isSidecar) {
   app.page('/i18n.js', () => cachedI18n);
   app.page('/theme.js', () => cachedTheme);
   app.api('/theme.css', () => new Response(cachedCss, { contentType: 'text/css' }), 'GET');
-  app.api('/api/metrics', (data) => metrics({ conversationId: typeof data.conversationId === 'string' ? data.conversationId : null, force: data.force === true || data.force === '1' }), 'GET');
+  app.api('/api/metrics', async (data) => {
+    const input = { conversationId: typeof data.conversationId === 'string' ? data.conversationId : null, force: data.force === true || data.force === '1' };
+    if (data.vertex === true || data.vertex === '1' || data.instance === 'vertex') {
+      const snap = await runVertexMetrics(input);
+      return snap ?? new Response(JSON.stringify({ error: 'Vertex integration unavailable', state: 'disabled' }), { status: 503, contentType: 'application/json' });
+    }
+    return metrics(input);
+  }, 'GET');
+  app.api('/api/vertex/metrics', async (data) => {
+    const snap = await runVertexMetrics({ conversationId: typeof data.conversationId === 'string' ? data.conversationId : null, force: data.force === true || data.force === '1' });
+    return snap ?? new Response(JSON.stringify({ error: 'Vertex integration unavailable', state: 'disabled' }), { status: 503, contentType: 'application/json' });
+  }, 'GET');
+  app.api('/api/vertex/integration', async () => {
+    const instance = await vertexController?.ensureStarted('http-integration');
+    return instance ? instance.integration.health : { state: 'disabled', mode: 'runtime', message: 'Vertex profile unavailable', windows: 0 };
+  }, 'GET');
   app.api('/api/integration', () => integration.health, 'GET');
   app.api('/api/preferences', () => livePreferences.snapshot(), 'GET');
   app.api('/api/preferences', async (data) => {
@@ -250,17 +312,26 @@ if (isSidecar) {
   }, 'POST');
   app.run();
   integration.start();
-  vertexIntegration?.start();
+  vertexController.start();
+  let shuttingDown = false;
+  let hostWatchdog: HostLivenessWatchdog | null = null;
   const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    hostWatchdog?.stop();
     usage.dispose();
-    vertexUsage?.dispose();
     const exitTimer = setTimeout(() => process.exit(0), 2000) as unknown as { unref?: () => void };
     exitTimer.unref?.();
     await integration.stop();
-    await vertexIntegration?.stop();
+    await vertexController?.dispose();
     ownership?.stop();
     process.exit(0);
   };
+  hostWatchdog = new HostLivenessWatchdog({
+    profiles: [paths.profile, vertexProfile],
+    onShutdown: () => shutdown(),
+  });
+  hostWatchdog.start();
   ownership?.watch(shutdown);
   updater.onReload = () => void shutdown();
   for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => { void shutdown(); });

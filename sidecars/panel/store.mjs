@@ -65,10 +65,242 @@ function sameStringList(a, b) {
 }
 
 // src/telemetry/store/metrics-store.ts
-import { dirname, join } from "node:path";
+import { dirname as dirname2, join as join2 } from "node:path";
 import { AntigravityClient } from "./client.mjs";
 import { DelegatedUsage } from "./delegated-usage.mjs";
 import { TranscriptReader } from "./transcript.mjs";
+
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join(dir, platformAddonFilename()), join(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function callSingleJsonAddon(methodName, payload, validate) {
+  const addon = getAddon();
+  const fn = addon?.[methodName];
+  if (typeof fn !== "function") return null;
+  try {
+    const json = fn(JSON.stringify(payload));
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (validate && !validate(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function diffSessionSnapshots(inputs) {
+  if (!Array.isArray(inputs)) return null;
+  return callSingleJsonAddon("diffSessionSnapshotsJson", inputs);
+}
+
+// src/telemetry/snapshot-diff.ts
+var FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+var FNV_PRIME = 0x0100000001b3n;
+var U64_MASK = 0xffffffffffffffffn;
+var UTF8 = new TextEncoder();
+var RUNNING_STATUS_RE = /(?:RUNNING|GENERATING|WAITING|QUEUED)/i;
+var SETTLED_STATUS_RE = /(?:IDLE|DONE|COMPLETED|CANCELLED|CANCELED|STOPPED|FAILED|ERROR)/i;
+function fnv1aByte(hash, byte) {
+  return (hash ^ BigInt(byte & 255)) * FNV_PRIME & U64_MASK;
+}
+function fnv1aU64Le(hash, value) {
+  let v = BigInt.asUintN(64, value);
+  for (let i = 0; i < 8; i++) {
+    hash = (hash ^ v & 0xffn) * FNV_PRIME & U64_MASK;
+    v >>= 8n;
+  }
+  return hash;
+}
+function fnv1aI32Le(hash, value) {
+  let v = value | 0;
+  for (let i = 0; i < 4; i++) {
+    hash = (hash ^ BigInt(v & 255)) * FNV_PRIME & U64_MASK;
+    v >>= 8;
+  }
+  return hash;
+}
+function fnv1aU32Le(hash, value) {
+  let v = value >>> 0;
+  for (let i = 0; i < 4; i++) {
+    hash = (hash ^ BigInt(v & 255)) * FNV_PRIME & U64_MASK;
+    v >>>= 8;
+  }
+  return hash;
+}
+function computeSessionFingerprintHex(mtimeMs, sizeBytes, stepCount, lastUserInputStepIndex, status) {
+  const safeMtime = Number.isFinite(mtimeMs) ? Math.trunc(mtimeMs) : 0;
+  const safeSize = Number.isFinite(sizeBytes) && sizeBytes > 0 ? Math.trunc(sizeBytes) : 0;
+  const safeSteps = Number.isFinite(stepCount) ? Math.trunc(stepCount) : 0;
+  const safeUserIdx = Number.isFinite(lastUserInputStepIndex) ? Math.trunc(lastUserInputStepIndex) : -1;
+  const statusBytes = UTF8.encode(typeof status === "string" ? status : "");
+  let hash = FNV_OFFSET_BASIS;
+  hash = fnv1aU64Le(hash, BigInt(safeMtime));
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aU64Le(hash, BigInt(safeSize));
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aI32Le(hash, safeSteps);
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aI32Le(hash, safeUserIdx);
+  hash = fnv1aByte(hash, 255);
+  hash = fnv1aU32Le(hash, statusBytes.length);
+  for (let i = 0; i < statusBytes.length; i++) {
+    hash = (hash ^ BigInt(statusBytes[i])) * FNV_PRIME & U64_MASK;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+function classifySnapshotStatus(status) {
+  if (RUNNING_STATUS_RE.test(status)) return "running";
+  if (SETTLED_STATUS_RE.test(status)) return "settled";
+  return "unknown";
+}
+function diffSessionSnapshotsFallback(inputs) {
+  const dirtyIds = [];
+  const newlySettledIds = [];
+  const runningIds = [];
+  const items = new Array(inputs.length);
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    const status = typeof input.status === "string" ? input.status : "";
+    const sizeBytes = Number.isFinite(input.sizeBytes) && input.sizeBytes > 0 ? Math.trunc(input.sizeBytes) : 0;
+    const fingerprint = computeSessionFingerprintHex(
+      input.mtimeMs,
+      sizeBytes,
+      input.stepCount,
+      input.lastUserInputStepIndex,
+      status
+    );
+    const statusKind = classifySnapshotStatus(status);
+    const isRunning = statusKind === "running";
+    const isSettled = statusKind === "settled";
+    const prevFp = input.prevFingerprint ?? null;
+    const fpChanged = prevFp !== fingerprint;
+    let transition;
+    if (prevFp === null) {
+      transition = "newly_discovered";
+    } else if (input.prevSettled === false && isSettled) {
+      transition = "newly_settled";
+    } else if (fpChanged) {
+      transition = "modified";
+    } else {
+      transition = "unchanged";
+    }
+    const needsPoll = isRunning || fpChanged;
+    const preferSqlite = sizeBytes > 0 && !isRunning;
+    if (isRunning) runningIds.push(input.cascadeId);
+    if (transition === "newly_settled") newlySettledIds.push(input.cascadeId);
+    if (needsPoll || transition === "newly_settled") dirtyIds.push(input.cascadeId);
+    items[i] = {
+      cascadeId: input.cascadeId,
+      fingerprint,
+      statusKind,
+      transition,
+      needsPoll,
+      preferSqlite
+    };
+  }
+  return { dirtyIds, newlySettledIds, runningIds, items };
+}
+function diffSessionSnapshotsWithFallback(inputs) {
+  return diffSessionSnapshots(inputs) ?? diffSessionSnapshotsFallback(inputs);
+}
+function parseSummaryMtimeMs(modifiedAt) {
+  if (typeof modifiedAt !== "string" || !modifiedAt) return 0;
+  const ms = Date.parse(modifiedAt);
+  return Number.isFinite(ms) ? Math.trunc(ms) : 0;
+}
+
+// src/telemetry/store/metrics-store.ts
 import { TimelineStore } from "./timeline-store.mjs";
 import { SessionHistory } from "./history.mjs";
 
@@ -361,6 +593,11 @@ async function executeQuotaRefresh(host) {
     host.rawSummaries = null;
     host.summariesAt = 0;
     host.registeredAccount = null;
+    host.summaryStates?.clear();
+    host.dirtySessionIds?.clear();
+    host.newlySettledSessionIds?.clear();
+    host.runningSessionIds?.clear();
+    if ("lastSummaryDiff" in host) host.lastSummaryDiff = null;
   }
   host.identity = identity;
   const accountName = user.userStatus?.name || email || "";
@@ -404,6 +641,17 @@ async function persistSessionHistory(host, scope, id, entry, current) {
   } catch {
     host.persistenceError = "\u7EDF\u8BA1\u6682\u65F6\u65E0\u6CD5\u4FDD\u5B58\u5230\u672C\u5730";
   }
+}
+function markSessionSummaryPolled(host, id, entry) {
+  const summaryState = host.summaryStates?.get(id);
+  if (summaryState) {
+    entry.summaryFingerprint = summaryState.fingerprint;
+    entry.summaryStatusKind = summaryState.statusKind;
+    entry.summarySettled = summaryState.settled;
+    entry.polledSummaryFingerprint = summaryState.fingerprint;
+  }
+  host.dirtySessionIds?.delete(id);
+  host.newlySettledSessionIds?.delete(id);
 }
 async function runSessionPoll(host, id, entry, force) {
   const scope = host.identity;
@@ -454,6 +702,7 @@ async function runSessionPoll(host, id, entry, force) {
       if (!current()) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
       if (sameTranscriptStats(nextTranscript, prev.transcriptStats) && sameTaskUsage(nextTaskUsage, prev.taskUsage) && sameStringList(nextDelegated, prev.delegatedConversations)) {
         entry.updatedAt = Date.now();
+        markSessionSummaryPolled(host, id, entry);
         return prev;
       }
       const fresh2 = { ...entry.baseMetrics };
@@ -465,6 +714,7 @@ async function runSessionPoll(host, id, entry, force) {
       entry.updatedAt = Date.now();
       await persistSessionHistory(host, scope, id, entry, current);
       if (!current()) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+      markSessionSummaryPolled(host, id, entry);
       return entry.data;
     }
     if (host.onTrajectory && scope) {
@@ -503,6 +753,7 @@ async function runSessionPoll(host, id, entry, force) {
     entry.baseMetrics = readerRev !== null ? baseMetrics : null;
     await persistSessionHistory(host, scope, id, entry, current);
     if (!current()) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+    markSessionSummaryPolled(host, id, entry);
     return entry.data;
   } catch (error) {
     if (current() && entry.data && usableMetrics(entry.data)) {
@@ -548,6 +799,11 @@ var MetricsStore = class {
   summaries = [];
   rawSummaries = null;
   summariesAt = 0;
+  summaryStates = /* @__PURE__ */ new Map();
+  dirtySessionIds = /* @__PURE__ */ new Set();
+  newlySettledSessionIds = /* @__PURE__ */ new Set();
+  runningSessionIds = /* @__PURE__ */ new Set();
+  lastSummaryDiff = null;
   sessions = /* @__PURE__ */ new Map();
   ancestorPending = /* @__PURE__ */ new Map();
   ancestorRaws = /* @__PURE__ */ new Map();
@@ -569,7 +825,7 @@ var MetricsStore = class {
     this.client = client;
     this.history = history;
     this.timelineStore = timelineStore === null ? null : timelineStore || new TimelineStore(
-      dataDir ? join(dataDir, "timeline-v1") : history?.directory ? join(dirname(history.directory), "timeline-v1") : void 0
+      dataDir ? join2(dataDir, "timeline-v1") : history?.directory ? join2(dirname2(history.directory), "timeline-v1") : void 0
     );
     this.modelTimelineEnabled = modelTimelineEnabled === true;
     this.onTrajectory = onTrajectory;
@@ -661,6 +917,16 @@ var MetricsStore = class {
     });
     return this.quotaPending;
   }
+  getSummaryDiff() {
+    return this.lastSummaryDiff;
+  }
+  clearSummaryDiffState() {
+    this.summaryStates.clear();
+    this.dirtySessionIds.clear();
+    this.newlySettledSessionIds.clear();
+    this.runningSessionIds.clear();
+    this.lastSummaryDiff = null;
+  }
   async listConversations(force = false) {
     if (!force && Date.now() - this.summariesAt < 5e3) return this.summaries;
     const scope = this.identity;
@@ -673,13 +939,54 @@ var MetricsStore = class {
     this.client?.reader?.seedSummaries?.(rawSummaries, now, this.client?.server);
     this.summaries = mapConversationSummaries(rawSummaries);
     this.summariesAt = now;
+    const descriptors = new Array(this.summaries.length);
+    for (let i = 0; i < this.summaries.length; i++) {
+      const item = this.summaries[i];
+      const prev = this.summaryStates.get(item.id);
+      descriptors[i] = {
+        cascadeId: item.id,
+        mtimeMs: parseSummaryMtimeMs(item.modifiedAt),
+        sizeBytes: 0,
+        stepCount: typeof item.stepCount === "number" && Number.isFinite(item.stepCount) ? Math.trunc(item.stepCount) : 0,
+        lastUserInputStepIndex: typeof item.lastUserInputStepIndex === "number" && Number.isFinite(item.lastUserInputStepIndex) ? Math.trunc(item.lastUserInputStepIndex) : -1,
+        status: item.status || "",
+        prevFingerprint: prev?.fingerprint ?? null,
+        prevSettled: prev ? prev.settled : null
+      };
+    }
+    const diff = diffSessionSnapshotsWithFallback(descriptors);
+    this.lastSummaryDiff = diff;
+    this.dirtySessionIds = new Set(diff.dirtyIds);
+    this.newlySettledSessionIds = new Set(diff.newlySettledIds);
+    this.runningSessionIds = new Set(diff.runningIds);
+    const nextStates = /* @__PURE__ */ new Map();
+    for (const item of diff.items) {
+      const settled = item.statusKind === "settled";
+      nextStates.set(item.cascadeId, {
+        fingerprint: item.fingerprint,
+        settled,
+        statusKind: item.statusKind,
+        preferSqlite: item.preferSqlite
+      });
+      const entry = this.sessions.get(item.cascadeId);
+      if (entry) {
+        entry.summaryFingerprint = item.fingerprint;
+        entry.summaryStatusKind = item.statusKind;
+        entry.summarySettled = settled;
+      }
+    }
+    this.summaryStates = nextStates;
     return this.summaries;
   }
   async session(id, force = false) {
     if (!GUID.test(id)) throw new Error("\u4F1A\u8BDD\u6807\u8BC6\u65E0\u6548");
     let entry = this.sessions.get(id);
     if (entry?.pending) return entry.pending;
-    if (!force && entry?.data && Date.now() - (entry.updatedAt ?? 0) < 1800) return entry.data;
+    const summaryState = this.summaryStates.get(id);
+    const summaryChanged = Boolean(summaryState && entry?.polledSummaryFingerprint !== summaryState.fingerprint) || this.newlySettledSessionIds.has(id);
+    if (!force && !summaryChanged && entry?.data && Date.now() - (entry.updatedAt ?? 0) < 1800) {
+      return entry.data;
+    }
     if (!entry) {
       entry = {};
       this.sessions.set(id, entry);
@@ -710,6 +1017,7 @@ var MetricsStore = class {
         this.summaries = [];
         this.rawSummaries = null;
         this.summariesAt = 0;
+        this.clearSummaryDiffState();
         this.serverPid = server.pid;
         this.lastActiveConversationId = null;
       }
@@ -771,6 +1079,7 @@ var MetricsStore = class {
     this.delegated?.dispose?.();
     this.transcripts?.dispose?.();
     this.sessions.clear();
+    this.clearSummaryDiffState();
     this.ancestorPending.clear();
     this.ancestorRaws.clear();
   }

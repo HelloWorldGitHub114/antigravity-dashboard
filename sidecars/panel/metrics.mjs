@@ -33,6 +33,10 @@ function tokenCount(value) {
   const n = Number(value);
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
+var CACHE_PROVIDER_RE = /^(?:API_PROVIDER_)?(?:GOOGLE_(?:GEMINI|VERTEX|EVERGREEN)|OPENAI(?:_VERTEX|_RESPONSES_VERTEX)?|ANTHROPIC(?:_VERTEX)?|INTERNAL)$/;
+function isSupportedCacheProvider(provider) {
+  return typeof provider === "string" && CACHE_PROVIDER_RE.test(provider);
+}
 function requestCacheMetrics(usage) {
   if (!usage || typeof usage !== "object") return null;
   const u = usage;
@@ -46,7 +50,7 @@ function requestCacheMetrics(usage) {
   if (input === null) return null;
   const total = input + read + write;
   if (!Number.isSafeInteger(total) || total < 0 || read + write > total) return null;
-  if (total > 0 && !/GOOGLE_GEMINI|OPENAI|ANTHROPIC/.test(provider)) return null;
+  if (total > 0 && !isSupportedCacheProvider(provider)) return null;
   return {
     inputTokens: total,
     cachedTokens: read,
@@ -695,6 +699,7 @@ function quotaMetrics(response, now = Date.now()) {
 export {
   buildModelUsage,
   extractPlanModel,
+  isSupportedCacheProvider,
   quotaMetrics,
   requestCacheMetrics,
   resolveChatModelName,

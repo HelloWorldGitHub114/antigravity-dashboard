@@ -10,5 +10,18 @@ dist/
 *.original
 settings.json
 patch.json
+docs/internal/
+docs/REFACTORING_ROADMAP.md
+native/pulse-accel/target/
+cli/bin/
+ag-pulse-statusline
+*.node
+*.dll
+*.so
+*.dylib
+*.pdb
+*.exp
+*.exe
+*.lib
 
 .antigravity-pulse-update.lock

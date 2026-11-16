@@ -28,6 +28,14 @@ var PACKAGER_IGNORED_NAMES = /* @__PURE__ */ new Set([
   "node_modules",
   ".git",
   "dist",
+  "internal",
+  "target",
+  "ag-pulse-statusline",
+  "ag-pulse-statusline.exe",
+  "ag-pulse-statusline.darwin-x64",
+  "ag-pulse-statusline.darwin-arm64",
+  "ag-pulse-statusline.linux-x64",
+  "ag-pulse-statusline.linux-arm64",
   "REFACTORING_ROADMAP.md",
   ...PRIVATE_RUNTIME_DIRS
 ]);
@@ -74,6 +82,8 @@ var OPENSOURCE_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   ".data",
   "dist",
   "scratch",
+  "internal",
+  "target",
   "node_modules",
   "__pycache__",
   ".pytest_cache",

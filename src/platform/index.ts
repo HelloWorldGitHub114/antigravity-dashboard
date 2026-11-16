@@ -37,3 +37,11 @@ export {
   type DevToolsDiscoveryResult,
 } from './devtools.ts';
 export * from './manifest.ts';
+export {
+  isNativeAccelAvailable,
+  extractSqliteUsageRecords,
+  readSqliteTrajectory,
+  readSqliteConversationMeta,
+  type SqliteSubagentSpec,
+  type SqliteConversationMeta,
+} from './native-bridge.ts';

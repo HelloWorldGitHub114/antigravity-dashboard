@@ -1,4 +1,10 @@
-export { seconds, tokenCount, requestCacheMetrics, type RequestCacheBreakdown } from './primitives.ts';
+export {
+  seconds,
+  tokenCount,
+  isSupportedCacheProvider,
+  requestCacheMetrics,
+  type RequestCacheBreakdown,
+} from './primitives.ts';
 export { resolveChatModelName, extractPlanModel } from './chat.ts';
 export {
   buildModelUsage,

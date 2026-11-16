@@ -7,7 +7,7 @@
 模型选择旁常驻显示生成速率、缓存命中与上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
 缩略信息常驻；鼠标悬停或打开侧边栏，展开完整多维监控。
 
-[![Version 0.11.0](https://img.shields.io/badge/version-0.11.0-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.0](https://img.shields.io/badge/version-0.12.0-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -19,7 +19,12 @@
 > [!NOTE]
 > **独立接续维护声明（Independent Continuation Fork）：** 本仓库基于原 MIT 协议开源项目 `antigrative-dashboard`（`Copyright (c) 2026 AG Pulse contributors`，原上游仓库已被作者删除）的 `v0.8.7` 版本独立接续维护。**`v0.8.8` 及之后版本**由当前仓库（`ShZbz/antigravity-dashboard`）独立开发与维护，与原作者不存在从属、合作或背书关系。
 
-**v0.11.0 更新：** 完成全栈 TypeScript + `esbuild` 零依赖模块化重构（`src/`），建立打包与发布文件清单唯一真源（`src/platform/manifest.ts`），将生命周期安装、CLI 状态栏与 VSIX/ZIP 打包工具统一迁移至原生 Node.js（`manage.mjs`、`ide/package.mjs`，同时保留 Python 兼容回退），新增 `UsageLedger` 内存增量文件索引、连续异步分片 `TranscriptReader`、远程会话 `64 KiB` 流式投影、`WeakRef` 轨迹缓存防泄漏以及并发隔离 Playwright UI 回归测试套件。[更新说明](CHANGELOG.md)。
+> [!IMPORTANT]
+> **`v0.12.0` Rust 原生引擎提示与回退说明：** `v0.12.0` 正式引入 **Rust 原生加速引擎（`pulse-accel`）**，通过 SQLite 本地直读旁路、二进制用量索引、堆外结构化 Diff 与文本脱敏等底层加速大幅提升界面响应速度，并显著缓解早期版本长时间运行或大账本场景下内存占用过高的问题。由于新引擎刚全量上线，如您在使用过程中遇到任何异常、数据偏差或兼容性问题，欢迎及时前往 [GitHub Issues](https://github.com/ShZbz/antigravity-dashboard/issues) 反馈；如需临时关闭原生加速，可设置环境变量 `PULSE_DISABLE_NATIVE_ACCEL=1` 无缝切换回纯 TypeScript 模式，若问题暂时无法容忍亦可先回退至 **`v0.11.0`** 版本。
+
+**v0.12.0 更新：** 引入 Rust N-API 原生加速引擎（`native/pulse-accel`）与零 RPC 本地 SQLite 直读旁路，并推出原生状态栏二进制 `ag-pulse-statusline`、二进制账本增量缓存（`ledger-compact-v1.bin`）、跨进程共享 SQLite 缓存（`shared-usage-cache-v1.db`）、`.antigravity-vertex` 懒惰轮询、商用/Vertex 缓存命中率修复及三平台 CI / macOS 符号链接检查加固。[更新说明](CHANGELOG.md)。
+
+**v0.11.0 更新：** 完成全栈 TypeScript + `esbuild` 零依赖模块化重构（`src/`），建立打包与发布文件清单唯一真源（`src/platform/manifest.ts`），将生命周期安装、CLI 状态栏与 VSIX/ZIP 打包工具统一迁移至原生 Node.js（`manage.mjs`、`ide/package.mjs`，同时保留 Python 兼容回退），新增 `UsageLedger` 内存增量文件索引、连续异步分片 `TranscriptReader`、远程会话 `64 KiB` 流式投影、`WeakRef` 轨迹缓存防泄漏以及并发隔离 Playwright UI 回归测试套件。
 
 **v0.9.0 – v0.10.2：** 新增云端 Remote Agent 会话支持（50 步尾部窗口冷读与增量切片）、混合 Orchestrator 身份与多模型 SVG 环形占比图、可选结构化调用时间线树（`modelTimelineEnabled`，默认关闭）、多账号严格隔离与切换查看（`全部账号汇总`、`按模型 / 按用户` 维度、`简易 / 详细` 模型变体归并、远程项目手动录入）、24 小时趋势折线图、自定义日期范围、单柱下钻以及多层子代理/Swarm 上下文占用环与状态树。
 
@@ -78,7 +83,7 @@
 ## Antigravity IDE
 
 **v0.7.0+** 提供反重力独立 IDE 的专用 VSIX 适配。从发布页下载
-`antigrative-dashboard-ide-0.11.0.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
+`antigrative-dashboard-ide-0.12.0.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
 
 完全退出 IDE 后，使用带
 `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1`

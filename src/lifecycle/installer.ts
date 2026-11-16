@@ -90,15 +90,15 @@ function resolveTargets(options: LifecycleEnvOptions): { pro: InstancePaths; ver
 }
 
 function ownPlugin(pluginDir: string, homeDir: string): void {
-  const geminiDir = join(homeDir, '.gemini');
-  const configDir = join(geminiDir, 'config');
-  const pluginsRoot = resolve(join(configDir, 'plugins'));
+  const geminiRoot = resolve(join(homeDir, '.gemini'));
+  const configRoot = resolve(join(geminiRoot, 'config'));
+  const pluginsRoot = resolve(join(configRoot, 'plugins'));
   if (
-    isReparseOrSymlink(geminiDir) ||
-    isReparseOrSymlink(configDir) ||
+    isReparseOrSymlink(geminiRoot) ||
+    isReparseOrSymlink(configRoot) ||
     isReparseOrSymlink(pluginsRoot) ||
     isReparseOrSymlink(pluginDir) ||
-    (existsSync(pluginDir) && dirname(realpathSync(pluginDir)) !== realpathSync(pluginsRoot))
+    (existsSync(pluginDir) && realpathSync(dirname(resolve(pluginDir))) !== realpathSync(pluginsRoot))
   ) {
     throw new Error('Plugin destination must be a regular directory inside the customization root.');
   }
@@ -223,17 +223,16 @@ function updateInstanceEnabled(
 
 function removePluginDir(pluginDir: string, homeDir: string): void {
   const resolved = resolve(pluginDir);
-  const geminiDir = join(homeDir, '.gemini');
-  const configDir = join(geminiDir, 'config');
-  const expectedParent = resolve(join(configDir, 'plugins'));
+  const geminiRoot = resolve(join(homeDir, '.gemini'));
+  const configRoot = resolve(join(geminiRoot, 'config'));
+  const expectedParent = resolve(join(configRoot, 'plugins'));
   if (
-    isReparseOrSymlink(geminiDir) ||
-    isReparseOrSymlink(configDir) ||
+    isReparseOrSymlink(geminiRoot) ||
+    isReparseOrSymlink(configRoot) ||
     isReparseOrSymlink(expectedParent) ||
     isReparseOrSymlink(pluginDir) ||
     dirname(resolved) !== expectedParent ||
-    resolved !== resolve(join(expectedParent, PLUGIN_NAME)) ||
-    (existsSync(resolved) && dirname(realpathSync(resolved)) !== realpathSync(expectedParent))
+    resolved !== resolve(join(expectedParent, PLUGIN_NAME))
   ) {
     throw new Error('Plugin target is outside the expected directory; refusing to delete it.');
   }
@@ -286,9 +285,18 @@ export function installDesktop(options: InstallDesktopOptions): void {
         const src = join(options.sourceRoot, name);
         const dst = join(dest, name);
         if (resolve(src) === resolve(dst)) continue;
-        copyTreeFilteredSync(src, dst, (_rel, entryName) =>
-          PACKAGER_IGNORED_NAMES.has(entryName) || entryName.endsWith('.pyc') || entryName.endsWith('.log'),
-        );
+        copyTreeFilteredSync(src, dst, (_rel, entryName) => {
+          const lower = entryName.toLowerCase();
+          return (
+            PACKAGER_IGNORED_NAMES.has(entryName) ||
+            lower.endsWith('.pyc') ||
+            lower.endsWith('.log') ||
+            lower.endsWith('.pdb') ||
+            lower.endsWith('.exp') ||
+            lower.endsWith('.lib') ||
+            lower.endsWith('.exe')
+          );
+        });
       }
       if (existsSync(localAccounts) && statSync(localAccounts).isFile()) {
         const targetAccounts = join(dest, '.data', 'usage-accounts.local.json');

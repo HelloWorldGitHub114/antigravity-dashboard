@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, readdir, readlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import * as nativeBridge from '../platform/native-bridge.ts';
 
 export interface DiscoveredProcessRow {
   ProcessId: number;
@@ -28,6 +29,7 @@ export interface DiscoverProcessesOptions {
   run?: CommandRunner;
   uid?: number;
   proc?: string;
+  nativeDiscover?: () => string | null;
 }
 
 export interface LinuxPortsOptions {
@@ -170,47 +172,68 @@ export async function linuxPorts(pid: number | string, { proc = '/proc' }: Linux
   return [...ports];
 }
 
-async function discoverWin32Processes(run: CommandRunner): Promise<DiscoveredProcess[]> {
-  const script =
-    "Get-CimInstance Win32_Process -Filter \"Name='language_server.exe'\" | Where-Object { $_.CommandLine -match '(?:^|\\s)--standalone(?:\\s|=|$)' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
-  const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    windowsHide: true,
-    timeout: 8000,
-    maxBuffer: 1048576,
-  });
-  const parsed: unknown = stdout.trim() ? JSON.parse(stdout.replace(/^\uFEFF/, '')) : [];
-  const rawList: RawWinProcessRow[] = Array.isArray(parsed)
-    ? (parsed as RawWinProcessRow[])
-    : [parsed as RawWinProcessRow];
-  const rows: DiscoveredProcessRow[] = rawList.flatMap((row) => {
-    const pid = row?.ProcessId;
-    const cmd = row?.CommandLine;
-    if (
-      typeof pid !== 'number' ||
-      !Number.isSafeInteger(pid) ||
-      pid <= 0 ||
-      typeof cmd !== 'string' ||
-      !/(?:^|\s)--standalone(?:\s|=|$)/.test(cmd)
-    ) {
-      return [];
-    }
-    return [{ ProcessId: pid, CommandLine: cmd }];
-  });
-  if (!rows.length) return [];
+interface NativeWin32ProcessItem {
+  pid?: unknown;
+  commandLine?: unknown;
+  listenPorts?: unknown;
+}
 
-  // One native socket-table snapshot for all candidates, rather than a costly
-  // Get-NetTCPConnection/CIM query for every language_server.exe process.
+function parseNativeWin32Processes(rawJson: string): DiscoveredProcess[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson.replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+  const rawList = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { processes?: unknown }).processes)
+      ? (parsed as { processes: unknown[] }).processes
+      : null;
+  if (!rawList) return null;
+  const out: DiscoveredProcess[] = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== 'object') return null;
+    const row = item as NativeWin32ProcessItem;
+    const pid = row.pid;
+    const cmd = row.commandLine;
+    if (typeof pid !== 'number' || typeof cmd !== 'string') {
+      return null;
+    }
+    if (!Number.isSafeInteger(pid) || pid <= 0 || !/(?:^|\s)--standalone(?:\s|=|$)/.test(cmd)) {
+      continue;
+    }
+    const ports: number[] = [];
+    if (Array.isArray(row.listenPorts)) {
+      for (const p of row.listenPorts) {
+        if (typeof p === 'number' && Number.isInteger(p) && p >= 1 && p <= 65535 && !ports.includes(p)) {
+          ports.push(p);
+        }
+      }
+    }
+    out.push({ ProcessId: pid, CommandLine: cmd, Ports: ports });
+  }
+  return out;
+}
+
+async function resolveMissingWin32Ports(
+  run: CommandRunner,
+  rows: DiscoveredProcess[],
+): Promise<DiscoveredProcess[]> {
+  const missingPids = rows.filter((row) => !row.Ports.length).map((row) => row.ProcessId);
+  if (!missingPids.length) return rows;
+
   const { stdout: sockets } = await run('netstat.exe', ['-ano', '-p', 'tcp'], {
     windowsHide: true,
     timeout: 4000,
     maxBuffer: 4194304,
   }).catch(() => ({ stdout: '' }));
   const ports = parseNetstat(sockets);
-  const missing = rows.filter((row) => !ports.get(row.ProcessId)?.length).map((row) => row.ProcessId);
-  if (missing.length) {
+  const stillMissing = missingPids.filter((pid) => !ports.get(pid)?.length);
+  if (stillMissing.length) {
     // One asynchronous fallback for all missing candidates, never a shell
     // per process or an unverified log-only port paired with a credential.
-    const fallbackScript = `$pulsePids = @(${missing.join(',')}); Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $pulsePids -contains $_.OwningProcess } | Select-Object OwningProcess,LocalPort | ConvertTo-Json -Compress`;
+    const fallbackScript = `$pulsePids = @(${stillMissing.join(',')}); Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $pulsePids -contains $_.OwningProcess } | Select-Object OwningProcess,LocalPort | ConvertTo-Json -Compress`;
     try {
       const { stdout: psOut } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', fallbackScript], {
         windowsHide: true,
@@ -222,7 +245,7 @@ async function discoverWin32Processes(run: CommandRunner): Promise<DiscoveredPro
       for (const item of items) {
         const pid = Number(item?.OwningProcess);
         const port = Number(item?.LocalPort);
-        if (!missing.includes(pid) || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+        if (!stillMissing.includes(pid) || !Number.isInteger(port) || port < 1 || port > 65535) continue;
         let list = ports.get(pid);
         if (!list) {
           list = [];
@@ -234,7 +257,56 @@ async function discoverWin32Processes(run: CommandRunner): Promise<DiscoveredPro
       // Keep discovery waiting safely if both socket sources fail.
     }
   }
-  return rows.map((row) => ({ ...row, Ports: ports.get(row.ProcessId) || [] }));
+  return rows.map((row) => (row.Ports.length ? row : { ...row, Ports: ports.get(row.ProcessId) || [] }));
+}
+
+async function discoverWin32Processes(
+  run: CommandRunner,
+  nativeDiscover?: () => string | null,
+): Promise<DiscoveredProcess[]> {
+  if (process.env.PULSE_DISABLE_NATIVE_ACCEL !== '1' && (nativeDiscover || run === exec)) {
+    const tryNative =
+      nativeDiscover ??
+      (nativeBridge as { tryDiscoverWin32ProcessesJson?: () => string | null }).tryDiscoverWin32ProcessesJson;
+    if (typeof tryNative === 'function') {
+      try {
+        const rawJson = tryNative();
+        if (typeof rawJson === 'string' && rawJson.length > 0) {
+          const nativeRows = parseNativeWin32Processes(rawJson);
+          if (nativeRows !== null) return nativeRows;
+        }
+      } catch {
+        // Fall back to PowerShell + netstat.exe when native discovery fails.
+      }
+    }
+  }
+  const script =
+    "Get-CimInstance Win32_Process -Filter \"Name='language_server.exe'\" | Where-Object { $_.CommandLine -match '(?:^|\\s)--standalone(?:\\s|=|$)' } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+  const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    windowsHide: true,
+    timeout: 8000,
+    maxBuffer: 1048576,
+  });
+  const parsed: unknown = stdout.trim() ? JSON.parse(stdout.replace(/^\uFEFF/, '')) : [];
+  const rawList: RawWinProcessRow[] = Array.isArray(parsed)
+    ? (parsed as RawWinProcessRow[])
+    : [parsed as RawWinProcessRow];
+  const rows: DiscoveredProcess[] = rawList.flatMap((row) => {
+    const pid = row?.ProcessId;
+    const cmd = row?.CommandLine;
+    if (
+      typeof pid !== 'number' ||
+      !Number.isSafeInteger(pid) ||
+      pid <= 0 ||
+      typeof cmd !== 'string' ||
+      !/(?:^|\s)--standalone(?:\s|=|$)/.test(cmd)
+    ) {
+      return [];
+    }
+    return [{ ProcessId: pid, CommandLine: cmd, Ports: [] }];
+  });
+  if (!rows.length) return [];
+  return resolveMissingWin32Ports(run, rows);
 }
 
 /**
@@ -245,8 +317,9 @@ export async function discoverProcesses({
   run = exec,
   uid = (process as NodeJS.Process & { getuid?: () => number }).getuid?.(),
   proc = '/proc',
+  nativeDiscover,
 }: DiscoverProcessesOptions = {}): Promise<DiscoveredProcess[]> {
-  if (platform === 'win32') return discoverWin32Processes(run);
+  if (platform === 'win32') return discoverWin32Processes(run, nativeDiscover);
   if (platform === 'darwin') {
     const { stdout } = await run('/bin/ps', ['-ww', '-axo', 'pid=,uid=,args='], {
       timeout: 8000,

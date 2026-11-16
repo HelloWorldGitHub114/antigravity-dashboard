@@ -3,14 +3,126 @@
 // src/telemetry/reader/transcript.ts
 import { createHash } from "node:crypto";
 import { open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join as join2, relative } from "node:path";
+import { isAbsolute, join as join3, relative } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { setImmediate as yieldLoop } from "node:timers/promises";
+
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join(dir, platformAddonFilename()), join(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function callRawSingleStringAddon(methodName, inputJson) {
+  if (!inputJson) return null;
+  const addon = getAddon();
+  const fn = addon?.[methodName];
+  if (typeof fn !== "function") return null;
+  try {
+    const out = fn(inputJson);
+    return typeof out === "string" && out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+function tryScanTranscriptFileJson(inputJson) {
+  return callRawSingleStringAddon("scanTranscriptFileJson", inputJson);
+}
+
+// src/telemetry/reader/transcript.ts
 import { TrajectoryJson } from "./trajectory-json.mjs";
 
 // src/telemetry/reader/transcript-stats.ts
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 var TOKEN_FIELDS = ["userTokens", "assistantTokens", "toolTokens", "systemTokens"];
 var STAT_FIELDS = [...TOKEN_FIELDS, "matchedSteps", "compactionMarkers", "imageSteps"];
 var STATUSES = ["loading", "ready", "partial", "unavailable"];
@@ -29,7 +141,7 @@ var genericHostTypes = /* @__PURE__ */ new Set(["RUN_COMMAND", "VIEW_FILE"]);
 var isNonNegInt = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
 function transcriptBrainRoot(host = "app") {
   if (host !== "app" && host !== "ide") throw new Error("Unsupported transcript host");
-  return join(homedir(), ".gemini", host === "ide" ? "antigravity-ide" : "antigravity", "brain");
+  return join2(homedir(), ".gemini", host === "ide" ? "antigravity-ide" : "antigravity", "brain");
 }
 function emptyStats(status, reason) {
   return {
@@ -175,6 +287,33 @@ function aggregateTranscriptEntry(entry) {
 }
 
 // src/telemetry/reader/transcript.ts
+var parseTranscriptTimestamp = (value) => typeof value === "string" && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+var transcriptTimeQuantum = (value) => typeof value === "string" ? 10 ** Math.max(0, 3 - (value.match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1].length || 0)) : 1e3;
+function nativeRowToTranscriptRow(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw;
+  if (!isNonNegInt(r.index) || typeof r.type !== "string" || !r.type.length || r.type.length > 128) {
+    return null;
+  }
+  if (!isNonNegInt(r.userTokens) || !isNonNegInt(r.assistantTokens) || !isNonNegInt(r.toolTokens) || !isNonNegInt(r.systemTokens)) {
+    return null;
+  }
+  const compaction = r.compaction === 1 ? 1 : 0;
+  const image = r.image === 1 ? 1 : 0;
+  return {
+    index: r.index,
+    type: r.type.replace(/^CORTEX_STEP_TYPE_/, ""),
+    time: parseTranscriptTimestamp(r.createdAt),
+    quantum: transcriptTimeQuantum(r.createdAt),
+    userTokens: r.userTokens,
+    assistantTokens: r.assistantTokens,
+    toolTokens: r.toolTokens,
+    systemTokens: r.systemTokens,
+    compaction,
+    image,
+    unknown: r.unknown === true
+  };
+}
 var GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var SCOPE = /^[0-9a-f]{64}$/;
 var projection = { step_index: "scalar", type: "scalar", source: "scalar", created_at: "scalar", content: "textEstimate", thinking: "textEstimate" };
@@ -204,21 +343,23 @@ var TranscriptReader = class {
   maxRows;
   bytesPerPass;
   passMs;
+  nativeScan;
   entries = /* @__PURE__ */ new Map();
   generation = 0;
   running = null;
   nextImmediate = null;
   #lastContinuedKey = null;
   #drainWaiters = /* @__PURE__ */ new Set();
-  constructor({ root = transcriptBrainRoot(), maxEntries = 8, maxRows = 8192, bytesPerPass = 2 * 1024 * 1024, passMs = 100 } = {}) {
+  constructor({ root = transcriptBrainRoot(), maxEntries = 8, maxRows = 8192, bytesPerPass = 2 * 1024 * 1024, passMs = 100, nativeScan = null } = {}) {
     this.root = root;
     this.maxEntries = isNonNegInt(maxEntries) && maxEntries > 0 ? Math.min(8, maxEntries) : 8;
     this.maxRows = isNonNegInt(maxRows) && maxRows > 0 ? Math.min(8192, maxRows) : 8192;
     this.bytesPerPass = isNonNegInt(bytesPerPass) ? Math.max(65536, Math.min(2 * 1024 * 1024, bytesPerPass)) : 2 * 1024 * 1024;
     this.passMs = isNonNegInt(passMs) ? Math.max(1, Math.min(100, passMs)) : 100;
+    this.nativeScan = typeof nativeScan === "function" ? nativeScan : null;
   }
   #notifyDrain() {
-    for (const resolve of this.#drainWaiters) resolve();
+    for (const resolve2 of this.#drainWaiters) resolve2();
     this.#drainWaiters.clear();
   }
   #pickEntry(allowContinuing) {
@@ -245,6 +386,9 @@ var TranscriptReader = class {
       this.nextImmediate = null;
     }
     this.#notifyDrain();
+  }
+  dispose() {
+    this.reset();
   }
   request(scope, id, raw) {
     if (!SCOPE.test(scope || "") || !GUID.test(id || "")) return emptyStats("unavailable", "invalid-boundary");
@@ -321,7 +465,7 @@ var TranscriptReader = class {
     for (; ; ) {
       while (this.running) await this.running;
       if (!this.nextImmediate && ![...this.entries.values()].some((e) => e.requested || e.continuing)) return;
-      await new Promise((resolve) => this.#drainWaiters.add(resolve));
+      await new Promise((resolve2) => this.#drainWaiters.add(resolve2));
     }
   }
   peek(scope, id) {
@@ -336,10 +480,10 @@ var TranscriptReader = class {
       throw e;
     }
     for (const name of ["transcript_full.jsonl", "transcript.jsonl"]) {
-      const candidate = join2(this.root, id, ".system_generated", "logs", name);
+      const candidate = join3(this.root, id, ".system_generated", "logs", name);
       try {
         const file = await realpath(candidate);
-        const expected = join2(root, id, ".system_generated", "logs", name);
+        const expected = join3(root, id, ".system_generated", "logs", name);
         const normalize = (p) => process.platform === "win32" ? p.toLowerCase() : p;
         if (!contains(root, file) || normalize(file) !== normalize(expected)) return { error: "unsafe-path" };
         const info = await stat(file);
@@ -389,55 +533,113 @@ var TranscriptReader = class {
       s.size = info.size;
       s.mtime = info.mtimeMs;
       if (s.limit) return;
-      const buffer = Buffer.alloc(65536);
       const end = Math.min(info.size, s.offset + this.bytesPerPass);
-      const deadline = performance.now() + this.passMs;
-      while (s.offset < end && current()) {
-        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, end - s.offset), s.offset);
-        if (!bytesRead) break;
-        const anchor = { offset: s.offset, length: bytesRead, hash: digest(buffer.subarray(0, bytesRead)) };
-        s.anchors = s.anchors.length ? [s.anchors[0], anchor] : [anchor];
-        s.offset += bytesRead;
-        const text = s.decoder.write(buffer.subarray(0, bytesRead));
-        let start = 0;
-        for (let i = 0; i <= text.length; i++) {
-          if (i !== text.length && text[i] !== "\n") continue;
-          const part = text.slice(start, i);
-          start = i + 1;
-          if (part.trim().length || s.lineStarted) {
-            s.lineStarted = true;
-            s.parser ??= new TrajectoryJson({ projection, maxRetainedBytes: 32768 });
-            if (!s.badLine) {
-              try {
-                s.parser.write(part);
-              } catch {
-                s.badLine = true;
-                s.invalid = true;
+      const tryScan = process.env.PULSE_DISABLE_NATIVE_ACCEL === "1" ? null : this.nativeScan ?? tryScanTranscriptFileJson ?? null;
+      let skipChunkLoop = false;
+      if (tryScan && s.offset < end && !s.lineStarted && !s.badLine && current()) {
+        try {
+          const payload = {
+            filePath: file,
+            offset: s.offset,
+            maxBytes: end - s.offset,
+            maxRows: this.maxRows,
+            includeAllRows: true
+          };
+          if (s.rows.size > 0) {
+            payload.knownIndices = [...s.rows.keys()];
+          }
+          const rawScan = tryScan(JSON.stringify(payload));
+          if (typeof rawScan === "string" && rawScan.length > 0 && current()) {
+            const parsed = JSON.parse(rawScan);
+            if (parsed && typeof parsed === "object" && parsed.needsChunkedFallback !== true) {
+              const nextOffset = typeof parsed.nextOffset === "number" && Number.isSafeInteger(parsed.nextOffset) && parsed.nextOffset >= s.offset && parsed.nextOffset <= end ? parsed.nextOffset : s.offset;
+              if (nextOffset > s.offset || parsed.eof === true || parsed.limit === true) {
+                if (Array.isArray(parsed.rows)) {
+                  for (const item of parsed.rows) {
+                    const row = nativeRowToTranscriptRow(item);
+                    if (!row) continue;
+                    if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) {
+                      s.limit = true;
+                      break;
+                    }
+                    s.rows.set(row.index, row);
+                  }
+                }
+                if (parsed.invalid === true) s.invalid = true;
+                if (parsed.limit === true) s.limit = true;
+                if (Array.isArray(parsed.anchors) && parsed.anchors.length > 0) {
+                  const validAnchors = parsed.anchors.filter((a) => Boolean(a && typeof a === "object")).map((a) => ({
+                    offset: a.offset,
+                    length: a.length,
+                    hash: a.hash
+                  })).filter(
+                    (a) => isNonNegInt(a.offset) && isNonNegInt(a.length) && a.length > 0 && typeof a.hash === "string" && a.hash.length > 0
+                  );
+                  if (validAnchors.length > 0) {
+                    const lastAnchor = validAnchors[validAnchors.length - 1];
+                    s.anchors = s.anchors.length ? [s.anchors[0], lastAnchor] : validAnchors.length > 1 ? [validAnchors[0], lastAnchor] : [validAnchors[0]];
+                  }
+                }
+                s.offset = nextOffset;
+                await yieldLoop();
+                if (!current()) return;
+                skipChunkLoop = parsed.incompleteTrailingLine !== true;
               }
             }
           }
-          if (i === text.length) break;
-          if (s.lineStarted && !s.badLine) {
-            try {
-              const row = summarizeTranscriptRecord(s.parser.end());
-              if (!row) s.invalid = true;
-              else if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) {
-                s.limit = true;
-                break;
-              } else s.rows.set(row.index, row);
-            } catch {
-              s.invalid = true;
-            }
-          }
-          s.parser = null;
-          s.lineStarted = false;
-          s.badLine = false;
+        } catch {
         }
-        await yieldLoop();
-        if (s.limit || performance.now() >= deadline) break;
+      }
+      if (!skipChunkLoop) {
+        const buffer = Buffer.alloc(65536);
+        const deadline = performance.now() + this.passMs;
+        while (s.offset < end && current()) {
+          const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, end - s.offset), s.offset);
+          if (!bytesRead) break;
+          const anchor = { offset: s.offset, length: bytesRead, hash: digest(buffer.subarray(0, bytesRead)) };
+          s.anchors = s.anchors.length ? [s.anchors[0], anchor] : [anchor];
+          s.offset += bytesRead;
+          const text = s.decoder.write(buffer.subarray(0, bytesRead));
+          let start = 0;
+          for (let i = 0; i <= text.length; i++) {
+            if (i !== text.length && text[i] !== "\n") continue;
+            const part = text.slice(start, i);
+            start = i + 1;
+            if (part.trim().length || s.lineStarted) {
+              s.lineStarted = true;
+              s.parser ??= new TrajectoryJson({ projection, maxRetainedBytes: 32768 });
+              if (!s.badLine) {
+                try {
+                  s.parser.write(part);
+                } catch {
+                  s.badLine = true;
+                  s.invalid = true;
+                }
+              }
+            }
+            if (i === text.length) break;
+            if (s.lineStarted && !s.badLine) {
+              try {
+                const row = summarizeTranscriptRecord(s.parser.end());
+                if (!row) s.invalid = true;
+                else if (!s.rows.has(row.index) && s.rows.size >= this.maxRows) {
+                  s.limit = true;
+                  break;
+                } else s.rows.set(row.index, row);
+              } catch {
+                s.invalid = true;
+              }
+            }
+            s.parser = null;
+            s.lineStarted = false;
+            s.badLine = false;
+          }
+          await yieldLoop();
+          if (s.limit || performance.now() >= deadline) break;
+        }
       }
       if (!current()) return;
-      s.eof = s.offset === info.size;
+      s.eof = s.offset === info.size && !s.limit;
     } finally {
       await handle.close();
     }

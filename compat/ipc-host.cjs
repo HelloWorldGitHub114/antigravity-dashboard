@@ -40,6 +40,331 @@ module.exports = function installAgPulseIpc(...args) {
       "modelTimelineEnabled"
     ];
 
+    // src/shared/logger.ts
+    var import_node_crypto = __require("node:crypto");
+    var import_node_fs2 = __require("node:fs");
+    var import_promises = __require("node:fs/promises");
+    var import_node_path2 = __require("node:path");
+
+    // src/platform/native-bridge.ts
+    var import_node_fs = __require("node:fs");
+    var import_node_module = __require("node:module");
+    var import_node_path = __require("node:path");
+    var import_node_url = __require("node:url");
+    var import_meta = {};
+    var cachedAddon = null;
+    var cachedPath = null;
+    var cachedEnvPath = null;
+    var failedPaths = /* @__PURE__ */ new Set();
+    function isDisabled() {
+      return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+    }
+    function resolveImportMetaUrl() {
+      try {
+        const metaUrl = typeof import_meta === "object" ? import_meta.url : void 0;
+        return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+      } catch {
+        return void 0;
+      }
+    }
+    function getAddonRequire() {
+      const metaUrl = resolveImportMetaUrl();
+      if (metaUrl) {
+        try {
+          return (0, import_node_module.createRequire)(metaUrl);
+        } catch {
+        }
+      }
+      try {
+        return (0, import_node_module.createRequire)((0, import_node_path.join)(process.cwd(), "package.json"));
+      } catch {
+        return null;
+      }
+    }
+    function platformAddonFilename(platform = process.platform, arch = process.arch) {
+      return `pulse-accel.${platform}-${arch}.node`;
+    }
+    function addonSearchBases(dir) {
+      return [(0, import_node_path.join)(dir, platformAddonFilename()), (0, import_node_path.join)(dir, "pulse-accel.node")];
+    }
+    function candidateAddonPaths() {
+      const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+      if (envPath) {
+        return [(0, import_node_path.resolve)(envPath)];
+      }
+      const candidates = [];
+      const metaUrl = resolveImportMetaUrl();
+      if (metaUrl) {
+        try {
+          const here = (0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(metaUrl));
+          candidates.push(
+            ...addonSearchBases(here),
+            ...addonSearchBases((0, import_node_path.join)(here, "..", "sidecars", "panel")),
+            ...addonSearchBases((0, import_node_path.join)(here, "..", "..", "sidecars", "panel"))
+          );
+        } catch {
+        }
+      }
+      try {
+        candidates.push(...addonSearchBases((0, import_node_path.join)(process.cwd(), "sidecars", "panel")));
+      } catch {
+      }
+      return [...new Set(candidates)];
+    }
+    function getAddon() {
+      if (isDisabled()) return null;
+      const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+      const envPath = rawEnvPath ? (0, import_node_path.resolve)(rawEnvPath) : null;
+      if (cachedAddon && cachedEnvPath === envPath) {
+        return cachedAddon;
+      }
+      const req = getAddonRequire();
+      if (!req) return null;
+      for (const candidate of candidateAddonPaths()) {
+        if (failedPaths.has(candidate)) continue;
+        if (!(0, import_node_fs.existsSync)(candidate)) continue;
+        try {
+          const loaded = req(candidate);
+          if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+            cachedAddon = loaded;
+            cachedPath = candidate;
+            cachedEnvPath = envPath;
+            return cachedAddon;
+          }
+          failedPaths.add(candidate);
+        } catch {
+          failedPaths.add(candidate);
+        }
+      }
+      cachedAddon = null;
+      cachedPath = null;
+      cachedEnvPath = null;
+      return null;
+    }
+    function rotateLogTailNative(logPath, maxBytes, keepLines) {
+      if (!logPath || !Number.isFinite(maxBytes) || maxBytes < 0 || !Number.isFinite(keepLines) || keepLines < 0) {
+        return null;
+      }
+      const addon = getAddon();
+      if (!addon || typeof addon.rotateLogTailJson !== "function") return null;
+      try {
+        const json = addon.rotateLogTailJson(
+          logPath,
+          Math.floor(maxBytes),
+          Math.floor(keepLines)
+        );
+        if (typeof json !== "string" || !json) return null;
+        const parsed = JSON.parse(json);
+        return typeof parsed?.rotated === "boolean" ? parsed.rotated : null;
+      } catch {
+        return null;
+      }
+    }
+
+    // src/shared/logger.ts
+    var CHUNK_SIZE = 64 * 1024;
+    var DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+    var DEFAULT_KEEP_LINES = 2e3;
+    var SYNC_WAIT_CELL = new Int32Array(new SharedArrayBuffer(4));
+    var writeQueues = /* @__PURE__ */ new Map();
+    var ensuredDirs = /* @__PURE__ */ new Set();
+    var tempSeq = 0;
+    function isErrnoCode(error, ...codes) {
+      const code = error?.code;
+      return typeof code === "string" && codes.includes(code);
+    }
+    function safeUnlinkSync(filePath) {
+      try {
+        (0, import_node_fs2.unlinkSync)(filePath);
+      } catch {
+      }
+    }
+    function createUniqueTempPath(logPath) {
+      tempSeq += 1;
+      return `${logPath}.${process.pid}.${tempSeq}.${(0, import_node_crypto.randomUUID)()}.tmp`;
+    }
+    function renameAtomicSync(tmpPath, logPath) {
+      if (process.platform !== "win32") {
+        (0, import_node_fs2.renameSync)(tmpPath, logPath);
+        return;
+      }
+      const maxAttempts = 5;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          (0, import_node_fs2.renameSync)(tmpPath, logPath);
+          return;
+        } catch (error) {
+          if (attempt + 1 < maxAttempts && isErrnoCode(error, "EPERM", "EACCES", "EBUSY")) {
+            Atomics.wait(SYNC_WAIT_CELL, 0, 0, 2 * (attempt + 1));
+            continue;
+          }
+          throw error;
+        }
+      }
+    }
+    function rotateLogTailFallback(logPath, maxBytes, keepLines) {
+      let fileLen;
+      try {
+        fileLen = (0, import_node_fs2.statSync)(logPath).size;
+      } catch (error) {
+        if (isErrnoCode(error, "ENOENT", "ENOTDIR")) return false;
+        throw error;
+      }
+      if (fileLen <= maxBytes) return false;
+      if (keepLines === 0) {
+        const tmpPath2 = createUniqueTempPath(logPath);
+        let outFd2 = null;
+        try {
+          outFd2 = (0, import_node_fs2.openSync)(tmpPath2, "wx");
+          (0, import_node_fs2.fsyncSync)(outFd2);
+          (0, import_node_fs2.closeSync)(outFd2);
+          outFd2 = null;
+          renameAtomicSync(tmpPath2, logPath);
+          return true;
+        } finally {
+          if (outFd2 !== null) {
+            try {
+              (0, import_node_fs2.closeSync)(outFd2);
+            } catch {
+            }
+          }
+          safeUnlinkSync(tmpPath2);
+        }
+      }
+      let readFd = null;
+      let outFd = null;
+      let tmpPath = null;
+      try {
+        readFd = (0, import_node_fs2.openSync)(logPath, "r");
+        fileLen = (0, import_node_fs2.statSync)(logPath).size;
+        if (fileLen <= maxBytes) return false;
+        const buf = Buffer.allocUnsafe(CHUNK_SIZE);
+        let pos = fileLen;
+        let newlinesFound = 0;
+        let cutOffset = 0;
+        while (pos > 0) {
+          const readLen = Math.min(pos, CHUNK_SIZE);
+          pos -= readLen;
+          let totalRead = 0;
+          while (totalRead < readLen) {
+            const bytesRead = (0, import_node_fs2.readSync)(
+              readFd,
+              buf,
+              totalRead,
+              readLen - totalRead,
+              pos + totalRead
+            );
+            if (bytesRead <= 0) break;
+            totalRead += bytesRead;
+          }
+          for (let i = totalRead - 1; i >= 0; i--) {
+            if (buf[i] === 10) {
+              if (pos + i + 1 === fileLen) {
+                continue;
+              }
+              newlinesFound += 1;
+              if (newlinesFound === keepLines) {
+                cutOffset = pos + i + 1;
+                break;
+              }
+            }
+          }
+          if (newlinesFound >= keepLines || totalRead < readLen) {
+            break;
+          }
+        }
+        if (cutOffset === 0) return false;
+        tmpPath = createUniqueTempPath(logPath);
+        outFd = (0, import_node_fs2.openSync)(tmpPath, "wx");
+        let readPos = cutOffset;
+        while (readPos < fileLen) {
+          const toRead = Math.min(CHUNK_SIZE, fileLen - readPos);
+          const bytesRead = (0, import_node_fs2.readSync)(readFd, buf, 0, toRead, readPos);
+          if (bytesRead <= 0) break;
+          let written = 0;
+          while (written < bytesRead) {
+            written += (0, import_node_fs2.writeSync)(outFd, buf.subarray(written, bytesRead));
+          }
+          readPos += bytesRead;
+        }
+        (0, import_node_fs2.fsyncSync)(outFd);
+        (0, import_node_fs2.closeSync)(outFd);
+        outFd = null;
+        (0, import_node_fs2.closeSync)(readFd);
+        readFd = null;
+        renameAtomicSync(tmpPath, logPath);
+        return true;
+      } finally {
+        if (outFd !== null) {
+          try {
+            (0, import_node_fs2.closeSync)(outFd);
+          } catch {
+          }
+        }
+        if (readFd !== null) {
+          try {
+            (0, import_node_fs2.closeSync)(readFd);
+          } catch {
+          }
+        }
+        if (tmpPath) {
+          safeUnlinkSync(tmpPath);
+        }
+      }
+    }
+    function rotateLogTail(logPath, maxBytes, keepLines, options) {
+      if (!logPath) return false;
+      const safeMaxBytes = Number.isFinite(maxBytes) && maxBytes >= 0 ? Math.floor(maxBytes) : 0;
+      const safeKeepLines = Number.isFinite(keepLines) && keepLines >= 0 ? Math.floor(keepLines) : 0;
+      if (options?.allowNative !== false) {
+        const nativeResult = rotateLogTailNative(logPath, safeMaxBytes, safeKeepLines);
+        if (nativeResult !== null) {
+          return nativeResult;
+        }
+      }
+      return rotateLogTailFallback(logPath, safeMaxBytes, safeKeepLines);
+    }
+    async function appendBoundedLogLine(logPath, line, options) {
+      if (!logPath) return;
+      const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
+      const keepLines = options?.keepLines ?? DEFAULT_KEEP_LINES;
+      const allowNative = options?.allowNative !== false;
+      const ensureDir = options?.ensureDir !== false;
+      const dir = (0, import_node_path2.dirname)(logPath);
+      const queueKey = (0, import_node_path2.resolve)(logPath);
+      const prev = writeQueues.get(queueKey) ?? Promise.resolve();
+      const next = prev.catch(() => void 0).then(async () => {
+        if (ensureDir && !ensuredDirs.has(dir)) {
+          await (0, import_promises.mkdir)(dir, { recursive: true });
+          ensuredDirs.add(dir);
+        }
+        try {
+          await (0, import_promises.appendFile)(logPath, line, "utf8");
+        } catch (error) {
+          if (ensureDir && isErrnoCode(error, "ENOENT")) {
+            ensuredDirs.delete(dir);
+            await (0, import_promises.mkdir)(dir, { recursive: true });
+            ensuredDirs.add(dir);
+            await (0, import_promises.appendFile)(logPath, line, "utf8");
+          } else {
+            throw error;
+          }
+        }
+        const st = await (0, import_promises.stat)(logPath);
+        if (st.size > maxBytes) {
+          rotateLogTail(logPath, maxBytes, keepLines, { allowNative });
+        }
+      });
+      writeQueues.set(queueKey, next);
+      try {
+        await next;
+      } finally {
+        if (writeQueues.get(queueKey) === next) {
+          writeQueues.delete(queueKey);
+        }
+      }
+    }
+
     // src/ui/ipc-host/helpers.ts
     function createHostStatusHelpers(fs, settingsFile, configFile, sidecarLogFile) {
       let disabledCache = {
@@ -52,7 +377,7 @@ module.exports = function installAgPulseIpc(...args) {
         at: 0,
         pending: null
       };
-      const isDisabled = async () => {
+      const isDisabled2 = async () => {
         const now = Date.now();
         if (now - disabledCache.at < 1e3) return disabledCache.value;
         if (disabledCache.pending) return disabledCache.pending;
@@ -77,9 +402,9 @@ module.exports = function installAgPulseIpc(...args) {
         return disabledCache.pending;
       };
       const readLogTail = async (file, maxBytes = 262144) => {
-        const stat = await fs.promises.stat(file);
-        const start = Math.max(0, stat.size - maxBytes);
-        const length = stat.size - start;
+        const stat2 = await fs.promises.stat(file);
+        const start = Math.max(0, stat2.size - maxBytes);
+        const length = stat2.size - start;
         if (!length) return "";
         const handle = await fs.promises.open(file, "r");
         try {
@@ -117,7 +442,7 @@ module.exports = function installAgPulseIpc(...args) {
       const resetFallbackEndpoint = () => {
         fallbackCache = { endpoint: null, at: 0, pending: null };
       };
-      return { isDisabled, getFallbackEndpoint, resetFallbackEndpoint };
+      return { isDisabled: isDisabled2, getFallbackEndpoint, resetFallbackEndpoint };
     }
 
     // src/ui/ipc-host/usage-handlers.ts
@@ -244,8 +569,7 @@ module.exports = function installAgPulseIpc(...args) {
       );
       const sidecarLogFile = path.join(diagLogDir, "sidecar.log");
       const diagLogFile = path.join(diagLogDir, "widget.log");
-      let diagDirReady = false;
-      const { isDisabled, getFallbackEndpoint, resetFallbackEndpoint } = createHostStatusHelpers(
+      const { isDisabled: isDisabled2, getFallbackEndpoint, resetFallbackEndpoint } = createHostStatusHelpers(
         fs,
         settingsFile,
         configFile,
@@ -308,14 +632,11 @@ module.exports = function installAgPulseIpc(...args) {
           };
           const line = `${(/* @__PURE__ */ new Date()).toISOString()} ${JSON.stringify(safe)}
   `;
-          Promise.resolve().then(async () => {
-            if (!diagDirReady) {
-              await fs.promises.mkdir(diagLogDir, { recursive: true });
-              diagDirReady = true;
-            }
-            await fs.promises.appendFile(diagLogFile, line);
+          void appendBoundedLogLine(diagLogFile, line, {
+            maxBytes: 2 * 1024 * 1024,
+            keepLines: 2e3,
+            allowNative: false
           }).catch(() => {
-            diagDirReady = false;
           });
         } catch {
         }
@@ -332,7 +653,7 @@ module.exports = function installAgPulseIpc(...args) {
           if (!LOOPBACK_HOSTS.has(origin.hostname) || !["http:", "https:"].includes(origin.protocol)) {
             return offline("\u4EC5\u5141\u8BB8 Antigravity \u672C\u5730\u754C\u9762");
           }
-          if (await isDisabled()) {
+          if (await isDisabled2()) {
             return { ...offline("Antigrative Dashboard \u5DF2\u505C\u7528"), enabled: false };
           }
           const input = rawInput ?? {};
@@ -357,13 +678,13 @@ module.exports = function installAgPulseIpc(...args) {
           url.search = "";
           if (input.conversationId) url.searchParams.set("conversationId", input.conversationId);
           if (input.force === true) url.searchParams.set("force", "1");
-          return new Promise((resolve) => {
+          return new Promise((resolve3) => {
             let settled = false;
             const finish = (value, failed = false) => {
               if (settled) return;
               settled = true;
               if (failed && usedFallback) resetFallbackEndpoint();
-              resolve(value);
+              resolve3(value);
             };
             const req = http.get(
               {

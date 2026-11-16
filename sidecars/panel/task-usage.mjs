@@ -222,7 +222,7 @@ function aggregateTaskModelUsage(rootModelRows = [], childModelRowSets = [], opt
 }
 
 // src/telemetry/delegation/task-records.ts
-import { tokenCount as tokenCount2 } from "./metrics.mjs";
+import { isSupportedCacheProvider, tokenCount as tokenCount2 } from "./metrics.mjs";
 var HASH2 = /^[a-f0-9]{64}$/;
 var TASK_FIELDS = [
   "inputTokens",
@@ -232,7 +232,7 @@ var TASK_FIELDS = [
 ];
 var isCount2 = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 var isObject2 = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value));
-var provider = (value) => typeof value === "string" && /^(?:API_PROVIDER_)?(?:GOOGLE_GEMINI|OPENAI|ANTHROPIC)$/.test(value) ? value : "";
+var provider = (value) => isSupportedCacheProvider(value) ? value : "";
 var coverage = (row) => TASK_FIELDS.reduce((n, key) => n + (row[key] !== null ? 1 : 0), 0);
 var rowTotal = (row) => TASK_FIELDS.reduce((n, key) => n + BigInt(row[key] ?? 0), 0n);
 var sameRecord = (a, b) => a.apiProvider === b.apiProvider && TASK_FIELDS.every((key) => a[key] === b[key]);

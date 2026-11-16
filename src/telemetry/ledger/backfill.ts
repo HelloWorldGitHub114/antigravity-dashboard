@@ -5,7 +5,9 @@ import type {
   ManualUsageRecord,
   UsageSummarySnapshot,
 } from '../../contracts/usage.ts';
+import type { SessionDescriptorInput } from '../../platform/native-bridge.ts';
 import { discoverLocalConversations, type DiscoverLocalConversationsResult } from '../reader/local-conversations.ts';
+import { diffSessionSnapshotsWithFallback, parseSummaryMtimeMs } from '../snapshot-diff.ts';
 import {
   buildRetryEntry,
   buildSyncCandidates,
@@ -13,6 +15,7 @@ import {
   candidateSignature,
   ingestConversationUsage,
   syncOneCandidate,
+  type CandidateConversation,
   type DesktopUsageOptions,
   type DesktopUsageStore,
   type ListedConversationSummary,
@@ -23,13 +26,28 @@ import { sha256 } from './helpers.ts';
 import { UsageLedger } from './summary.ts';
 import { HASH_RE, type BackfillEntry, type BackfillHost, type UsageAccountsResult } from './types.ts';
 
-export type { DesktopUsageOptions, DesktopUsageStore, ListedConversationSummary } from './backfill-sync.ts';
+export type {
+  CandidateConversation,
+  DesktopUsageOptions,
+  DesktopUsageStore,
+  ListedConversationSummary,
+} from './backfill-sync.ts';
+
+interface SnapshotDiffCacheEntry {
+  fingerprint: string;
+  settled: boolean;
+  signature: string | undefined;
+  rawModifiedAt: string | undefined;
+  synced: boolean;
+}
 
 export class DesktopUsage {
   readonly store: DesktopUsageStore;
   readonly ledger: UsageLedger;
   readonly fingerprints = new Map<string, string>();
+  readonly snapshotStates = new Map<string, SnapshotDiffCacheEntry>();
   readonly host: BackfillHost | null;
+  readonly conversationsDir: string | null;
   readonly owns: () => boolean;
   now: () => number;
   readonly discoverLocal: () => Promise<DiscoverLocalConversationsResult>;
@@ -57,11 +75,20 @@ export class DesktopUsage {
   constructor(
     store: DesktopUsageStore,
     ledger: UsageLedger = new UsageLedger(),
-    { host = null, discoverLocal = null, owns = () => true, now = Date.now, sliceMs = 3000, continueDelay = 250 }: DesktopUsageOptions = {},
+    {
+      host = null,
+      conversationsDir = null,
+      discoverLocal = null,
+      owns = () => true,
+      now = Date.now,
+      sliceMs = 3000,
+      continueDelay = 250,
+    }: DesktopUsageOptions = {},
   ) {
     this.store = store;
     this.ledger = ledger;
     this.host = host;
+    this.conversationsDir = conversationsDir;
     this.owns = owns;
     this.now = now;
     this.discoverLocal =
@@ -127,6 +154,7 @@ export class DesktopUsage {
       this.scope = scope;
       this.scopeEpoch = epoch;
       this.fingerprints.clear();
+      this.snapshotStates.clear();
       this.fullRemaining.clear();
       this.passSeen.clear();
       this.passFailures.clear();
@@ -164,6 +192,43 @@ export class DesktopUsage {
       this.passFailures.clear();
     }
 
+    const candidateList = [...candidates.values()];
+    const descriptors: SessionDescriptorInput[] = new Array(candidateList.length);
+    for (let i = 0; i < candidateList.length; i++) {
+      const c = candidateList[i];
+      const s = c.listed;
+      const prevState = this.snapshotStates.get(c.id);
+      const sameRawModified = prevState ? prevState.rawModifiedAt === s?.modifiedAt : false;
+      descriptors[i] = {
+        cascadeId: c.id,
+        mtimeMs: parseSummaryMtimeMs(s?.modifiedAt),
+        sizeBytes: c.sizeBytes ?? 0,
+        stepCount: typeof s?.stepCount === 'number' && Number.isFinite(s.stepCount) ? Math.trunc(s.stepCount) : 0,
+        lastUserInputStepIndex:
+          typeof s?.lastUserInputStepIndex === 'number' && Number.isFinite(s.lastUserInputStepIndex)
+            ? Math.trunc(s.lastUserInputStepIndex)
+            : -1,
+        status: String(s?.status || ''),
+        prevFingerprint: prevState && sameRawModified ? prevState.fingerprint : null,
+        prevSettled: prevState ? prevState.settled : null,
+      };
+    }
+    const diffResult = diffSessionSnapshotsWithFallback(descriptors);
+    const recordDiffState = (
+      c: CandidateConversation,
+      diffItem: (typeof diffResult.items)[number] | undefined,
+      synced: boolean,
+    ): void => {
+      if (!diffItem) return;
+      this.snapshotStates.set(c.id, {
+        fingerprint: diffItem.fingerprint,
+        settled: diffItem.statusKind === 'settled',
+        signature: c.signature,
+        rawModifiedAt: c.listed?.modifiedAt,
+        synced,
+      });
+    };
+
     const started = this.now();
     let processed = 0;
     let more = false;
@@ -171,28 +236,48 @@ export class DesktopUsage {
     let cancelled = false;
 
     try {
-      for (const c of candidates.values()) {
+      for (let i = 0; i < candidateList.length; i++) {
         if (!current()) {
           cancelled = true;
           break;
         }
-        const key = sha256(c.id);
+        const c = candidateList[i];
+        const diffItem = diffResult.items[i];
         const s = c.listed;
+        const prevState = this.snapshotStates.get(c.id);
+        const forced = this.fullRemaining.has(c.id);
+        if (!forced && this.passSeen.has(c.id)) continue;
+        if (
+          !forced &&
+          (s || c.signature) &&
+          diffItem &&
+          diffItem.transition === 'unchanged' &&
+          !diffItem.needsPoll &&
+          prevState?.synced &&
+          prevState.signature === c.signature
+        ) {
+          continue;
+        }
+        const key = sha256(c.id);
         const mark = candidateMark(s);
         const signature = candidateSignature(c.signature, mark);
         const old = journal[key];
         const unchanged = old?.signature === signature;
-        const forced = this.fullRemaining.has(c.id);
-        if (!forced && this.passSeen.has(c.id)) continue;
         if (!forced && unchanged && old.state === 'retry' && old.retryAt > this.now()) {
           this.passFailures.add(c.id);
+          recordDiffState(c, diffItem, false);
           continue;
         }
-        const cached = Boolean(s && this.fingerprints.get(c.id) === mark && !/RUNNING/.test(s.status || ''));
+        const cached = Boolean(
+          s && this.fingerprints.get(c.id) === mark && !/RUNNING|GENERATING|WAITING|QUEUED/i.test(s.status || ''),
+        );
         const settled = Boolean(
           s?.modifiedAt && /IDLE|DONE|COMPLETED|CANCELLED|CANCELED|STOPPED|FAILED|ERROR/.test(String(s.status || '')),
         );
-        if (!forced && (c.signature ? unchanged && old?.state === 'complete' && (!s || cached || settled) : cached)) continue;
+        if (!forced && (c.signature ? unchanged && old?.state === 'complete' && (!s || cached || settled) : cached)) {
+          recordDiffState(c, diffItem, true);
+          continue;
+        }
         if (processed && this.now() - started >= this.sliceMs) {
           more = true;
           break;
@@ -201,12 +286,21 @@ export class DesktopUsage {
         this.passSeen.add(c.id);
         this.fullRemaining.delete(c.id);
         try {
-          const outcome = await syncOneCandidate({ candidate: c, scope, forced, store: this.store, ledger: this.ledger, current });
+          const outcome = await syncOneCandidate({
+            candidate: c,
+            scope,
+            forced,
+            store: this.store,
+            ledger: this.ledger,
+            current,
+            conversationsDir: this.conversationsDir,
+          });
           if (outcome.cancelled) {
             cancelled = true;
             break;
           }
           this.fingerprints.set(c.id, mark);
+          recordDiffState(c, diffItem, true);
           this.passFailures.delete(c.id);
           this.readFailures.delete(c.id);
           if (this.host && c.signature) {
@@ -218,6 +312,7 @@ export class DesktopUsage {
             cancelled = true;
             break;
           }
+          recordDiffState(c, diffItem, false);
           this.passFailures.add(c.id);
           const failures = c.signature ? (unchanged ? (old?.failures || 0) + 1 : 1) : (this.readFailures.get(c.id) || 0) + 1;
           this.readFailures.set(c.id, failures);

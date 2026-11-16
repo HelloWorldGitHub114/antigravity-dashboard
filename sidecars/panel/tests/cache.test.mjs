@@ -49,3 +49,23 @@ test('IDE tool follow-ups share executionId but distinct responses must contribu
   delete first.chatModel.usage.responseId;delete followup.chatModel.usage.responseId;
   assert.equal(trajectoryMetrics({trajectory:{generatorMetadata:[first,followup]}}).cache.hitRate,.45);
 });
+
+test('commercial Vertex, Evergreen and Internal apiProvider values produce cache metrics',()=>{
+  for(const apiProvider of [
+    'API_PROVIDER_GOOGLE_VERTEX',
+    'API_PROVIDER_GOOGLE_EVERGREEN',
+    'API_PROVIDER_ANTHROPIC_VERTEX',
+    'API_PROVIDER_OPENAI_VERTEX',
+    'API_PROVIDER_INTERNAL',
+  ]){
+    const result=requestCacheMetrics({apiProvider,inputTokens:'250',cacheReadTokens:'750'});
+    assert.deepEqual(result,{inputTokens:1000,cachedTokens:750,cacheWriteTokens:0,uncachedTokens:250});
+  }
+  const vertexSession=trajectoryMetrics({trajectory:{generatorMetadata:[
+    request('v1',{apiProvider:'API_PROVIDER_GOOGLE_VERTEX',inputTokens:'360589',cacheReadTokens:'3712977',outputTokens:'29260'}),
+  ]}});
+  assert.equal(vertexSession.cache.missingRequests,0);
+  assert.equal(vertexSession.cache.complete,true);
+  assert.equal(vertexSession.cache.totalTokens,4102826);
+  assert.equal(vertexSession.cache.hitRate,3712977/(360589+3712977));
+});

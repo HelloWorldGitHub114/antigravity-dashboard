@@ -1,4 +1,14 @@
-import { conversationId, type DiscoverLocalConversationsResult } from '../reader/local-conversations.ts';
+import type { UsageRecord } from '../../contracts/usage.ts';
+import {
+  extractSqliteUsageRecords,
+  isNativeAccelAvailable,
+  readSqliteConversationMeta,
+} from '../../platform/native-bridge.ts';
+import {
+  conversationId,
+  resolveLocalConversationDbPath,
+  type DiscoverLocalConversationsResult,
+} from '../reader/local-conversations.ts';
 import { usageRecords } from './extractor.ts';
 import { sha256 } from './helpers.ts';
 import type { UsageLedger } from './summary.ts';
@@ -16,8 +26,10 @@ export interface DesktopUsageStore {
   identity: string | null;
   epoch: number;
   usagePersistenceError?: boolean;
+  conversationsDir?: string | null;
   listConversations(includeArchive?: boolean): Promise<ListedConversationSummary[]>;
   client?: {
+    conversationsDir?: string | null;
     trajectory(
       id: string,
       options?: { summary?: unknown; force?: boolean; isCurrent?: () => boolean },
@@ -27,6 +39,7 @@ export interface DesktopUsageStore {
 
 export interface DesktopUsageOptions {
   host?: BackfillHost | null;
+  conversationsDir?: string | null;
   discoverLocal?: (() => Promise<DiscoverLocalConversationsResult>) | null;
   owns?: () => boolean;
   now?: () => number;
@@ -39,6 +52,8 @@ export interface CandidateConversation {
   listed?: ListedConversationSummary;
   signature?: string;
   readSignature?: () => Promise<string | null>;
+  dbPath?: string;
+  sizeBytes?: number;
 }
 
 export type RunSyncResult =
@@ -100,8 +115,9 @@ export async function syncOneCandidate(params: {
   store: DesktopUsageStore;
   ledger: UsageLedger;
   current: () => boolean;
+  conversationsDir?: string | null;
 }): Promise<{ cancelled: boolean }> {
-  const { candidate: c, scope, forced, store, ledger, current } = params;
+  const { candidate: c, scope, forced, store, ledger, current, conversationsDir } = params;
   const s = c.listed;
   const summary = s
     ? {
@@ -111,19 +127,57 @@ export async function syncOneCandidate(params: {
         lastUserInputStepIndex: s.lastUserInputStepIndex,
       }
     : {};
-  const raw = (await store.client?.trajectory(c.id, {
-    summary,
-    force: forced || !!c.signature,
-    isCurrent: current,
-  })) as { trajectory?: { steps?: unknown[]; generatorMetadata?: unknown[] } } | null | undefined;
+  const isRunning = Boolean(s?.status && /RUNNING|ACTIVE|GENERATING|WAITING|QUEUED/i.test(String(s.status)));
+  const explicitDir = conversationsDir ?? store.conversationsDir ?? store.client?.conversationsDir ?? null;
+  const dbPath = c.dbPath || (explicitDir ? resolveLocalConversationDbPath(c.id, explicitDir) : null);
+
+  let rows: UsageRecord[] | null = null;
+  if (!isRunning && dbPath && isNativeAccelAvailable()) {
+    const expectedSteps = typeof s?.stepCount === 'number' && Number.isSafeInteger(s.stepCount) ? s.stepCount : 0;
+    let freshEnough = true;
+    if (expectedSteps > 0) {
+      const meta = readSqliteConversationMeta(dbPath, c.id);
+      freshEnough = typeof meta?.stepCount === 'number' && meta.stepCount >= expectedSteps;
+    }
+    if (freshEnough) {
+      const sqliteRows = extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
+      if (sqliteRows !== null && (sqliteRows.length > 0 || expectedSteps === 0)) {
+        rows = sqliteRows;
+      }
+    }
+  }
+
+  if (rows === null) {
+    try {
+      const raw = (await store.client?.trajectory(c.id, {
+        summary,
+        force: forced || !!c.signature,
+        isCurrent: current,
+      })) as { trajectory?: { steps?: unknown[]; generatorMetadata?: unknown[] } } | null | undefined;
+      if (!current()) return { cancelled: true };
+      if (!raw?.trajectory || !Array.isArray(raw.trajectory.steps) || !Array.isArray(raw.trajectory.generatorMetadata)) {
+        throw Error('Incomplete historical statistics');
+      }
+      if (!s && !raw.trajectory.steps.length && !raw.trajectory.generatorMetadata.length) {
+        throw Error('History not yet readable');
+      }
+      rows = usageRecords(raw, c.id);
+    } catch (rpcError) {
+      if (!current()) return { cancelled: true };
+      if (dbPath && isNativeAccelAvailable()) {
+        const rescueRows = extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
+        if (rescueRows && rescueRows.length > 0) {
+          rows = rescueRows;
+        } else {
+          throw rpcError;
+        }
+      } else {
+        throw rpcError;
+      }
+    }
+  }
+
   if (!current()) return { cancelled: true };
-  if (!raw?.trajectory || !Array.isArray(raw.trajectory.steps) || !Array.isArray(raw.trajectory.generatorMetadata)) {
-    throw Error('Incomplete historical statistics');
-  }
-  if (!s && !raw.trajectory.steps.length && !raw.trajectory.generatorMetadata.length) {
-    throw Error('History not yet readable');
-  }
-  const rows = usageRecords(raw, c.id);
   const other = await ledger.inspectOtherAccounts(scope, c.id);
   const filteredRows = other.recordIds.size ? rows.filter((r) => !other.recordIds.has(r.id)) : rows;
   if (filteredRows.length || !other.recordIds.size) {

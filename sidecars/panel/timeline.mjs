@@ -482,11 +482,411 @@ function safeTimeline(value, opts = null) {
   return opts ? compactTimeline(base, opts) : base;
 }
 
+// src/platform/native-bridge.ts
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedAddon = null;
+var cachedPath = null;
+var cachedEnvPath = null;
+var failedPaths = /* @__PURE__ */ new Set();
+function isDisabled() {
+  return process.env.PULSE_DISABLE_NATIVE_ACCEL === "1";
+}
+function resolveImportMetaUrl() {
+  try {
+    const metaUrl = typeof import.meta === "object" ? import.meta.url : void 0;
+    return typeof metaUrl === "string" && metaUrl.length > 0 ? metaUrl : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getAddonRequire() {
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      return createRequire(metaUrl);
+    } catch {
+    }
+  }
+  try {
+    return createRequire(join(process.cwd(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+function platformAddonFilename(platform = process.platform, arch = process.arch) {
+  return `pulse-accel.${platform}-${arch}.node`;
+}
+function addonSearchBases(dir) {
+  return [join(dir, platformAddonFilename()), join(dir, "pulse-accel.node")];
+}
+function candidateAddonPaths() {
+  const envPath = process.env.PULSE_ACCEL_PATH?.trim();
+  if (envPath) {
+    return [resolve(envPath)];
+  }
+  const candidates = [];
+  const metaUrl = resolveImportMetaUrl();
+  if (metaUrl) {
+    try {
+      const here = dirname(fileURLToPath(metaUrl));
+      candidates.push(
+        ...addonSearchBases(here),
+        ...addonSearchBases(join(here, "..", "sidecars", "panel")),
+        ...addonSearchBases(join(here, "..", "..", "sidecars", "panel"))
+      );
+    } catch {
+    }
+  }
+  try {
+    candidates.push(...addonSearchBases(join(process.cwd(), "sidecars", "panel")));
+  } catch {
+  }
+  return [...new Set(candidates)];
+}
+function getAddon() {
+  if (isDisabled()) return null;
+  const rawEnvPath = process.env.PULSE_ACCEL_PATH?.trim();
+  const envPath = rawEnvPath ? resolve(rawEnvPath) : null;
+  if (cachedAddon && cachedEnvPath === envPath) {
+    return cachedAddon;
+  }
+  const req = getAddonRequire();
+  if (!req) return null;
+  for (const candidate of candidateAddonPaths()) {
+    if (failedPaths.has(candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      const loaded = req(candidate);
+      if (loaded && typeof loaded.extractSqliteUsageRecordsJson === "function" && typeof loaded.readSqliteTrajectoryJson === "function" && typeof loaded.readSqliteConversationMetaJson === "function") {
+        cachedAddon = loaded;
+        cachedPath = candidate;
+        cachedEnvPath = envPath;
+        return cachedAddon;
+      }
+      failedPaths.add(candidate);
+    } catch {
+      failedPaths.add(candidate);
+    }
+  }
+  cachedAddon = null;
+  cachedPath = null;
+  cachedEnvPath = null;
+  return null;
+}
+function callRawSingleStringAddon(methodName, inputJson) {
+  if (!inputJson) return null;
+  const addon = getAddon();
+  const fn = addon?.[methodName];
+  if (typeof fn !== "function") return null;
+  try {
+    const out = fn(inputJson);
+    return typeof out === "string" && out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+function tryCoalesceSwimlanesJson(inputJson) {
+  return callRawSingleStringAddon("coalesceSwimlanesJson", inputJson);
+}
+
 // src/telemetry/timeline/swimlane.ts
 import { formatModelName as formatModelName3, isOrchestratorModel as isOrchestratorModel2 } from "./context.mjs";
 import { normalizeConversationId as normalizeConversationId3 } from "./delegation.mjs";
 import { extractPlanModel } from "./metrics.mjs";
+
+// src/telemetry/timeline/swimlane-coalesce.ts
+var DEFAULT_CONTAINER_WIDTH_PX = 600;
+var DEFAULT_MIN_PX_WIDTH = 1.5;
+var DEFAULT_MAX_SEGMENTS = 128;
+var MIN_WIDTH_RATIO = 0.01;
+var MIN_LEFT_PCT = 0;
+var MAX_LEFT_PCT = 98.5;
+var MIN_WIDTH_PCT = 1.5;
+function clamp012(v) {
+  if (!Number.isFinite(v)) return 0;
+  if (v <= 0) return 0;
+  if (v >= 1) return 1;
+  return v;
+}
+function round2(v) {
+  if (!Number.isFinite(v)) return 0;
+  const sign = v < 0 ? -1 : 1;
+  const scaled = Math.round(Math.abs(v) * 100);
+  return scaled === 0 ? 0 : sign * scaled / 100;
+}
+function cleanOptStr(val) {
+  if (typeof val !== "string") return void 0;
+  const trimmed = val.trim();
+  return trimmed.length > 0 ? trimmed : void 0;
+}
+function toNonNegInt(val) {
+  if (typeof val !== "number" || !Number.isFinite(val) || val < 0) return void 0;
+  return Math.floor(val);
+}
+function parseLaneKind(kind, phase) {
+  for (const candidate of [kind, phase]) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (trimmed === "plan" || trimmed === "worker" || trimmed === "tool" || trimmed === "subagent" || trimmed === "handoff") {
+      return trimmed;
+    }
+  }
+  return "worker";
+}
+function trackRank(kind) {
+  switch (kind) {
+    case "plan":
+      return 0;
+    case "worker":
+      return 1;
+    case "tool":
+      return 2;
+    case "subagent":
+      return 3;
+    case "handoff":
+      return 4;
+  }
+}
+function recomputeRatios(item, totalStartMs, spanMs) {
+  const startRatio = clamp012((item.startMs - totalStartMs) / spanMs);
+  const rawWidth = clamp012((item.endMs - item.startMs) / spanMs);
+  const widthRatio = item.endMs === item.startMs && item.kind === "handoff" ? MIN_WIDTH_RATIO : Math.max(MIN_WIDTH_RATIO, rawWidth);
+  const leftPct = round2(Math.min(MAX_LEFT_PCT, Math.max(MIN_LEFT_PCT, startRatio * 100)));
+  const widthPct = round2(Math.min(100 - leftPct, Math.max(MIN_WIDTH_PCT, widthRatio * 100)));
+  item.startRatio = startRatio;
+  item.widthRatio = widthRatio;
+  item.leftPct = leftPct;
+  item.widthPct = widthPct;
+}
+function mergeInto(prev, curr, totalStartMs, spanMs) {
+  if (curr.startMs < prev.startMs) prev.startMs = curr.startMs;
+  if (curr.endMs > prev.endMs) prev.endMs = curr.endMs;
+  prev.stepStart = Math.min(prev.stepStart, curr.stepStart);
+  prev.stepEnd = Math.max(prev.stepEnd, curr.stepEnd);
+  prev.calls += curr.calls;
+  if (prev.stepCount !== void 0 || curr.stepCount !== void 0) {
+    prev.stepCount = (prev.stepCount ?? 0) + (curr.stepCount ?? 0);
+  }
+  prev.hasError = prev.hasError || curr.hasError;
+  if (prev.model !== curr.model) {
+    prev.model = null;
+    prev.modelLabel = "mixed";
+    if (prev.kind !== "tool") {
+      prev.label = "mixed";
+    }
+  } else if (prev.modelLabel === void 0 && curr.modelLabel !== void 0) {
+    prev.modelLabel = curr.modelLabel;
+  }
+  if (prev.phase !== curr.phase) {
+    delete prev.phase;
+  }
+  if (prev.toolName !== void 0 && curr.toolName !== void 0 && prev.toolName !== curr.toolName) {
+    prev.toolName = "mixed";
+  } else if (prev.toolName === void 0 && curr.toolName !== void 0) {
+    prev.toolName = curr.toolName;
+  }
+  if (prev.kind === "tool" && prev.label.endsWith(" tools") && curr.label.endsWith(" tools")) {
+    prev.label = `${prev.calls} tools`;
+  }
+  recomputeRatios(prev, totalStartMs, spanMs);
+}
+function coalesceSwimlanesFallback(input) {
+  const rawLanes = Array.isArray(input?.lanes) ? input.lanes : [];
+  const inputCount = rawLanes.length;
+  const containerWidthPx = typeof input?.containerWidthPx === "number" && Number.isFinite(input.containerWidthPx) && input.containerWidthPx > 0 ? input.containerWidthPx : DEFAULT_CONTAINER_WIDTH_PX;
+  const minPxWidth = typeof input?.minPxWidth === "number" && Number.isFinite(input.minPxWidth) && input.minPxWidth >= 0 ? input.minPxWidth : DEFAULT_MIN_PX_WIDTH;
+  const minGapRatio = clamp012(minPxWidth / containerWidthPx);
+  const maxSegments = typeof input?.maxSegments === "number" && Number.isFinite(input.maxSegments) && input.maxSegments >= 1 ? Math.floor(input.maxSegments) : DEFAULT_MAX_SEGMENTS;
+  const normalized = [];
+  for (let origIndex = 0; origIndex < rawLanes.length; origIndex++) {
+    const raw = rawLanes[origIndex] || {};
+    const phase = cleanOptStr(raw.phase);
+    const kind = parseLaneKind(raw.kind, phase);
+    const model = cleanOptStr(raw.model) ?? null;
+    const modelLabel = cleanOptStr(raw.modelLabel);
+    const toolName = cleanOptStr(raw.toolName);
+    const label = cleanOptStr(raw.label) ?? modelLabel ?? model ?? kind;
+    const startMs = typeof raw.startMs === "number" && Number.isFinite(raw.startMs) && raw.startMs >= 0 ? raw.startMs : 0;
+    const endMs = typeof raw.endMs === "number" && Number.isFinite(raw.endMs) && raw.endMs >= startMs ? raw.endMs : startMs;
+    const stepStart = toNonNegInt(raw.stepStart) ?? 0;
+    const stepEnd = Math.max(stepStart, toNonNegInt(raw.stepEnd) ?? stepStart);
+    const stepCount = toNonNegInt(raw.stepCount);
+    const calls = toNonNegInt(raw.calls) ?? stepCount ?? 1;
+    const hasError = raw.hasError === true;
+    const item = {
+      index: 0,
+      kind,
+      model,
+      label,
+      startMs,
+      endMs,
+      startRatio: 0,
+      widthRatio: MIN_WIDTH_RATIO,
+      leftPct: 0,
+      widthPct: MIN_WIDTH_PCT,
+      stepStart,
+      stepEnd,
+      calls,
+      hasError
+    };
+    if (modelLabel !== void 0) item.modelLabel = modelLabel;
+    if (phase !== void 0) item.phase = phase;
+    if (toolName !== void 0) item.toolName = toolName;
+    if (stepCount !== void 0) item.stepCount = stepCount;
+    normalized.push({
+      origIndex: toNonNegInt(raw.index) ?? origIndex,
+      item
+    });
+  }
+  let totalStartMs;
+  if (typeof input?.totalStartMs === "number" && Number.isFinite(input.totalStartMs)) {
+    totalStartMs = input.totalStartMs;
+  } else if (normalized.length === 0) {
+    totalStartMs = 0;
+  } else {
+    totalStartMs = normalized[0].item.startMs;
+    for (let i = 1; i < normalized.length; i++) {
+      if (normalized[i].item.startMs < totalStartMs) totalStartMs = normalized[i].item.startMs;
+    }
+  }
+  let spanMs;
+  if (typeof input?.spanMs === "number" && Number.isFinite(input.spanMs)) {
+    spanMs = Math.max(1, input.spanMs);
+  } else if (normalized.length === 0) {
+    spanMs = 1;
+  } else {
+    let maxEnd = totalStartMs;
+    for (const entry of normalized) {
+      if (entry.item.endMs > maxEnd) maxEnd = entry.item.endMs;
+    }
+    spanMs = Math.max(1, maxEnd - totalStartMs);
+  }
+  const tracks = [[], [], [], [], []];
+  for (const entry of normalized) {
+    recomputeRatios(entry.item, totalStartMs, spanMs);
+    tracks[trackRank(entry.item.kind)].push(entry);
+  }
+  const coalescedTracks = [[], [], [], [], []];
+  for (let ti = 0; ti < 5; ti++) {
+    const track = tracks[ti];
+    track.sort(
+      (a, b) => a.item.startMs - b.item.startMs || a.item.endMs - b.item.endMs || a.item.stepStart - b.item.stepStart || a.origIndex - b.origIndex
+    );
+    const outTrack = coalescedTracks[ti];
+    const lastByKey = /* @__PURE__ */ new Map();
+    for (const entry of track) {
+      const key = JSON.stringify([entry.item.model, entry.item.phase ?? null]);
+      const prevIdx = lastByKey.get(key);
+      const canMerge = prevIdx !== void 0 && entry.item.startRatio - Math.min(1, outTrack[prevIdx].startRatio + outTrack[prevIdx].widthRatio) <= minGapRatio;
+      if (canMerge && prevIdx !== void 0) {
+        mergeInto(outTrack[prevIdx], entry.item, totalStartMs, spanMs);
+      } else {
+        lastByKey.set(key, outTrack.length);
+        outTrack.push({ ...entry.item });
+      }
+    }
+    outTrack.sort(
+      (a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.stepStart - b.stepStart
+    );
+  }
+  for (; ; ) {
+    let total = 0;
+    for (const t of coalescedTracks) total += t.length;
+    if (total <= maxSegments) break;
+    let bestSame = null;
+    let bestAny = null;
+    for (let ti = 0; ti < 5; ti++) {
+      const track = coalescedTracks[ti];
+      for (let i = 0; i < track.length; i++) {
+        const prev = track[i];
+        for (let j = i + 1; j < track.length; j++) {
+          const curr = track[j];
+          if (prev.model === curr.model && prev.phase === curr.phase) {
+            const gap = curr.startRatio - Math.min(1, prev.startRatio + prev.widthRatio);
+            if (!bestSame || gap < bestSame.gap) {
+              bestSame = { ti, idx: i, jdx: j, gap };
+            }
+            break;
+          }
+        }
+        if (i + 1 < track.length) {
+          const curr = track[i + 1];
+          const gap = curr.startRatio - Math.min(1, prev.startRatio + prev.widthRatio);
+          if (!bestAny || gap < bestAny.gap) {
+            bestAny = { ti, idx: i, gap };
+          }
+        }
+      }
+    }
+    if (bestSame) {
+      const [curr] = coalescedTracks[bestSame.ti].splice(bestSame.jdx, 1);
+      mergeInto(coalescedTracks[bestSame.ti][bestSame.idx], curr, totalStartMs, spanMs);
+    } else if (bestAny) {
+      const [curr] = coalescedTracks[bestAny.ti].splice(bestAny.idx + 1, 1);
+      mergeInto(coalescedTracks[bestAny.ti][bestAny.idx], curr, totalStartMs, spanMs);
+    } else {
+      break;
+    }
+  }
+  const out = coalescedTracks.flat();
+  out.sort(
+    (a, b) => a.startMs - b.startMs || trackRank(a.kind) - trackRank(b.kind) || a.endMs - b.endMs || a.stepStart - b.stepStart
+  );
+  let totalCalls = 0;
+  let errorCount = 0;
+  const byKind = {
+    plan: 0,
+    worker: 0,
+    tool: 0,
+    subagent: 0,
+    handoff: 0
+  };
+  for (let idx = 0; idx < out.length; idx++) {
+    const item = out[idx];
+    item.index = idx;
+    totalCalls += item.calls;
+    if (item.hasError) errorCount += 1;
+    byKind[item.kind] += 1;
+  }
+  return {
+    lanes: out,
+    totalStartMs,
+    spanMs,
+    summary: {
+      inputCount,
+      outputCount: out.length,
+      mergedCount: Math.max(0, inputCount - out.length),
+      totalCalls,
+      errorCount,
+      byKind
+    }
+  };
+}
+
+// src/telemetry/timeline/swimlane.ts
 var VALID_LANES2 = /* @__PURE__ */ new Set(["plan", "worker", "tool", "subagent", "handoff"]);
+var SWIMLANE_COALESCE_THRESHOLD = 120;
+function coalesceSwimlanes(input) {
+  if (process.env.PULSE_DISABLE_NATIVE_ACCEL !== "1") {
+    const tryCoalesceSwimlanesJson2 = tryCoalesceSwimlanesJson;
+    if (typeof tryCoalesceSwimlanesJson2 === "function") {
+      try {
+        const raw = tryCoalesceSwimlanesJson2(JSON.stringify(input));
+        if (typeof raw === "string" && raw.length > 0) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object" && Array.isArray(parsed.lanes)) {
+            return parsed;
+          }
+        }
+      } catch {
+      }
+    }
+  }
+  return coalesceSwimlanesFallback(input);
+}
 function buildSwimlanes(turns, steps, genList, subagentItems) {
   const allTimes = [];
   for (const s of steps) {
@@ -556,8 +956,22 @@ function buildSwimlanes(turns, steps, genList, subagentItems) {
     const eMs = Math.max(sMs, parseTs(item.endedAt) ?? sMs + (item.durationMs || 0));
     pushLane("subagent", formatModelName3(item.activeModel || item.model), cleanStr(item.role, 64) || "subagent", sMs, eMs, 0, item.steps || 0, item.requests || 0);
   }
+  const finalSwimlanes = swimlanes.length > SWIMLANE_COALESCE_THRESHOLD ? coalesceSwimlanes({ lanes: swimlanes, totalStartMs: startedAtMs, spanMs }).lanes.map(
+    ({ kind, model, label, startMs, endMs, startRatio, widthRatio, stepStart, stepEnd, calls }) => ({
+      kind,
+      model,
+      label,
+      startMs,
+      endMs,
+      startRatio,
+      widthRatio,
+      stepStart,
+      stepEnd,
+      calls
+    })
+  ) : swimlanes;
   return {
-    swimlanes,
+    swimlanes: finalSwimlanes,
     startedAt: allTimes.length ? iso(startedAtMs) : null,
     endedAt: allTimes.length ? iso(endedAtMs) : null,
     durationMs: allTimes.length ? Math.max(0, Math.round(endedAtMs - startedAtMs)) : 0

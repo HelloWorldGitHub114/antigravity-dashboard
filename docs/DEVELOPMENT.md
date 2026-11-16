@@ -1,8 +1,8 @@
-# 开发与验证（v0.11.0+）
+# 开发与验证（v0.11.0+ / v0.12.0+）
 
 ## 架构与目录结构
 
-自 **v0.11.0** 起，项目采用 **全栈 TypeScript 模块化源码（`src/`，单文件 `<300` 行）+ `esbuild` 零依赖原位编译产物** 架构。编译产物直接输出至宿主期望的原始入口路径（`sidecars/panel/`、`compat/`、`ide/`、`cli/` 与根目录 `manage.mjs`），在消除运行时 `module.exports` 字符串切片拼装与跨层协议漂移的同时，保持用户端零 `node_modules` / 零 `pip` 依赖分发：
+自 **v0.11.0** 起，项目采用 **全栈 TypeScript 模块化源码（`src/`，单文件 `<300` 行）+ `esbuild` 零依赖原位编译产物** 架构；自 **v0.12.0** 起新增可选 **Rust N-API 原生加速层与独立 CLI（`native/pulse-accel`）**。编译产物直接输出至宿主期望的原始入口路径（`sidecars/panel/`、`compat/`、`ide/`、`cli/` 与根目录 `manage.mjs`），在消除运行时 `module.exports` 字符串切片拼装与跨层协议漂移的同时，保持用户端零 `node_modules` / 零 `pip` 依赖分发：
 
 ```text
 src/
@@ -29,7 +29,7 @@ src/
 仅开发编译期使用 `typescript` 与 `esbuild`（`devDependencies`）；运行与安装包无任何第三方依赖：
 
 ```powershell
-# 1. 类型检查与零依赖构建（--check 校验 51 个编译产物与 manifest 依赖图是否完全同步）
+# 1. 类型检查与零依赖构建（--check 校验 51 个编译产物与 manifest 依赖图是否完全同步；仅构建 JS 可用 --skip-native）
 npm run typecheck
 npm run build
 node tools/build.mjs --check
@@ -53,7 +53,7 @@ node --expose-gc tools/check-transcript-resources.mjs
 
 # 6. 生成 dist/ 发行包（App/CLI ZIP + IDE VSIX + SHA256）并校验发布完整性
 npm run package
-node tools/publish-release.mjs --tag v0.11.0 --check-only
+node tools/publish-release.mjs --tag v0.12.0 --check-only
 ```
 
 ## 本地实时预览

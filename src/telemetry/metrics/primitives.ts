@@ -46,6 +46,13 @@ export function tokenCount(value: unknown): number | null {
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
+const CACHE_PROVIDER_RE =
+  /^(?:API_PROVIDER_)?(?:GOOGLE_(?:GEMINI|VERTEX|EVERGREEN)|OPENAI(?:_VERTEX|_RESPONSES_VERTEX)?|ANTHROPIC(?:_VERTEX)?|INTERNAL)$/;
+
+export function isSupportedCacheProvider(provider: unknown): boolean {
+  return typeof provider === 'string' && CACHE_PROVIDER_RE.test(provider);
+}
+
 export function requestCacheMetrics(usage: unknown): RequestCacheBreakdown | null {
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;
@@ -70,7 +77,7 @@ export function requestCacheMetrics(usage: unknown): RequestCacheBreakdown | nul
   if (!Number.isSafeInteger(total) || total < 0 || read + write > total) return null;
   // A provider label is unnecessary for a validated zero denominator: it
   // contributes neither numerator nor denominator and never invents a ratio.
-  if (total > 0 && !/GOOGLE_GEMINI|OPENAI|ANTHROPIC/.test(provider)) return null;
+  if (total > 0 && !isSupportedCacheProvider(provider)) return null;
   return {
     inputTokens: total,
     cachedTokens: read,

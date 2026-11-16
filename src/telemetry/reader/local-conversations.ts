@@ -1,5 +1,6 @@
-// Discover IDs only. Conversation bodies and SQLite contents are never read.
+// Discover IDs and local SQLite paths; SQLite bodies are read on demand via native-bridge.
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { lstat, opendir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +13,35 @@ export interface LocalConversationEntry {
   id: string;
   signature: string;
   readSignature: () => Promise<string | null>;
+  dbPath?: string;
+}
+
+/**
+ * Returns the default local `conversations/` directory for an Antigravity host (`app` or `ide`).
+ */
+export function defaultConversationsDir(
+  host: ConversationHost = 'app',
+  home: string = homedir(),
+): string {
+  return join(home, '.gemini', host === 'ide' ? 'antigravity-ide' : 'antigravity', 'conversations');
+}
+
+/**
+ * Resolves the absolute `.db` file path for a conversation ID if it exists on disk.
+ */
+export function resolveLocalConversationDbPath(
+  id: string,
+  conversationsDir: string | null | undefined = defaultConversationsDir(),
+): string | null {
+  if (typeof id !== 'string' || !conversationId.test(id)) return null;
+  if (!conversationsDir || typeof conversationsDir !== 'string') return null;
+  const candidate = join(conversationsDir, `${id.toLowerCase()}.db`);
+  if (existsSync(candidate)) return candidate;
+  if (id !== id.toLowerCase()) {
+    const exactCandidate = join(conversationsDir, `${id}.db`);
+    if (existsSync(exactCandidate)) return exactCandidate;
+  }
+  return null;
 }
 
 export interface DiscoverLocalConversationsOptions {
@@ -146,7 +176,12 @@ export async function discoverLocalConversations({
       };
       try {
         const signature = await readSignature();
-        if (signature) slots[index] = { id, signature, readSignature };
+        if (signature) {
+          const dbPart = parts.find((p) => !p.directory && p.file.toLowerCase().endsWith('.db'));
+          slots[index] = dbPart
+            ? { id, signature, readSignature, dbPath: dbPart.file }
+            : { id, signature, readSignature };
+        }
       } catch {
         errors++;
       }

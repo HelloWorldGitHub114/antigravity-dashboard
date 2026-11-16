@@ -167,7 +167,7 @@ test('cache recovery cannot revive TPS rejected by current rate-quality classifi
 
 test('remote agent compound conversation IDs save, load, and snapshot correctly',async t=>{
   const {history}=await fixture(t);
-  const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
+  const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-4000-8000-000000000004';
   const data=trajectoryMetrics(raw(1));
   const saved=await history.save(scope('a@example.test'),remoteId,data);
   assert.ok(saved);
@@ -201,4 +201,23 @@ test('history-v1 persists modelUsage within 64 KiB cap and never stores modelTim
   assert.equal(loaded.metrics.modelUsage.totalTokens,520);
   assert.equal(loaded.metrics.modelTimeline,undefined);
   assert.ok(dir);
+});
+
+test('schema-2 history snapshots self-heal null cache hitRate when tokens breakdown is complete',async t=>{
+  const {history}=await fixture(t);
+  const broken=trajectoryMetrics({trajectory:{cascadeId:id,generatorMetadata:[
+    {chatModel:{usage:{messageId:'m1',inputTokens:'360589',cacheReadTokens:'3712977',cacheWriteTokens:'0',outputTokens:'29260'},streamingDuration:'2s'}},
+  ]}});
+  assert.equal(broken.cache.hitRate,null);
+  assert.equal(broken.cache.measuredRequests,0);
+  assert.equal(broken.tokens.inputRequests,1);
+  assert.equal(broken.tokens.totalTokens,4102826);
+  const repaired=safeMetrics(broken,id);
+  assert.equal(repaired.cache.measuredRequests,1);
+  assert.equal(repaired.cache.complete,true);
+  assert.equal(repaired.cache.totalTokens,4102826);
+  assert.equal(repaired.cache.hitRate,3712977/(360589+3712977));
+  await history.save(scope('a@example.test'),id,broken);
+  const restored=(await new MetricsStore(client(async()=>{throw Error('offline');}),{history}).snapshot({conversationId:id})).speed;
+  assert.equal(restored.cache.hitRate,3712977/(360589+3712977));
 });

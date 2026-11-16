@@ -92,7 +92,7 @@ test('modelTimelineEnabled gate keeps zero extra step fields when false and stri
 });
 
 test('StreamAgentStateUpdates update schema projects remote stats, captures planModel, and gates timeline fields',()=>{
- const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
+ const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-4000-8000-000000000004';
  const rawUpdate={update:{
   conversationId:remoteId,
   status:'CASCADE_RUN_STATUS_IDLE',

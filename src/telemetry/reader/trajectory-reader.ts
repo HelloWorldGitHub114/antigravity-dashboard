@@ -1,3 +1,12 @@
+import {
+  isNativeAccelAvailable,
+  readSqliteConversationMeta,
+  readSqliteTrajectory,
+} from '../../platform/native-bridge.ts';
+import {
+  defaultConversationsDir,
+  resolveLocalConversationDbPath,
+} from './local-conversations.ts';
 import { readRemoteTrajectory, scheduleRemoteBackfill } from './remote-reader.ts';
 import { extractPlanModelFromSteps, normalizeRemoteSnapshot, settled, TOOL_STEP, unavailable } from './remote-snapshot.ts';
 
@@ -16,6 +25,7 @@ export interface TrajectoryReaderOptions {
   budgetBytes?: number;
   idleRecheckMs?: number;
   modelTimelineEnabled?: boolean;
+  conversationsDir?: string | null;
 }
 
 export interface ReadTrajectoryOptions {
@@ -23,6 +33,7 @@ export interface ReadTrajectoryOptions {
   force?: boolean;
   isCurrent?: () => boolean;
   modelTimelineEnabled?: boolean;
+  conversationsDir?: string | null;
 }
 
 /**
@@ -36,6 +47,7 @@ export class TrajectoryReader implements RemoteReaderHost {
   budgetBytes: number;
   idleRecheckMs: number;
   modelTimelineEnabled: boolean;
+  conversationsDir: string | null;
   entries = new Map<string, TrajectoryCacheEntry>();
   epoch = 0;
   endpoint: Record<string, unknown> | null = null;
@@ -47,12 +59,21 @@ export class TrajectoryReader implements RemoteReaderHost {
 
   constructor(
     client: TrajectoryReaderClient,
-    { budgetBytes = 8 * 1024 * 1024, idleRecheckMs = 10000, modelTimelineEnabled = client?.modelTimelineEnabled === true }: TrajectoryReaderOptions = {},
+    {
+      budgetBytes = 8 * 1024 * 1024,
+      idleRecheckMs = 10000,
+      modelTimelineEnabled = client?.modelTimelineEnabled === true,
+      conversationsDir = null,
+    }: TrajectoryReaderOptions = {},
   ) {
     this.client = client;
     this.budgetBytes = budgetBytes;
     this.idleRecheckMs = idleRecheckMs;
     this.modelTimelineEnabled = modelTimelineEnabled === true;
+    this.conversationsDir =
+      conversationsDir ??
+      (client as { conversationsDir?: string | null } | null)?.conversationsDir ??
+      null;
   }
 
   setModelTimelineEnabled(enabled: boolean): boolean {
@@ -126,7 +147,16 @@ export class TrajectoryReader implements RemoteReaderHost {
     return s;
   }
 
-  async read(id: string, { summary: provided, force = false, isCurrent = () => true, modelTimelineEnabled }: ReadTrajectoryOptions = {}): Promise<TrajectoryResult> {
+  async read(
+    id: string,
+    {
+      summary: provided,
+      force = false,
+      isCurrent = () => true,
+      modelTimelineEnabled,
+      conversationsDir,
+    }: ReadTrajectoryOptions = {},
+  ): Promise<TrajectoryResult> {
     if (!isCurrent()) throw unavailable();
     const wantTimeline = this.isTimelineEnabled({ modelTimelineEnabled });
     const endpoint = await this.client.discover();
@@ -145,12 +175,125 @@ export class TrajectoryReader implements RemoteReaderHost {
     const current = (): boolean => epoch === this.epoch && this.entries.get(id) === entry && isCurrent();
     const assertCurrent = (): void => { if (!current()) throw unavailable(); };
     const activeEntry = entry;
-    activeEntry.pending = this.loadEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent).finally(() => {
+    activeEntry.pending = this.loadEntry(
+      id,
+      activeEntry,
+      provided,
+      force,
+      wantTimeline,
+      assertCurrent,
+      conversationsDir,
+    ).finally(() => {
       activeEntry.pending = null;
       if (!activeEntry.data && current()) this.entries.delete(id);
       if (current()) this.trim(id);
     });
     return activeEntry.pending;
+  }
+
+  resolveDbPath(id: string, explicitDir?: string | null): string | null {
+    const dir =
+      explicitDir ??
+      this.conversationsDir ??
+      (this.client as { conversationsDir?: string | null } | null)?.conversationsDir ??
+      null;
+    if (dir) {
+      return resolveLocalConversationDbPath(id, dir);
+    }
+    if (!this.client || Object.hasOwn(this.client, 'call')) {
+      return null;
+    }
+    const pathsFn = (this.client as { paths?: () => { home?: string; conversationsDir?: string } }).paths;
+    if (typeof pathsFn !== 'function') return null;
+    try {
+      const p = pathsFn.call(this.client);
+      if (typeof p?.conversationsDir === 'string' && p.conversationsDir) {
+        return resolveLocalConversationDbPath(id, p.conversationsDir);
+      }
+      if (typeof p?.home === 'string' && p.home) {
+        const profile = (this.client as { profile?: unknown }).profile;
+        const host = typeof profile === 'string' && profile.length > 0 ? 'ide' : 'app';
+        return resolveLocalConversationDbPath(id, defaultConversationsDir(host, p.home));
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private readFromSqlite(
+    id: string,
+    dbPath: string,
+    resolvedSummary: TrajectorySummaryLike | null,
+    wantTimeline: boolean,
+    allowPartialCount = false,
+  ): TrajectoryResult | null {
+    if (!isNativeAccelAvailable()) return null;
+    const raw = readSqliteTrajectory<TrajectoryResult>(dbPath, id, {
+      modelTimelineEnabled: wantTimeline,
+      maxOutputBytes: this.budgetBytes,
+    });
+    if (
+      !raw ||
+      !raw.trajectory ||
+      !Array.isArray(raw.trajectory.steps) ||
+      !Array.isArray(raw.trajectory.generatorMetadata)
+    ) {
+      return null;
+    }
+    const count =
+      resolvedSummary?.stepCount === undefined ? null : Number(resolvedSummary.stepCount);
+    const numSteps = raw.trajectory.steps.length;
+    const numGens = raw.trajectory.generatorMetadata.length;
+    if (!allowPartialCount) {
+      if (count !== null && Number.isSafeInteger(count) && count >= 0) {
+        if (numSteps < count) return null;
+        if (count > 0 && numSteps === 0 && numGens === 0) return null;
+      } else if (numSteps === 0 && numGens === 0) {
+        return null;
+      }
+    } else if (numSteps === 0 && numGens === 0) {
+      return null;
+    }
+    const meta = readSqliteConversationMeta(dbPath, id);
+    const status = resolvedSummary?.status || raw.status || 'CASCADE_RUN_STATUS_IDLE';
+    return {
+      ...raw,
+      status,
+      numTotalSteps: numSteps,
+      numTotalGeneratorMetadata: numGens,
+      ...(meta ? { trajectoryMetadata: meta } : {}),
+    } as TrajectoryResult;
+  }
+
+  private commitSqliteEntry(
+    id: string,
+    entry: TrajectoryCacheEntry,
+    value: TrajectoryResult,
+    resolvedSummary: TrajectorySummaryLike,
+    mark: string,
+    wantTimeline: boolean,
+  ): TrajectoryResult {
+    const steps = value.trajectory.steps;
+    const generators = value.trajectory.generatorMetadata;
+    const bytes =
+      steps.length || generators.length
+        ? Buffer.byteLength(JSON.stringify({ steps, generatorMetadata: generators }))
+        : 34;
+    if (bytes > this.budgetBytes) throw new Error('会话统计数据超过内存预算');
+    this.cachedBytes -= entry.bytes;
+    entry.bytes = bytes;
+    this.cachedBytes += bytes;
+    entry.data = value;
+    entry.summary = resolvedSummary;
+    entry.mark = mark;
+    entry.withTimeline = wantTimeline;
+    entry.rev = (entry.rev || 0) + 1;
+    entry.verifiedAt = this.client.now();
+    this.entries.delete(id);
+    this.entries.set(id, entry);
+    this.trim(id);
+    return value;
   }
 
   private async loadEntry(
@@ -160,7 +303,9 @@ export class TrajectoryReader implements RemoteReaderHost {
     force: boolean,
     wantTimeline: boolean,
     assertCurrent: () => void,
+    conversationsDir?: string | null,
   ): Promise<TrajectoryResult> {
+    const dbPath = this.resolveDbPath(id, conversationsDir);
     let summary: TrajectorySummaryLike | null = null;
     let isRemote = false;
     const hasSnapshotFn = typeof this.client.readAgentStateSnapshot === 'function';
@@ -168,8 +313,38 @@ export class TrajectoryReader implements RemoteReaderHost {
     else {
       try { summary = await this.summary(id, provided, force); assertCurrent(); }
       catch (err) {
-        if ((err as Error)?.message === '会话暂时没有可用统计' && hasSnapshotFn) isRemote = true;
-        else throw err;
+        if ((err as Error)?.message === '会话暂时没有可用统计') {
+          if (
+            !force &&
+            entry.data &&
+            entry.withTimeline === wantTimeline &&
+            this.client.now() - (entry.verifiedAt ?? 0) < this.idleRecheckMs
+          ) {
+            this.entries.delete(id);
+            this.entries.set(id, entry);
+            return entry.data;
+          }
+          if (dbPath && isNativeAccelAvailable()) {
+            const sqliteVal = this.readFromSqlite(id, dbPath, null, wantTimeline);
+            if (sqliteVal) {
+              assertCurrent();
+              const synthSummary: TrajectorySummaryLike = {
+                stepCount: sqliteVal.numTotalSteps,
+                status: sqliteVal.status,
+              };
+              const synthMark = JSON.stringify([sqliteVal.numTotalSteps, undefined, sqliteVal.status, undefined]);
+              if (!force && entry.data && entry.withTimeline === wantTimeline && entry.mark === synthMark) {
+                entry.verifiedAt = this.client.now();
+                this.entries.delete(id);
+                this.entries.set(id, entry);
+                return entry.data;
+              }
+              return this.commitSqliteEntry(id, entry, sqliteVal, synthSummary, synthMark, wantTimeline);
+            }
+          }
+          if (hasSnapshotFn) isRemote = true;
+          else throw err;
+        } else throw err;
       }
     }
     if (isRemote || (summary?.trajectoryMetadata?.remoteControlDetails && hasSnapshotFn)) {
@@ -185,6 +360,14 @@ export class TrajectoryReader implements RemoteReaderHost {
     const same = Boolean(old) && !timelineModeMismatch && entry.mark === mark;
     if (!force && same && old && settled(resolvedSummary.status) && resolvedSummary.lastModifiedTime && this.client.now() - (entry.verifiedAt ?? 0) < this.idleRecheckMs) {
       this.entries.delete(id); this.entries.set(id, entry); return old;
+    }
+    const isRunning = Boolean(resolvedSummary.status && !settled(resolvedSummary.status));
+    if (!isRunning && dbPath && isNativeAccelAvailable()) {
+      const sqliteVal = this.readFromSqlite(id, dbPath, resolvedSummary, wantTimeline);
+      if (sqliteVal) {
+        assertCurrent();
+        return this.commitSqliteEntry(id, entry, sqliteVal, resolvedSummary, mark, wantTimeline);
+      }
     }
     const incremental = Boolean(
       old && !force && !timelineModeMismatch && count !== null && count >= old.trajectory.steps.length &&
@@ -244,7 +427,14 @@ export class TrajectoryReader implements RemoteReaderHost {
       }
     } catch (err) {
       const e = err as { message?: string; status?: number } | null;
-      if (e?.message === '后台已重新连接，请等待刷新') throw err;
+      if (e?.message === '后台已重新连接，请等待刷新' || e?.message === '会话统计数据超过内存预算') throw err;
+      if (dbPath && isNativeAccelAvailable()) {
+        const sqliteFallback = this.readFromSqlite(id, dbPath, resolvedSummary, wantTimeline, true);
+        if (sqliteFallback) {
+          assertCurrent();
+          return this.commitSqliteEntry(id, entry, sqliteFallback, resolvedSummary, mark, wantTimeline);
+        }
+      }
       if (hasSnapshotFn && ((e?.status !== undefined && [404, 501].includes(e.status)) || /not found|unimplemented|cloudproxy|完整会话统计分页暂不可用/i.test(e?.message || ''))) {
         try { return await this.readRemote(id, entry, force, assertCurrent, wantTimeline); } catch {}
       }

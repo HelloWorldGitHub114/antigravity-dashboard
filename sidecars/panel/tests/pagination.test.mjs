@@ -159,7 +159,7 @@ test('cloudproxy unimplemented error on legacy steps RPC falls back to snapshot'
 });
 test('cloud remote agent step-level modelUsage normalizes TPS, cache hit, context occupancy and usage ledger',async()=>{
  const {client}=fixture();
- const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
+ const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-4000-8000-000000000004';
  client.readAgentStateSnapshot=async(cid)=>{
   assert.equal(cid,remoteId);
   return {
@@ -245,7 +245,7 @@ test('cloud remote agent step-level modelUsage normalizes TPS, cache hit, contex
 });
 test('compound remote IDs revalidate settled state via GetConversationMetadata before streaming',async()=>{
  const {client,tick}=fixture();
- const remoteId='v1/default/jetski_remote_agents_3p/841d8c06-1111-2222-3333-444444444444';
+ const remoteId='v1/default/jetski_remote_agents_3p/00000000-1111-2222-3333-444444444444';
  let snapshotCalls=0,metaCalls=0,remoteSteps=2;
  client.call=async(method,body={})=>{
   assert.equal(method,'GetConversationMetadata');
@@ -283,7 +283,7 @@ test('compound remote IDs revalidate settled state via GetConversationMetadata b
 });
 test('incremental remote steps use initialStepsPageBounds slice and merge without duplicates',async()=>{
  const {client,tick}=fixture();
- const remoteId='v1/default/jetski_remote_agents_3p/4cc28cee-0000-0000-0000-000000000000';
+ const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-0000-0000-000000000005';
  let remoteSteps=2;
  const requestedBounds=[];
  client.call=async(method,body={})=>{

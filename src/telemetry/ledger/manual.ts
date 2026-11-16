@@ -62,6 +62,7 @@ export function addManualUsageHelper(
     const dir = join(storage.directory, scope);
     const fileName = `${fileHash}.json`;
     const file = join(dir, fileName);
+    storage._markDirtyRelPath(scope, fileName);
     await storage._atomicWrite(dir, file, JSON.stringify(content));
     await storage._setFileIndexFromWrite(scope, fileName, file, content);
     return { id, hash: fileHash, file: fileName, ...metadata };
@@ -85,6 +86,7 @@ export function deleteManualUsageHelper(storage: LedgerStorage, scope: string, i
         await storage.fs.unlink(join(dir, fileName));
         deleted = true;
         storage._bumpKeyVersion(scope, fileName);
+        storage._markDirtyRelPath(scope, fileName);
         storage.fileIndex.get(scope)?.delete(fileName);
       } catch (error) {
         if (!isErrno(error, 'ENOENT')) throw error;
@@ -101,6 +103,7 @@ export function deleteManualUsageHelper(storage: LedgerStorage, scope: string, i
               await storage.fs.unlink(file);
               deleted = true;
               storage._bumpKeyVersion(scope, name);
+              storage._markDirtyRelPath(scope, name);
               storage.fileIndex.get(scope)?.delete(name);
               break;
             }

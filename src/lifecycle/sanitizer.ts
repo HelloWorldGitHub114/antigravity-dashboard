@@ -16,6 +16,11 @@ import {
   OPENSOURCE_EXCLUDED_SUFFIXES,
   OPENSOURCE_TEXT_EXTENSIONS,
 } from '../platform/manifest.ts';
+import {
+  auditOpenSourcePrivacy,
+  syncAndAuditOpenSource,
+  type SanitizerPatternInput,
+} from '../platform/native-bridge.ts';
 import { readJsonObjectSync } from './fs-helpers.ts';
 
 export interface ForbiddenPatternSpec {
@@ -37,8 +42,9 @@ const ALL_ACCOUNTS_LABEL_RE =
   /accounts\.push\(\s*\{\s*id:\s*(['"])all\1\s*,\s*name:\s*(['"])(?:全部账号 \(汇总\)|\\u5168\\u90E8\\u8D26\\u53F7 \(\\u6C47\\u603B\))\2\s*,\s*email:\s*(['"])(?:全部账号 \(汇总\)|\\u5168\\u90E8\\u8D26\\u53F7 \(\\u6C47\\u603B\))\3\s*,\s*active:\s*activeScope\s*===\s*(['"])all\4\s*\}\s*\);/gi;
 
 export function sanitizeUsageMjs(text: string): string {
-  return text.replace(ALL_ACCOUNTS_LABEL_RE, (match) =>
-    match.replace(/(?:全部账号 \(汇总\)|\\u5168\\u90E8\\u8D26\\u53F7 \(\\u6C47\\u603B\))/gi, 'All Accounts (Aggregated)'),
+  return text.replace(
+    ALL_ACCOUNTS_LABEL_RE,
+    "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });",
   );
 }
 
@@ -115,6 +121,7 @@ export function buildForbiddenPatterns(
 }
 
 export function isExcludedFromOpenSource(relPosix: string): boolean {
+  if (relPosix === 'cli/bin' || relPosix.startsWith('cli/bin/')) return true;
   const parts = relPosix.split('/').filter(Boolean);
   if (parts.some((part) => OPENSOURCE_EXCLUDED_DIRS.has(part))) return true;
   if (OPENSOURCE_EXCLUDED_REL_FILES.has(relPosix)) return true;
@@ -196,6 +203,26 @@ export function syncSanitizedTree(sourceDir: string, destDir: string): string[] 
   return files;
 }
 
+function buildNativeFilterPayload(patterns: readonly ForbiddenPatternSpec[]): {
+  excludedDirs: string[];
+  excludedRelFiles: string[];
+  excludedSuffixes: string[];
+  textExtensions: string[];
+  patterns: SanitizerPatternInput[];
+} {
+  return {
+    excludedDirs: [...OPENSOURCE_EXCLUDED_DIRS],
+    excludedRelFiles: [...OPENSOURCE_EXCLUDED_REL_FILES],
+    excludedSuffixes: [...OPENSOURCE_EXCLUDED_SUFFIXES],
+    textExtensions: [...OPENSOURCE_TEXT_EXTENSIONS],
+    patterns: patterns.map((spec) => ({
+      pattern: spec.regex.source,
+      flags: spec.regex.flags,
+      label: spec.label,
+    })),
+  };
+}
+
 /**
  * Audits exported or source files against forbidden privacy/secret patterns.
  */
@@ -205,6 +232,15 @@ export function auditPrivacy(
   patterns: readonly ForbiddenPatternSpec[],
 ): string[] {
   const root = resolve(rootDir);
+  const nativeResult = auditOpenSourcePrivacy({
+    rootDir: root,
+    files,
+    ...buildNativeFilterPayload(patterns),
+  });
+  if (nativeResult) {
+    return nativeResult.findings;
+  }
+
   const findings: string[] = [];
 
   for (const relPosix of files) {
@@ -285,6 +321,24 @@ export function verifyReleaseTree(destDir: string, nodeExe = process.execPath): 
   }
 }
 
+function syncAndAuditDestination(
+  source: string,
+  dest: string,
+  patterns: readonly ForbiddenPatternSpec[],
+): { exported: number; findings: string[] } {
+  const nativeResult = syncAndAuditOpenSource({
+    sourceDir: source,
+    destDir: dest,
+    ...buildNativeFilterPayload(patterns),
+  });
+  if (nativeResult) {
+    return { exported: nativeResult.exported, findings: nativeResult.findings };
+  }
+  const files = syncSanitizedTree(source, dest);
+  const findings = auditPrivacy(dest, files, patterns);
+  return { exported: files.length, findings };
+}
+
 export function exportOpenSource(options: {
   sourceDir: string;
   destDir?: string;
@@ -296,6 +350,13 @@ export function exportOpenSource(options: {
   const source = resolve(options.sourceDir);
   const patterns = buildForbiddenPatterns(source, options.extraPatterns);
   if (options.check) {
+    const nativeCheck = auditOpenSourcePrivacy({
+      rootDir: source,
+      ...buildNativeFilterPayload(patterns),
+    });
+    if (nativeCheck) {
+      return { checked: nativeCheck.checked, findings: nativeCheck.findings };
+    }
     const files = collectSanitizedFiles(source);
     const findings = auditPrivacy(source, files, patterns);
     return { checked: files.length, findings };
@@ -307,9 +368,8 @@ export function exportOpenSource(options: {
     throw new Error('No --dest specified and .data/export-opensource.local.json defaultDest is not configured.');
   }
   const dest = resolve(destInput);
-  const files = syncSanitizedTree(source, dest);
-  const findings = auditPrivacy(dest, files, patterns);
-  if (findings.length > 0) return { exported: files.length, dest, findings };
+  const primary = syncAndAuditDestination(source, dest, patterns);
+  if (primary.findings.length > 0) return { exported: primary.exported, dest, findings: primary.findings };
   if (!options.skipTests) verifyReleaseTree(dest);
 
   if (options.all) {
@@ -321,10 +381,11 @@ export function exportOpenSource(options: {
     if (!existsSync(parent)) {
       throw new Error(`Mounted cloud sync parent not found: ${parent}`);
     }
-    const gFiles = syncSanitizedTree(source, gdriveDest);
-    const gFindings = auditPrivacy(gdriveDest, gFiles, patterns);
-    if (gFindings.length > 0) return { exported: gFiles.length, dest: gdriveDest, findings: gFindings };
+    const gdrive = syncAndAuditDestination(source, gdriveDest, patterns);
+    if (gdrive.findings.length > 0) {
+      return { exported: gdrive.exported, dest: gdriveDest, findings: gdrive.findings };
+    }
   }
 
-  return { exported: files.length, dest, findings: [] };
+  return { exported: primary.exported, dest, findings: [] };
 }

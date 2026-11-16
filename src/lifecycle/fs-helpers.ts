@@ -12,16 +12,18 @@ import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { atomicWriteFileSync, readJsonSyncSafe } from '../shared/atomic-fs.ts';
 
 /**
- * Checks whether `targetPath` is a symbolic link or Windows junction/reparse point.
+ * Checks whether `targetPath` itself is a symbolic link or Windows junction/reparse point.
+ * Compares the target's realpath against `join(realpath(parent), basename)` so ancestor
+ * symlinks outside the target (such as macOS `/var -> /private/var`) do not trigger false positives.
  */
 export function isReparseOrSymlink(targetPath: string): boolean {
   try {
-    const lstat = lstatSync(targetPath);
+    const absPath = resolve(targetPath);
+    const lstat = lstatSync(absPath);
     if (lstat.isSymbolicLink()) return true;
-    const abs = resolve(targetPath);
-    const parent = dirname(abs);
-    if (parent === abs) return false;
-    return realpathSync(abs) !== join(realpathSync(parent), basename(abs));
+    const resolved = realpathSync(absPath);
+    const parentResolved = realpathSync(dirname(absPath));
+    return resolved !== join(parentResolved, basename(absPath));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | null | undefined)?.code;
     return code !== 'ENOENT';
@@ -75,6 +77,23 @@ export function writeJsonObjectSync(filePath: string, value: unknown, mode = 0o6
   });
 }
 
+function copyFileIfChangedSync(src: string, dst: string): void {
+  if (existsSync(dst)) {
+    try {
+      const srcStat = statSync(src);
+      const dstStat = statSync(dst);
+      if (srcStat.isFile() && dstStat.isFile() && srcStat.size === dstStat.size) {
+        if (readFileSync(src).equals(readFileSync(dst))) {
+          return;
+        }
+      }
+    } catch {
+      // Fall through to normal copy when stat/read check cannot confirm identical contents.
+    }
+  }
+  copyFileSync(src, dst);
+}
+
 /**
  * Recursively copies `source` to `dest`, skipping any matching directory/file predicate.
  */
@@ -87,7 +106,7 @@ export function copyTreeFilteredSync(
   const st = statSync(source);
   if (!st.isDirectory()) {
     mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(source, dest);
+    copyFileIfChangedSync(source, dest);
     return;
   }
   mkdirSync(dest, { recursive: true });
@@ -100,7 +119,7 @@ export function copyTreeFilteredSync(
     if (isDir) {
       copyTreeFilteredSync(srcChild, dstChild, shouldSkip, rel);
     } else if (entry.isFile()) {
-      copyFileSync(srcChild, dstChild);
+      copyFileIfChangedSync(srcChild, dstChild);
     }
   }
 }

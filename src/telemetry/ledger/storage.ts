@@ -56,12 +56,14 @@ export class LedgerStorage {
   readonly source: string;
   readonly knownAccounts: Record<string, KnownAccountInfo>;
   readonly fs: Required<LedgerFsOverrides>;
+  readonly hasCustomFs: boolean;
   scope?: string | null;
 
   writeQueue: Promise<unknown> = Promise.resolve();
   revision = 0;
   cache: SummaryCacheEntry | null = null;
   fileIndex = new Map<string, Map<string, FileIndexEntry>>();
+  dirtyRelPaths = new Set<string>();
   keyVersions = new Map<string, number>();
   metaCache: StampCache<Record<string, KnownAccountInfo>> | null = null;
   metaVersion = 0;
@@ -76,6 +78,7 @@ export class LedgerStorage {
     this.timeZone = timeZone;
     this.source = source;
     this.knownAccounts = knownAccounts && typeof knownAccounts === 'object' ? knownAccounts : {};
+    this.hasCustomFs = Boolean(fs);
     this.fs = {
       readFile: readFile as Required<LedgerFsOverrides>['readFile'],
       writeFile: writeFile as Required<LedgerFsOverrides>['writeFile'],
@@ -120,6 +123,10 @@ export class LedgerStorage {
     await atomicWriteFile(file, data, { fs: this.fs, mode: 0o600 });
   }
 
+  _markDirtyRelPath(scope: string, name: string): void {
+    this.dirtyRelPaths.add(`${scope}/${name}`);
+  }
+
   _bumpKeyVersion(scope: string, name: string): void {
     const key = `${scope}/${name}`;
     this.keyVersions.set(key, (this.keyVersions.get(key) || 0) + 1);
@@ -127,6 +134,7 @@ export class LedgerStorage {
 
   async _setFileIndexFromWrite(scope: string, name: string, file: string, record: LedgerDocument): Promise<void> {
     this._bumpKeyVersion(scope, name);
+    this._markDirtyRelPath(scope, name);
     let st: FileStatLike | null = null;
     try {
       st = await this._stat(file);
@@ -233,6 +241,7 @@ export class LedgerStorage {
     } catch (error) {
       if (!isErrno(error, 'ENOENT')) throw error;
     }
+    scopes.sort();
     return scopes;
   }
 
@@ -264,6 +273,7 @@ export class LedgerStorage {
       const records = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id));
       if (previous && JSON.stringify(previous.records) === JSON.stringify(records)) return;
       const nextDoc: LedgerDocument = { schema: 1, account: scope, records };
+      this._markDirtyRelPath(scope, fileName);
       await this._atomicWrite(join(this.directory, scope), file, JSON.stringify(nextDoc));
       await this._setFileIndexFromWrite(scope, fileName, file, nextDoc);
     });
