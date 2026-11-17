@@ -8,7 +8,8 @@ use std::time::{Duration, SystemTime};
 use regex::{Captures, Regex, RegexBuilder, RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
 
-const SANITIZE_USAGE_REPLACEMENT: &str = "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });";
+const SANITIZE_USAGE_MJS_REPLACEMENT: &str = r#"accounts.push({ id: "all", name: "All Accounts (Aggregated)", email: "All Accounts (Aggregated)", active: activeScope === "all" });"#;
+const SANITIZE_ACCOUNTS_TS_REPLACEMENT: &str = "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });";
 const SANITIZE_MULTI_TEST_SEARCH: &str = "assert.equal(accounts[0].name, '全部账号 (汇总)');";
 const SANITIZE_MULTI_TEST_REPLACE: &str = "assert.equal(accounts[0].name, 'All Accounts (Aggregated)');";
 
@@ -426,7 +427,7 @@ fn audit_files_parallel(
     Some(all_findings.into_iter().map(|(_, _, _, msg)| msg).collect())
 }
 
-fn sanitize_usage_mjs(text: &str) -> String {
+fn sanitize_all_accounts_label(text: &str, replacement: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(
@@ -439,7 +440,7 @@ fn sanitize_usage_mjs(text: &str) -> String {
             .into_iter()
             .all(|(a, b)| caps.get(a).map(|m| m.as_str()) == caps.get(b).map(|m| m.as_str()));
         if pairs_match {
-            SANITIZE_USAGE_REPLACEMENT.to_string()
+            replacement.to_string()
         } else {
             caps[0].to_string()
         }
@@ -453,8 +454,11 @@ fn sanitize_multi_account_test(text: &str) -> String {
 
 fn apply_sanitizer_transform(rel_posix: &str, text: &str) -> Option<String> {
     match rel_posix {
-        "sidecars/panel/usage.mjs" | "src/telemetry/ledger/accounts.ts" => {
-            Some(sanitize_usage_mjs(text))
+        "sidecars/panel/usage.mjs" => {
+            Some(sanitize_all_accounts_label(text, SANITIZE_USAGE_MJS_REPLACEMENT))
+        }
+        "src/telemetry/ledger/accounts.ts" => {
+            Some(sanitize_all_accounts_label(text, SANITIZE_ACCOUNTS_TS_REPLACEMENT))
         }
         "sidecars/panel/tests/multi-account-features.test.mjs" => {
             Some(sanitize_multi_account_test(text))

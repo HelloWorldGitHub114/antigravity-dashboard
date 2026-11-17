@@ -125,7 +125,10 @@ test('discovery.ts falls back to PowerShell + netstat on native null, error, inv
   assert.deepEqual(disabledCalls, ['powershell.exe', 'netstat.exe']);
   assert.equal(disabledRows[0].ProcessId, 77);
 
-  if (typeof nativeBridge.tryDiscoverWin32ProcessesJson === 'function' && process.platform === 'win32') {
+  const hasLiveNative = await withEnv('PULSE_DISABLE_NATIVE_ACCEL', undefined, () =>
+    typeof nativeBridge.isNativeAccelAvailable === 'function' && nativeBridge.isNativeAccelAvailable(),
+  );
+  if (hasLiveNative && typeof nativeBridge.tryDiscoverWin32ProcessesJson === 'function' && process.platform === 'win32') {
     const live = await withEnv('PULSE_DISABLE_NATIVE_ACCEL', undefined, () =>
       discoverProcesses({ platform: 'win32' }),
     );

@@ -99,7 +99,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
   const loadProjectDetail = async (projectKey: string, from: string, to: string): Promise<void> => {
     const scope = state.value?.activeAccount || null;
     const reqKey = `${scope || ''}|${projectKey}|${from}|${to}`;
-    if (state.projectDetailKey === reqKey && state.projectDetail) return;
+    if (state.projectDetailKey === reqKey && (state.projectDetail || state.projectDetailLoading)) return;
     const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
     if (typeof bridge?.getProjectDetail !== 'function') return;
 
@@ -184,7 +184,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     state.selectedProjectKey = projectKey;
     state.projectDetailKey = '';
     chart.updateDrilldownView();
-    syncProjectDetailToActiveRange();
+    if (state.dimension !== 'project') syncProjectDetailToActiveRange();
   };
 
   projectDetail = createProjectDetailController(ctx, palette, tooltip, selectProject);

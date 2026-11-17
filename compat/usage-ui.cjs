@@ -3669,7 +3669,7 @@ module.exports = function createUsageDashboard(...args) {
       const loadProjectDetail = async (projectKey, from, to) => {
         const scope = state.value?.activeAccount || null;
         const reqKey = `${scope || ""}|${projectKey}|${from}|${to}`;
-        if (state.projectDetailKey === reqKey && state.projectDetail) return;
+        if (state.projectDetailKey === reqKey && (state.projectDetail || state.projectDetailLoading)) return;
         const bridge = window.agPulseBridge || window.agPulseHost;
         if (typeof bridge?.getProjectDetail !== "function") return;
         const myEpoch = ++projectDetailEpoch;
@@ -3749,7 +3749,7 @@ module.exports = function createUsageDashboard(...args) {
         state.selectedProjectKey = projectKey;
         state.projectDetailKey = "";
         chart.updateDrilldownView();
-        syncProjectDetailToActiveRange();
+        if (state.dimension !== "project") syncProjectDetailToActiveRange();
       };
       projectDetail = createProjectDetailController(ctx, palette, tooltip, selectProject);
       const chart = createStackedBarController(ctx, dayIndex, palette, tooltip, getQuery, {
