@@ -1,5 +1,7 @@
+import { resolveFontScale } from '../../contracts/preferences.ts';
 import { setAttr, setHidden, setText } from '../../shared/dom.ts';
 import createDashboardI18n from '../i18n/index.ts';
+import { createFontPopover, FONT_POPOVER_CSS } from '../shared/font-popover.ts';
 import createAgPulseTheme from '../theme/index.ts';
 import { createCardSwitcher, createDomLookup } from './dom-motion.ts';
 import { bindModelMixEvents, renderModelMix } from './model-mix.ts';
@@ -36,6 +38,17 @@ function initPanel(): void {
   const t = language.t;
   const host = panelWin.sidecar;
   if (!host) document.body.classList.add('standalone');
+
+  const applySidebarFontScale = (scale: unknown): void => {
+    document.documentElement.style.setProperty('--pulse-sidebar-font-scale', String(resolveFontScale(scale)));
+  };
+  applySidebarFontScale(localGet('ag-pulse-sidebar-font-scale'));
+  if (!document.getElementById('ag-pulse-font-popover-style')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'ag-pulse-font-popover-style';
+    styleEl.textContent = FONT_POPOVER_CSS;
+    document.head.append(styleEl);
+  }
 
   const state: PanelState = {
     snapshot: null,
@@ -217,10 +230,34 @@ function initPanel(): void {
 
   ctx.$('refresh-button')?.addEventListener('click', controller.refreshManually);
   ctx.$('language-toggle')?.addEventListener('click', () => { void ctx.preferences.toggle(); });
+  const fontTrigger = ctx.$<HTMLButtonElement>('font-settings');
+  if (fontTrigger) {
+    ctx.fontPopover = createFontPopover({
+      trigger: fontTrigger,
+      mountRoot: document.body,
+      getLanguage: () => language.language,
+      initial: { sidebarFontScale: resolveFontScale(localGet('ag-pulse-sidebar-font-scale')) },
+      onChange: async (update, next) => {
+        applySidebarFontScale(next.sidebarFontScale);
+        localSet('ag-pulse-sidebar-font-scale', String(next.sidebarFontScale));
+        try {
+          const saved = await controller.savePreferences(update);
+          if (saved && !('error' in saved)) {
+            ctx.fontPopover?.sync(saved);
+            applySidebarFontScale(saved.sidebarFontScale);
+            localSet('ag-pulse-sidebar-font-scale', String(resolveFontScale(saved.sidebarFontScale)));
+          }
+        } catch {
+          // Keep optimistic preview if offline/standalone.
+        }
+      },
+    });
+  }
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) void controller.refresh();
   });
   window.addEventListener('pagehide', () => {
+    ctx.fontPopover?.dispose();
     ctx.themeController.dispose();
     ctx.preferences.dispose();
   });

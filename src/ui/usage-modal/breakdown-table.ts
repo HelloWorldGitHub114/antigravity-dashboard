@@ -9,6 +9,7 @@ export function renderChartSummaryAndTable(
   palette: UsagePalette,
   chartSummary: HTMLElement,
   getQuery: () => AggregationQuery,
+  onSelectProject?: (projectKey: string) => void,
 ): void {
   const { $, view, state, w, full, compactNum } = ctx;
   if (!state.value || !state.currentBuckets.length) return;
@@ -43,7 +44,114 @@ export function renderChartSummaryAndTable(
   const tableBody = $('table-body');
   if (!tableHead || !tableBody) return;
 
-  if (state.dimension === 'user') {
+  if (state.dimension === 'project') {
+    tableHead.replaceChildren(
+      ...[
+        w('项目', 'Project'),
+        w('总 Token', 'Total tokens'),
+        w('占比', 'Share'),
+        w('会话数', 'Sessions'),
+        w('请求次数', 'Requests'),
+        w('来源 / 详情', 'Type / Detail'),
+      ].map((label) => createDomNode('th', '', label)),
+    );
+    if (state.projectLoading && !state.projectOverview) {
+      const tr = createDomNode('tr');
+      const td = createDomNode('td', 'muted', w('正在统计当前账号项目用量…', 'Loading current account projects…'));
+      td.colSpan = 6;
+      td.style.textAlign = 'center';
+      tr.append(td);
+      bodyFrag.append(tr);
+    } else if (state.projectError) {
+      const tr = createDomNode('tr');
+      const td = createDomNode('td', 'muted', state.projectError);
+      td.colSpan = 6;
+      td.style.textAlign = 'center';
+      tr.append(td);
+      bodyFrag.append(tr);
+    } else {
+      const metaByKey = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p]));
+      const activeFrom = state.selectedBar?.from || state.currentBuckets[0]?.from || '';
+      const activeTo = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || '';
+      const overviewMatchesActiveRange = Boolean(
+        !state.selectedBar ||
+          (state.projectOverview && state.projectOverview.from === activeFrom && state.projectOverview.to === activeTo),
+      );
+      const rows = Object.entries(activeTotals.projects || {}).sort((a, b) => b[1].total - a[1].total);
+      const kindLabel = (kind: string | undefined): string =>
+        kind === 'conversations'
+          ? w('独立会话', 'conversations')
+          : kind === 'cli'
+            ? 'cli'
+            : kind === 'remote'
+              ? w('远程项目', 'Remote')
+              : w('工作区', 'Workspace');
+      for (const [pKey, r] of rows) {
+        const meta = metaByKey.get(pKey);
+        const row = createDomNode(
+          'tr',
+          `project-row${state.selectedProjectKey === pKey ? ' is-selected' : ''}`,
+        );
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-pressed', String(state.selectedProjectKey === pKey));
+        row.dataset.projectKey = pKey;
+        const handleSelect = () => onSelectProject?.(pKey);
+        row.addEventListener('click', handleSelect);
+        row.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleSelect();
+          }
+        });
+        const label = createDomNode('td');
+        const dot = createDomNode('span', 'dot');
+        dot.style.setProperty('--model-color', palette.projectColor(pKey));
+        label.append(dot, document.createTextNode(meta?.name || pKey));
+        const share = activeTotals.total ? `${((r.total / activeTotals.total) * 100).toFixed(1)}%` : '0%';
+        const actionTd = createDomNode('td');
+        actionTd.append(
+          createDomNode('span', 'project-kind-badge', kindLabel(meta?.kind)),
+          document.createTextNode(' '),
+          createDomNode(
+            'span',
+            'project-open-cue',
+            state.selectedProjectKey === pKey ? w('已选中', 'Selected') : w('查看详情 ▸', 'Inspect ▸'),
+          ),
+        );
+        const detailMatchesActiveRange = Boolean(
+          state.projectDetail &&
+            state.projectDetail.projectKey === pKey &&
+            state.projectDetail.from === activeFrom &&
+            state.projectDetail.to === activeTo,
+        );
+        const convTd = createDomNode(
+          'td',
+          overviewMatchesActiveRange || detailMatchesActiveRange ? '' : 'muted',
+          overviewMatchesActiveRange
+            ? full(meta?.conversationCount ?? 0)
+            : detailMatchesActiveRange
+              ? full(state.projectDetail!.conversations.length)
+              : '—',
+        );
+        if (!overviewMatchesActiveRange && !detailMatchesActiveRange) {
+          convTd.title = w(
+            '下钻时段需点击查看详情以统计该时段精确会话数',
+            'Inspect project to load exact session count for this drill-down range',
+          );
+        }
+        row.append(
+          label,
+          createDomNode('td', '', full(r.total)),
+          createDomNode('td', '', share),
+          convTd,
+          createDomNode('td', '', full(r.requests)),
+          actionTd,
+        );
+        bodyFrag.append(row);
+      }
+    }
+  } else if (state.dimension === 'user') {
     tableHead.replaceChildren(
       ...[
         w('用户 / 账号', 'User / Account'),

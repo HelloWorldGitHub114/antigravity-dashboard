@@ -44,6 +44,8 @@ export class RuntimeUi {
   deleteManualUsage: RuntimeUiOptions['deleteManualUsage'];
   getAccounts: RuntimeUiOptions['getAccounts'];
   switchAccount: RuntimeUiOptions['switchAccount'];
+  getProjectUsage: RuntimeUiOptions['getProjectUsage'];
+  getProjectDetail: RuntimeUiOptions['getProjectDetail'];
   clearTimeline: RuntimeUiOptions['clearTimeline'];
 
   constructor({
@@ -64,6 +66,8 @@ export class RuntimeUi {
     deleteManualUsage = null,
     getAccounts = null,
     switchAccount = null,
+    getProjectUsage = null,
+    getProjectDetail = null,
     clearTimeline = null,
   }: RuntimeUiOptions = {}) {
     this.snapshot = snapshot;
@@ -94,6 +98,8 @@ export class RuntimeUi {
     this.deleteManualUsage = deleteManualUsage;
     this.getAccounts = getAccounts;
     this.switchAccount = switchAccount;
+    this.getProjectUsage = getProjectUsage;
+    this.getProjectDetail = getProjectDetail;
     this.clearTimeline = clearTimeline;
   }
 

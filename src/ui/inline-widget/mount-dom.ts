@@ -1,4 +1,4 @@
-import type { LanguageCode, QuotaGroup, RuntimeBridgeApi } from '../../contracts/index.ts';
+import type { LanguageCode, PreferencesSnapshot, QuotaGroup, RuntimeBridgeApi } from '../../contracts/index.ts';
 import { setAttr, setText } from '../../shared/dom.ts';
 import { compact } from '../../shared/format.ts';
 import type { CardInteractionController } from './card-interactions.ts';
@@ -32,6 +32,7 @@ export interface MountShadowDomOptions {
   guide: LanguageGuideController;
   polling: WidgetPollingState;
   onChooseLanguage: (next: LanguageCode) => Promise<void>;
+  onFontScaleChange?: (prefs: PreferencesSnapshot) => void;
   onObserveComposer: () => void;
 }
 
@@ -56,6 +57,7 @@ export function mountWidgetShadowDom(options: MountShadowDomOptions): MountedSha
     guide,
     polling,
     onChooseLanguage,
+    onFontScaleChange,
     onObserveComposer,
   } = options;
 
@@ -139,6 +141,8 @@ export function mountWidgetShadowDom(options: MountShadowDomOptions): MountedSha
       setMarkup,
       hostLabel: surface?.usageHostLabel || 'Antigravity',
       guideDismissed: guide.usageGuideDismissed,
+      initialPreferences: polling.data?.preferences ?? null,
+      onPreferencesSaved: onFontScaleChange,
       onDismissGuide: async () => {
         const saved = await polling.setPreferences({ usageGuideDismissed: true });
         if (!('usageGuideDismissed' in saved) || saved.usageGuideDismissed !== true) {

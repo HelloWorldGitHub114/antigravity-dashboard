@@ -189,4 +189,11 @@ export const ZH_DICTIONARY: I18nDictionary = {
   timelineEventSubagent: '子代理',
   timelineEventModelSwitch: '切换模型',
   timelineEventError: '错误',
+  fontSettings: '字体大小设置',
+  fontRowUsage: '统计页',
+  fontRowSidebar: '侧边栏',
+  fontRowInline: '底部状态卡片',
+  fontDecrease: '缩小',
+  fontIncrease: '放大',
+  fontPercent: '字体百分比',
 };

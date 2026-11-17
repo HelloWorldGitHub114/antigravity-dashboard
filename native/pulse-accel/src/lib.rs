@@ -19,7 +19,7 @@ pub use sanitizer_accel::{audit_open_source_privacy_json, sync_and_audit_open_so
 pub use snapshot_diff::diff_session_snapshots_json;
 pub use sqlite_trajectory::{
     extract_sqlite_usage_records_json, read_sqlite_conversation_meta_json,
-    read_sqlite_trajectory_json,
+    read_sqlite_conversation_summaries_json, read_sqlite_trajectory_json,
 };
 pub use svg_compiler::{coalesce_swimlanes_json, compile_catmull_rom_svg_path_json};
 pub use transcript_scan::scan_transcript_file_json;

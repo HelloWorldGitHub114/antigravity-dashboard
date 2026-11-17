@@ -270,6 +270,18 @@ module.exports = function createUsageDashboard(...args) {
       userColor(userKey) {
         return this.userColors.get(userKey) || (userKey === "legacy" ? "var(--pulse-muted)" : "var(--pulse-accent)");
       }
+      projectColor(projectKey) {
+        if (projectKey === "conversations") return "#6d7b93";
+        if (projectKey === "cli") return "#4ea8de";
+        if (projectKey.startsWith("remote:")) return "#945fb9";
+        const colors = ["#5b8ff9", "#5ad8a6", "#f6bd16", "#e86452", "#6dc8ec", "#ff9845", "#1e9493", "#7f8ff4"];
+        let h = 2166136261;
+        for (let i = 0; i < projectKey.length; i++) {
+          h ^= projectKey.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return colors[(h >>> 0) % colors.length];
+      }
       userDisplayName(userKey, value, w) {
         if (userKey === "legacy") return w("\u65E9\u671F\u5386\u53F2\u672A\u533A\u5206\u7528\u91CF", "Legacy unassigned");
         return value?.userMeta?.[userKey]?.email || value?.userMeta?.[userKey]?.name || userKey;
@@ -305,6 +317,8 @@ module.exports = function createUsageDashboard(...args) {
     var UsageDayIndex = class {
       dayMap = /* @__PURE__ */ new Map();
       sortedDays = [];
+      projectDayMap = /* @__PURE__ */ new Map();
+      sortedProjectDays = [];
       rebuild(value) {
         this.dayMap.clear();
         const list = [];
@@ -317,13 +331,55 @@ module.exports = function createUsageDashboard(...args) {
         list.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
         this.sortedDays = list;
       }
+      rebuildProjects(overview) {
+        this.projectDayMap.clear();
+        const list = [];
+        for (const day of overview?.days || []) {
+          if (day?.date) {
+            this.projectDayMap.set(day.date, day);
+            list.push(day);
+          }
+        }
+        list.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+        this.sortedProjectDays = list;
+      }
       totals(from, to, query, filter = false) {
         const models = {};
         const modelVariants = {};
         const users = {};
+        const projects = {};
         let legacyTokens = 0;
         let total = 0;
         let requests = 0;
+        if (query.dimension === "project") {
+          const accumProj = (day) => {
+            if (!day) return;
+            for (const [pKey, r] of Object.entries(day.projects || {})) {
+              if (filter && query.disabledProjects?.has(pKey)) continue;
+              const b = projects[pKey] ??= createEmptyBucket();
+              for (const k of COUNT_KEYS) b[k] += r[k] || 0;
+              total += r.total || 0;
+              requests += r.requests || 0;
+            }
+          };
+          if (from === to) {
+            accumProj(this.projectDayMap.get(from));
+          } else if (from <= to && this.sortedProjectDays.length) {
+            let lo = 0;
+            let hi = this.sortedProjectDays.length;
+            while (lo < hi) {
+              const mid = lo + hi >> 1;
+              if (this.sortedProjectDays[mid].date < from) lo = mid + 1;
+              else hi = mid;
+            }
+            for (let i = lo; i < this.sortedProjectDays.length; i++) {
+              const day = this.sortedProjectDays[i];
+              if (day.date > to) break;
+              accumProj(day);
+            }
+          }
+          return { from, to, models, modelVariants, users, projects, legacyTokens, total, requests };
+        }
         const accum = (day) => {
           if (!day) return;
           legacyTokens += day.legacyTokens || 0;
@@ -337,7 +393,7 @@ module.exports = function createUsageDashboard(...args) {
               const v = gv[rawModel] ??= createEmptyBucket();
               for (const k of COUNT_KEYS) v[k] += r[k] || 0;
             }
-            if (query.dimension !== "user") {
+            if (query.dimension === "model") {
               total += r.total || 0;
               requests += r.requests || 0;
             }
@@ -444,13 +500,292 @@ module.exports = function createUsageDashboard(...args) {
       return options.localeFallback ? value.toLocaleString(options.localeFallback) : String(value);
     }
 
+    // src/contracts/preferences.ts
+    var FONT_SCALE_KEYS = [
+      "usageFontScale",
+      "sidebarFontScale",
+      "inlineFontScale"
+    ];
+    var FONT_SCALE_MIN = 0.8;
+    var FONT_SCALE_MAX = 1.5;
+    function resolveFontScale(value, fallback = 1) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+      const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
+      return Math.round(clamped * 100) / 100;
+    }
+    var PREFERENCE_KEYS = [
+      "language",
+      "languageGuideDismissed",
+      "usageGuideDismissed",
+      "modelTimelineEnabled",
+      ...FONT_SCALE_KEYS
+    ];
+
+    // src/ui/shared/font-popover.ts
+    var FONT_POPOVER_MIN_PCT = Math.round(FONT_SCALE_MIN * 100);
+    var FONT_POPOVER_MAX_PCT = Math.round(FONT_SCALE_MAX * 100);
+    var FONT_POPOVER_STEP_PCT = 5;
+    var FONT_POPOVER_DEFAULT_PCT = 100;
+    var FONT_POPOVER_ROWS = [
+      { key: "usageFontScale", labelZh: "\u7EDF\u8BA1\u9875", labelEn: "Usage modal" },
+      { key: "sidebarFontScale", labelZh: "\u4FA7\u8FB9\u680F", labelEn: "Sidebar" },
+      { key: "inlineFontScale", labelZh: "\u5E95\u90E8\u72B6\u6001\u5361\u7247", labelEn: "Bottom card" }
+    ];
+    var FONT_POPOVER_CSS = `
+  .font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
+  .font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
+  .font-popover:not(:popover-open){display:none}
+  .font-popover-head{font-size:11px;font-weight:700;color:var(--pulse-muted);margin:0 0 8px;display:flex;align-items:center;justify-content:space-between}
+  .font-popover-rows{display:grid;gap:7px}
+  .font-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .font-row-label{font-size:12px;font-weight:600;color:var(--pulse-foreground);white-space:nowrap}
+  .font-stepper{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--pulse-border);border-radius:8px;background:var(--pulse-control,transparent)}
+  .font-step-btn{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pulse-foreground);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .font-step-btn:hover:not(:disabled){background:var(--pulse-surface)}
+  .font-step-btn:disabled{opacity:.4;cursor:default}
+  .font-input-wrap{display:inline-flex;align-items:center;gap:1px;padding:0 3px}
+  .font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none}
+  .font-pct-input:focus{border-color:var(--pulse-focus,var(--pulse-border));background:var(--pulse-background)}
+  .font-pct-unit{font:600 11px/1 var(--pulse-mono,ui-monospace,monospace);color:var(--pulse-muted)}
+  `.trim();
+    function clampPct(raw) {
+      if (!Number.isFinite(raw)) return FONT_POPOVER_DEFAULT_PCT;
+      return Math.min(FONT_POPOVER_MAX_PCT, Math.max(FONT_POPOVER_MIN_PCT, Math.round(raw)));
+    }
+    function asFontState(prefs) {
+      if (!prefs || typeof prefs !== "object" || "error" in prefs) return null;
+      return prefs;
+    }
+    function pctToScale(pct) {
+      return Math.round(clampPct(pct)) / 100;
+    }
+    function scaleToPct(scale) {
+      return Math.round(resolveFontScale(scale) * 100);
+    }
+    function createFontPopover(options) {
+      const { trigger, mountRoot, getLanguage, onChange } = options;
+      const doc = trigger.ownerDocument;
+      const initial = asFontState(options.initial);
+      const values = {
+        usageFontScale: resolveFontScale(initial?.usageFontScale),
+        sidebarFontScale: resolveFontScale(initial?.sidebarFontScale),
+        inlineFontScale: resolveFontScale(initial?.inlineFontScale)
+      };
+      const popover = doc.createElement("div");
+      popover.className = "font-popover";
+      popover.setAttribute("popover", "manual");
+      popover.setAttribute("role", "dialog");
+      const head = doc.createElement("div");
+      head.className = "font-popover-head";
+      const titleEl = doc.createElement("span");
+      head.append(titleEl);
+      popover.append(head);
+      const rowsWrap = doc.createElement("div");
+      rowsWrap.className = "font-popover-rows";
+      popover.append(rowsWrap);
+      const rowRefs = /* @__PURE__ */ new Map();
+      const commitKey = (key, nextPct) => {
+        const clampedPct = clampPct(nextPct);
+        const nextScale = pctToScale(clampedPct);
+        const prev = values[key];
+        syncRowDom(key, clampedPct);
+        if (nextScale === prev) return;
+        values[key] = nextScale;
+        void onChange({ [key]: nextScale }, { ...values });
+      };
+      const syncRowDom = (key, pct) => {
+        const ref = rowRefs.get(key);
+        if (!ref) return;
+        if (doc.activeElement !== ref.input && (!("activeElement" in mountRoot) || mountRoot.activeElement !== ref.input)) {
+          ref.input.value = String(pct);
+        }
+        ref.decBtn.disabled = pct <= FONT_POPOVER_MIN_PCT;
+        ref.incBtn.disabled = pct >= FONT_POPOVER_MAX_PCT;
+      };
+      for (const spec of FONT_POPOVER_ROWS) {
+        const row = doc.createElement("div");
+        row.className = "font-row";
+        row.dataset.fontKey = spec.key;
+        const labelEl = doc.createElement("span");
+        labelEl.className = "font-row-label";
+        const stepper = doc.createElement("div");
+        stepper.className = "font-stepper";
+        const decBtn = doc.createElement("button");
+        decBtn.type = "button";
+        decBtn.className = "font-step-btn";
+        decBtn.textContent = "\u2212";
+        decBtn.dataset.fontStep = String(-FONT_POPOVER_STEP_PCT);
+        decBtn.addEventListener("click", () => {
+          commitKey(spec.key, scaleToPct(values[spec.key]) - FONT_POPOVER_STEP_PCT);
+        });
+        const inputWrap = doc.createElement("span");
+        inputWrap.className = "font-input-wrap";
+        const input = doc.createElement("input");
+        input.type = "text";
+        input.inputMode = "numeric";
+        input.className = "font-pct-input";
+        input.maxLength = 3;
+        input.value = String(scaleToPct(values[spec.key]));
+        input.dataset.fontInput = spec.key;
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const parsed = Number.parseInt(input.value.replace(/[^\d]/g, ""), 10);
+            if (Number.isFinite(parsed)) commitKey(spec.key, parsed);
+            else input.value = String(scaleToPct(values[spec.key]));
+            input.blur();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            commitKey(spec.key, scaleToPct(values[spec.key]) + FONT_POPOVER_STEP_PCT);
+            input.value = String(scaleToPct(values[spec.key]));
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            commitKey(spec.key, scaleToPct(values[spec.key]) - FONT_POPOVER_STEP_PCT);
+            input.value = String(scaleToPct(values[spec.key]));
+          }
+        });
+        input.addEventListener("blur", () => {
+          const parsed = Number.parseInt(input.value.replace(/[^\d]/g, ""), 10);
+          if (Number.isFinite(parsed)) {
+            const clamped = clampPct(parsed);
+            input.value = String(clamped);
+            commitKey(spec.key, clamped);
+          } else {
+            input.value = String(scaleToPct(values[spec.key]));
+          }
+        });
+        const unit = doc.createElement("span");
+        unit.className = "font-pct-unit";
+        unit.textContent = "%";
+        inputWrap.append(input, unit);
+        const incBtn = doc.createElement("button");
+        incBtn.type = "button";
+        incBtn.className = "font-step-btn";
+        incBtn.textContent = "+";
+        incBtn.dataset.fontStep = String(FONT_POPOVER_STEP_PCT);
+        incBtn.addEventListener("click", () => {
+          commitKey(spec.key, scaleToPct(values[spec.key]) + FONT_POPOVER_STEP_PCT);
+        });
+        stepper.append(decBtn, inputWrap, incBtn);
+        row.append(labelEl, stepper);
+        rowsWrap.append(row);
+        rowRefs.set(spec.key, { labelEl, decBtn, incBtn, input });
+      }
+      mountRoot.append(popover);
+      const isOpen = () => popover.matches(":popover-open");
+      const positionPopover = () => {
+        const r = trigger.getBoundingClientRect();
+        const popRect = popover.getBoundingClientRect();
+        const popW = popRect.width || 240;
+        const popH = popRect.height || 140;
+        const vw = doc.documentElement.clientWidth || window.innerWidth;
+        const vh = doc.documentElement.clientHeight || window.innerHeight;
+        const left = Math.max(8, Math.min(vw - popW - 8, r.right - popW));
+        const top = Math.max(8, Math.min(vh - popH - 8, r.bottom + 6));
+        popover.style.left = `${Math.round(left)}px`;
+        popover.style.top = `${Math.round(top)}px`;
+      };
+      const close = () => {
+        if (!isOpen()) return;
+        try {
+          popover.hidePopover();
+        } catch {
+          popover.style.display = "none";
+        }
+        trigger.setAttribute("aria-expanded", "false");
+      };
+      const open = () => {
+        localize();
+        for (const spec of FONT_POPOVER_ROWS) {
+          syncRowDom(spec.key, scaleToPct(values[spec.key]));
+        }
+        try {
+          popover.showPopover();
+        } catch {
+          popover.style.display = "block";
+        }
+        positionPopover();
+        trigger.setAttribute("aria-expanded", "true");
+      };
+      const localize = () => {
+        const zh = getLanguage() === "zh-CN";
+        const title = zh ? "\u5B57\u4F53\u5927\u5C0F" : "Font size";
+        titleEl.textContent = title;
+        popover.setAttribute("aria-label", title);
+        trigger.title = zh ? "\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E" : "Font size settings";
+        trigger.setAttribute("aria-label", trigger.title);
+        for (const spec of FONT_POPOVER_ROWS) {
+          const ref = rowRefs.get(spec.key);
+          if (!ref) continue;
+          const name = zh ? spec.labelZh : spec.labelEn;
+          ref.labelEl.textContent = name;
+          ref.decBtn.setAttribute("aria-label", `${zh ? "\u7F29\u5C0F" : "Decrease"} ${name}`);
+          ref.incBtn.setAttribute("aria-label", `${zh ? "\u653E\u5927" : "Increase"} ${name}`);
+          ref.input.setAttribute("aria-label", `${name} ${zh ? "\u767E\u5206\u6BD4" : "percentage"}`);
+        }
+      };
+      const sync = (prefs) => {
+        const state = asFontState(prefs);
+        if (!state) return;
+        for (const spec of FONT_POPOVER_ROWS) {
+          const next = resolveFontScale(state[spec.key]);
+          values[spec.key] = next;
+          syncRowDom(spec.key, Math.round(next * 100));
+        }
+      };
+      const onTriggerClick = (e) => {
+        e.stopPropagation();
+        if (isOpen()) close();
+        else open();
+      };
+      const onDocPointerDown = (e) => {
+        if (!isOpen()) return;
+        const path = typeof e.composedPath === "function" ? e.composedPath() : [e.target];
+        if (path.includes(popover) || path.includes(trigger)) return;
+        close();
+      };
+      const onDocKeyDown = (e) => {
+        if (e.key === "Escape" && isOpen()) {
+          e.stopPropagation();
+          close();
+          trigger.focus();
+        }
+      };
+      const onViewportChange = () => {
+        if (isOpen()) positionPopover();
+      };
+      trigger.setAttribute("aria-haspopup", "dialog");
+      trigger.setAttribute("aria-expanded", "false");
+      trigger.addEventListener("click", onTriggerClick);
+      doc.addEventListener("pointerdown", onDocPointerDown, true);
+      doc.addEventListener("keydown", onDocKeyDown, true);
+      window.addEventListener("resize", onViewportChange);
+      localize();
+      sync(options.initial);
+      return {
+        element: popover,
+        sync,
+        localize,
+        close,
+        values: () => ({ ...values }),
+        dispose: () => {
+          close();
+          trigger.removeEventListener("click", onTriggerClick);
+          doc.removeEventListener("pointerdown", onDocPointerDown, true);
+          doc.removeEventListener("keydown", onDocKeyDown, true);
+          window.removeEventListener("resize", onViewportChange);
+          popover.remove();
+        }
+      };
+    }
+
     // src/ui/usage-modal/usage.css
-    var usage_default = ".chart-controls { display: flex; gap: 10px; align-items: center; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: 12px; font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: 11px; border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: 10px; color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: 10px; }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: 12px; pointer-events: none; }\n.chart-summary { font-size: 11px; color: var(--pulse-muted); margin-top: 5px; }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: 10px; color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: 11px; color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: 11px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: 11px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; margin-left: 10px; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: 12px; font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: 11px; white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: 10px; color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: 10.5px; color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: 10px; color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: 10px; border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: 15px; font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: 11px; color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: 12px; }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: 12px; }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: 10px; color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: 11px; }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: 11px; pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: 10px; color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: 16px; font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: 10px; color: var(--pulse-muted); margin-left: 9px; }\n\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: 23px; }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { transition: none !important; animation: none !important; }\n  button:active, .heat button:not(:disabled):hover, .heat button:not(:disabled):focus-visible { transform: none !important; }\n}\n";
+    var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-top: 5px; }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; margin-left: 10px; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n.detail-heading-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { transition: none !important; animation: none !important; }\n  button:active, .heat button:not(:disabled):hover, .heat button:not(:disabled):focus-visible { transform: none !important; }\n}\n';
 
     // src/ui/usage-modal/usage-sections.css
     var usage_sections_default = `:host {
     display: block; height: 100%; color: var(--pulse-foreground);
-    font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    font: calc(13px * var(--pulse-usage-font-scale, 1))/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
     font-variant-numeric: tabular-nums;
   }
   * { box-sizing: border-box; }
@@ -463,20 +798,20 @@ module.exports = function createUsageDashboard(...args) {
   .page { padding: 28px 32px 24px; height: 100%; max-height: none; display: flex; flex-direction: column; scrollbar-gutter: stable; overflow: auto; background: var(--pulse-background); }
   .page > * { flex: none; }
   .top { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
-  .eyebrow { font-size: 10px; color: var(--pulse-muted); letter-spacing: 1.7px; margin-bottom: 7px; }
-  h1 { font-size: 24px; letter-spacing: -.7px; line-height: 1.2; margin: 0 0 8px; font-weight: 600; }
-  .sub { font-size: 12px; color: var(--pulse-muted); display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
+  .eyebrow { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); letter-spacing: 1.7px; margin-bottom: 7px; }
+  h1 { font-size: calc(24px * var(--pulse-usage-font-scale, 1)); letter-spacing: -.7px; line-height: 1.2; margin: 0 0 8px; font-weight: 600; }
+  .sub { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
   .top-controls { display: flex; align-items: center; gap: 8px; flex-direction: row-reverse; flex-wrap: wrap; flex: none; }
   .actions { display: flex; gap: 8px; align-items: center; }
   .actions button { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; line-height: 1; border-radius: 8px; color: var(--pulse-muted); }
   .actions button:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }
   .actions svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-  .locale-label { display: block; min-width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: 11px; }
+  .locale-label { display: block; min-width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
   .live-dot { display: inline-block; width: 5px; height: 5px; background: var(--pulse-success); border-radius: 50%; margin-right: 6px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--pulse-success) 22%, transparent); }
 
-  .account-switcher { margin-left: 8px; padding: 2px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); max-width: 260px; text-overflow: ellipsis; }
+  .account-switcher { margin-left: 8px; padding: 2px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); max-width: 260px; text-overflow: ellipsis; }
   .account-switcher[hidden] { display: none; }
-  .btn-manual { display: inline-flex; align-items: center; gap: 6px; width: auto; flex: 0 0 auto; white-space: nowrap; padding: 0 12px; height: 32px; line-height: 32px; border-radius: 8px; font-size: 11px; font-weight: 500; color: var(--pulse-foreground); background: var(--pulse-control); border: 1px solid var(--pulse-border); }
+  .btn-manual { display: inline-flex; align-items: center; gap: 6px; width: auto; flex: 0 0 auto; white-space: nowrap; padding: 0 12px; height: 32px; line-height: 32px; border-radius: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; color: var(--pulse-foreground); background: var(--pulse-control); border: 1px solid var(--pulse-border); }
   .btn-manual:hover { background: var(--pulse-hover); }
   .btn-manual svg { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -489,28 +824,28 @@ module.exports = function createUsageDashboard(...args) {
   .totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--pulse-border); border-radius: 12px; padding: 17px 0; margin-bottom: 28px; background: color-mix(in srgb, var(--pulse-control) 65%, transparent); }
   .metric { padding: 0 20px; }
   .metric + .metric { border-left: 1px solid var(--pulse-separator); }
-  .metric label { color: var(--pulse-muted); font-size: 11px; }
-  .value { font-size: 27px; letter-spacing: -.9px; margin: 5px 0 0; font-weight: 550; font-variant-numeric: tabular-nums; }
-  .unit { font-size: 11px; color: var(--pulse-muted); margin-left: 5px; font-weight: 400; letter-spacing: 0; }
-  .usage-waiting { display: grid; place-items: center; min-height: 260px; color: var(--pulse-muted); font-size: 12px; }
+  .metric label { color: var(--pulse-muted); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
+  .value { font-size: calc(27px * var(--pulse-usage-font-scale, 1)); letter-spacing: -.9px; margin: 5px 0 0; font-weight: 550; font-variant-numeric: tabular-nums; }
+  .unit { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 5px; font-weight: 400; letter-spacing: 0; }
+  .usage-waiting { display: grid; place-items: center; min-height: 260px; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }
   .usage-waiting[hidden] { display: none; }
 
   section[hidden] { display: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 0 0 18px; }
-  h2 { font-size: 14px; font-weight: 600; letter-spacing: -.2px; margin: 0; }
-  .muted { font-size: 11px; color: var(--pulse-muted); }
+  h2 { font-size: calc(14px * var(--pulse-usage-font-scale, 1)); font-weight: 600; letter-spacing: -.2px; margin: 0; }
+  .muted { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
   .seg { display: flex; padding: 3px; background: var(--pulse-hover); border-radius: 8px; gap: 2px; }
-  .seg button { border: 0; padding: 4px 12px; border-radius: 5px; font-size: 11px; color: var(--pulse-muted); }
+  .seg button { border: 0; padding: 4px 12px; border-radius: 5px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
   .seg button:hover:not([aria-pressed=true]) { color: var(--pulse-foreground); }
   .seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); box-shadow: 0 1px 3px #0001; }
-  select { padding: 4px 8px; font-size: 11px; background: var(--pulse-background); }
+  select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); background: var(--pulse-background); }
 
   .heat-wrap { overflow-x: auto; padding: 3px 3px 7px; }
   .calendar { min-width: 680px; }
-  .months { display: grid; margin-left: 31px; font-size: 10px; color: var(--pulse-muted); margin-bottom: 7px; }
+  .months { display: grid; margin-left: 31px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 7px; }
   .months span { white-space: nowrap; }
   .heat-row { display: flex; gap: 9px; }
-  .weekdays { display: grid; grid-template-rows: repeat(7, 1fr); width: 22px; flex: none; font-size: 9px; color: var(--pulse-muted); }
+  .weekdays { display: grid; grid-template-rows: repeat(7, 1fr); width: 22px; flex: none; font-size: calc(9px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
   .heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; width: 100%; }
   .heat button { position: relative; border: 0; border-radius: 3px; padding: 0; min-width: 0; aspect-ratio: 1; background: var(--pulse-hover); outline-offset: 1px; transition: transform 120ms cubic-bezier(.22, 1, .36, 1), background-color 140ms ease, box-shadow 140ms ease; }
   .heat button:not(:disabled):hover, .heat button:not(:disabled):focus-visible { transform: scale(1.16); z-index: 2; box-shadow: 0 0 0 1px var(--pulse-border); }
@@ -521,23 +856,23 @@ module.exports = function createUsageDashboard(...args) {
   .heat button.future { opacity: .25; cursor: default; }
   .heat.week { grid-template-columns: repeat(26, minmax(0, 1fr)) !important; grid-template-rows: repeat(2, 1fr); grid-auto-flow: row; }
   .week button { max-height: 28px; aspect-ratio: 1; }
-  .heat-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 10px 0 27px; font-size: 10px; color: var(--pulse-muted); }
+  .heat-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 10px 0 27px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
   .scale { display: flex; align-items: center; gap: 4px; }
   .swatch { width: 11px; height: 11px; border-radius: 3px; background: var(--pulse-hover); }
   .selected { padding: 16px 18px; border: 1px solid var(--pulse-border); border-radius: 10px; display: flex; justify-content: space-between; gap: 16px; align-items: center; background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }
-  .selected button { border: 0; color: var(--pulse-accent); font-size: 12px; padding: 5px; }
+  .selected button { border: 0; color: var(--pulse-accent); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); padding: 5px; }
   .selected button:hover { text-decoration: underline; }
   .selected .title { font-weight: 500; margin-bottom: 3px; }
   .selected strong { font-weight: 550; }
 
   .year-picker { position: relative; flex: none; }
-  .year-trigger { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 76px; height: 30px; padding: 0 10px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: 11px; border-radius: 8px; }
+  .year-trigger { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 76px; height: 30px; padding: 0 10px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 8px; }
   .year-trigger:hover, .year-trigger[aria-expanded=true] { background: var(--pulse-hover); }
   .year-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }
   .year-trigger[aria-expanded=true] .year-chevron { transform: rotate(180deg); }
   .year-menu { position: fixed; inset: auto; margin: 0; padding: 5px; width: 112px; max-height: 232px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); transform-origin: top right; opacity: 1; transform: scale(1); transition: opacity 140ms ease, transform 160ms cubic-bezier(.23, 1, .32, 1); }
   .year-menu::backdrop { background: transparent; pointer-events: none; }
-  .year-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 12px; text-align: left; background: transparent; color: var(--pulse-foreground); font-variant-numeric: tabular-nums; }
+  .year-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); font-variant-numeric: tabular-nums; }
   .year-option:hover, .year-option:focus-visible { background: var(--pulse-hover); }
   .year-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }
   .year-check { color: var(--pulse-accent); width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
@@ -547,14 +882,14 @@ module.exports = function createUsageDashboard(...args) {
   .usage-intro { margin: 18px 0 0; padding: 17px 20px 14px; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); }
   .usage-intro[hidden] { display: none; }
   .intro-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
-  .intro-heading h2 { font-size: 13px; font-weight: 550; margin: 0; }
+  .intro-heading h2 { font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 550; margin: 0; }
   .intro-mark { display: flex; color: var(--pulse-accent); }
   .intro-mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
-  .intro-copy { display: grid; gap: 5px; color: var(--pulse-muted); font-size: 11px; line-height: 1.65; }
+  .intro-copy { display: grid; gap: 5px; color: var(--pulse-muted); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); line-height: 1.65; }
   .intro-copy p { margin: 0; }
   .intro-bottom { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 11px; }
-  .intro-bottom span { margin-right: auto; color: var(--pulse-warning); font-size: 11px; }
-  #usage-intro-done { padding: 6px 13px; min-height: 30px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-hover); color: var(--pulse-foreground); font: inherit; font-size: 11px; cursor: pointer; transition: background-color 140ms ease, transform 120ms ease; }
+  .intro-bottom span { margin-right: auto; color: var(--pulse-warning); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
+  #usage-intro-done { padding: 6px 13px; min-height: 30px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-hover); color: var(--pulse-foreground); font: inherit; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; transition: background-color 140ms ease, transform 120ms ease; }
   #usage-intro-done:hover { background: var(--pulse-selected); }
   #usage-intro-done:active { transform: scale(.98); }
   #usage-intro-done:disabled { opacity: .55; cursor: wait; }
@@ -563,7 +898,7 @@ module.exports = function createUsageDashboard(...args) {
     // src/ui/usage-modal/dom-shell.ts
     var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;opacity:1;transition:opacity 150ms cubic-bezier(.22,1,.36,1)}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:auto;transition:opacity 150ms ease}@starting-style{#usage-dashboard:popover-open{opacity:.05}#usage-dashboard:popover-open::backdrop{opacity:0}}@media(prefers-reduced-motion:reduce){#usage-dashboard,#usage-dashboard::backdrop{transition:none}}";
     var DIALOG_STYLE = "width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;box-sizing:border-box;overflow:hidden;visibility:visible;pointer-events:auto;padding:0;border:1px solid var(--pulse-border);border-radius:18px;background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
-    var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span><span id="account-switcher-slot"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><h2 id="detail-title"></h2><div class="dim-toggle" id="dim-controls"><button id="dim-model" type="button" data-dim="model"></button><button id="dim-user" type="button" data-dim="user"></button></div><div class="dim-toggle" id="model-view-controls"><button id="model-view-simple" type="button" data-model-view="simple"></button><button id="model-view-detailed" type="button" data-model-view="detailed"></button></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
+    var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span><span id="account-switcher-slot"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><h2 id="detail-title"></h2><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
     var INTRO_MARKUP = '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
     function createDomNode(tag, className = "", content) {
       const n = document.createElement(tag);
@@ -597,7 +932,8 @@ module.exports = function createUsageDashboard(...args) {
       root.append(backdrop);
       const css = document.createElement("style");
       css.textContent = `${usage_sections_default}
-  ${usage_default}`;
+  ${usage_default}
+  ${FONT_POPOVER_CSS}`;
       view.append(css);
       const page = document.createElement("div");
       page.className = "page";
@@ -954,10 +1290,256 @@ module.exports = function createUsageDashboard(...args) {
       $("hourly-chart")?.replaceChildren(svg);
     }
 
+    // src/ui/usage-modal/picker.ts
+    var CHECK_SVG = '<span></span><span class="picker-hint"></span><svg class="picker-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>';
+    function createPopoverListbox(opts) {
+      const { trigger, menu, labelEl, dialog, view, setMarkup, getSelected, onSelect } = opts;
+      let currentOptions = [];
+      const isOpen = () => menu.matches(":popover-open");
+      const position = () => {
+        if (!isOpen()) return;
+        const r = trigger.getBoundingClientRect();
+        const bounds = dialog.getBoundingClientRect();
+        const width = menu.offsetWidth || 160;
+        const height = menu.offsetHeight || 120;
+        menu.style.left = `${Math.max(bounds.left + 12, Math.min(r.left, bounds.right - width - 12))}px`;
+        const below = r.bottom + 6;
+        menu.style.top = `${below + height <= bounds.bottom - 12 ? below : Math.max(bounds.top + 12, r.top - height - 6)}px`;
+      };
+      const close = (restore = true) => {
+        if (!isOpen()) return;
+        menu.hidePopover();
+        trigger.setAttribute("aria-expanded", "false");
+        if (restore) trigger.focus({ preventScroll: true });
+      };
+      const sync = () => {
+        const selected = getSelected();
+        const matched = currentOptions.find((o) => o.value === selected);
+        const labelText = matched?.label ?? opts.placeholder?.() ?? selected;
+        if (labelEl.textContent !== labelText) labelEl.textContent = labelText;
+        for (const child of menu.children) {
+          const btn = child;
+          btn.setAttribute("aria-selected", String(btn.dataset.value === selected));
+        }
+      };
+      const open = () => {
+        menu.showPopover();
+        trigger.setAttribute("aria-expanded", "true");
+        position();
+        (menu.querySelector("[aria-selected=true]") || menu.firstElementChild)?.focus({
+          preventScroll: true
+        });
+      };
+      const setOptions = (options, menuLabel) => {
+        currentOptions = [...options];
+        if (menuLabel) menu.setAttribute("aria-label", menuLabel);
+        const sig = currentOptions.map((o) => `${o.value}	${o.label}	${o.hint || ""}`).join("\n");
+        if (menu.dataset.sig !== sig) {
+          menu.dataset.sig = sig;
+          menu.replaceChildren(
+            ...currentOptions.map((item) => {
+              const btn = createDomNode("button", "picker-option");
+              btn.type = "button";
+              btn.dataset.value = item.value;
+              btn.setAttribute("role", "option");
+              btn.tabIndex = -1;
+              setMarkup(btn, CHECK_SVG);
+              const spans = btn.querySelectorAll("span");
+              spans[0].textContent = item.label;
+              if (item.hint) spans[1].textContent = item.hint;
+              else spans[1].remove();
+              return btn;
+            })
+          );
+        }
+        sync();
+      };
+      const onTriggerClick = () => {
+        if (isOpen()) close(false);
+        else open();
+      };
+      const onTriggerKeyDown = (e) => {
+        if (!["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) return;
+        e.preventDefault();
+        if (!isOpen()) open();
+      };
+      const onMenuClick = (e) => {
+        const opt = e.target?.closest(".picker-option");
+        if (!opt || opt.dataset.value == null) return;
+        const next = opt.dataset.value;
+        close();
+        if (next !== getSelected()) {
+          onSelect(next);
+        }
+      };
+      const onMenuKeyDown = (e) => {
+        const options = [...menu.querySelectorAll(".picker-option")];
+        const index = options.indexOf(view.activeElement);
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          close();
+          return;
+        }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          options[(Math.max(index, 0) + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length]?.focus({
+            preventScroll: true
+          });
+        } else if (e.key === "Home") {
+          e.preventDefault();
+          options[0]?.focus({ preventScroll: true });
+        } else if (e.key === "End") {
+          e.preventDefault();
+          options.at(-1)?.focus({ preventScroll: true });
+        }
+      };
+      const onDocPointerDown = (e) => {
+        if (!isOpen()) return;
+        const path = e.composedPath();
+        if (path.includes(menu) || path.includes(trigger)) return;
+        close(false);
+      };
+      trigger.addEventListener("click", onTriggerClick);
+      trigger.addEventListener("keydown", onTriggerKeyDown);
+      menu.addEventListener("click", onMenuClick);
+      menu.addEventListener("keydown", onMenuKeyDown);
+      document.addEventListener("pointerdown", onDocPointerDown, true);
+      return {
+        setOptions,
+        sync,
+        open,
+        close,
+        isOpen,
+        position,
+        dispose: () => {
+          close(false);
+          trigger.removeEventListener("click", onTriggerClick);
+          trigger.removeEventListener("keydown", onTriggerKeyDown);
+          menu.removeEventListener("click", onMenuClick);
+          menu.removeEventListener("keydown", onMenuKeyDown);
+          document.removeEventListener("pointerdown", onDocPointerDown, true);
+        }
+      };
+    }
+
     // src/ui/usage-modal/events.ts
     function bindUsageModalEvents(ctx, options, deps) {
-      const { $, view, dialog, state, text, zh, w } = ctx;
+      const { $, view, page, dialog, state, text, zh, w } = ctx;
       const { palette, dayIndex, tooltip, heatmap, chart, render } = deps;
+      const applyUsageFontScale = (scale) => {
+        const resolved = String(resolveFontScale(scale));
+        dialog.style.setProperty("--pulse-usage-font-scale", resolved);
+        page.style.setProperty("--pulse-usage-font-scale", resolved);
+      };
+      const initScale = options.initialPreferences && !("error" in options.initialPreferences) && "usageFontScale" in options.initialPreferences ? options.initialPreferences.usageFontScale : void 0;
+      applyUsageFontScale(initScale);
+      const fontTrigger = $("font-settings");
+      const fontPopover = fontTrigger ? createFontPopover({
+        trigger: fontTrigger,
+        mountRoot: view,
+        getLanguage: () => options.language.language,
+        initial: options.initialPreferences ?? null,
+        onChange: async (update, next) => {
+          applyUsageFontScale(next.usageFontScale);
+          const bridge = window.agPulseBridge || window.agPulseHost;
+          try {
+            if (typeof bridge?.setPreferences === "function") {
+              const saved = await bridge.setPreferences(update);
+              if (saved && typeof saved === "object" && !("error" in saved)) {
+                fontPopover?.sync(saved);
+                applyUsageFontScale(saved.usageFontScale);
+                options.onPreferencesSaved?.(saved);
+              }
+            }
+          } catch {
+          }
+        }
+      }) : null;
+      let prefsLoaded = Boolean(options.initialPreferences && !("error" in options.initialPreferences));
+      const loadPreferencesIfNeeded = () => {
+        fontPopover?.localize();
+        if (prefsLoaded) return;
+        prefsLoaded = true;
+        const bridge = window.agPulseBridge || window.agPulseHost;
+        if (typeof bridge?.getPreferences !== "function") return;
+        void bridge.getPreferences().then((prefs) => {
+          if (state.disposed || !prefs || typeof prefs !== "object" || "error" in prefs) return;
+          fontPopover?.sync(prefs);
+          applyUsageFontScale(prefs.usageFontScale);
+          options.onPreferencesSaved?.(prefs);
+        }).catch(() => {
+          prefsLoaded = false;
+        });
+      };
+      const dimTrigger = $("dim-trigger");
+      const dimMenu = $("dim-menu");
+      const dimLabel = $("dim-label");
+      const dimPicker = dimTrigger && dimMenu && dimLabel ? createPopoverListbox({
+        trigger: dimTrigger,
+        menu: dimMenu,
+        labelEl: dimLabel,
+        dialog,
+        view,
+        setMarkup: options.setMarkup,
+        getSelected: () => state.dimension,
+        onSelect: (val) => {
+          state.dimension = val || "model";
+          state.selectedBar = null;
+          chart.renderChart();
+        }
+      }) : null;
+      const mvTrigger = $("model-view-trigger");
+      const mvMenu = $("model-view-menu");
+      const mvLabel = $("model-view-label");
+      const modelViewPicker = mvTrigger && mvMenu && mvLabel ? createPopoverListbox({
+        trigger: mvTrigger,
+        menu: mvMenu,
+        labelEl: mvLabel,
+        dialog,
+        view,
+        setMarkup: options.setMarkup,
+        getSelected: () => state.modelViewMode,
+        onSelect: (val) => {
+          state.modelViewMode = val || "simple";
+          state.disabledModels.clear();
+          chart.renderChart();
+        }
+      }) : null;
+      const syncPickers = () => {
+        dimPicker?.setOptions(
+          [
+            { value: "model", label: w("\u6309\u6A21\u578B\u7EDF\u8BA1", "By Model") },
+            { value: "user", label: w("\u6309\u7528\u6237\u7EDF\u8BA1", "By User") },
+            { value: "project", label: w("\u9879\u76EE\u7EDF\u8BA1", "Project Stats") }
+          ],
+          w("\u7EDF\u8BA1\u7EF4\u5EA6", "Dimension")
+        );
+        modelViewPicker?.setOptions(
+          [
+            { value: "simple", label: w("\u7B80\u6613", "Simple") },
+            { value: "detailed", label: w("\u8BE6\u7EC6", "Detailed") }
+          ],
+          w("\u89C6\u56FE\u6A21\u5F0F", "View mode")
+        );
+        fontPopover?.localize();
+      };
+      const closeSubPopovers = () => {
+        let closed = false;
+        if (dimPicker?.isOpen()) {
+          dimPicker.close();
+          closed = true;
+        }
+        if (modelViewPicker?.isOpen()) {
+          modelViewPicker.close();
+          closed = true;
+        }
+        if (fontPopover?.element.matches(":popover-open")) {
+          fontPopover.close();
+          closed = true;
+        }
+        return closed;
+      };
       const dismissGuide = () => {
         if (state.disposed) return;
         const focused = view.activeElement === $("usage-intro-done");
@@ -1014,24 +1596,6 @@ module.exports = function createUsageDashboard(...args) {
       };
       $("custom-start")?.addEventListener("change", handleCustomChange);
       $("custom-end")?.addEventListener("change", handleCustomChange);
-      $("dim-model")?.addEventListener("click", () => {
-        state.dimension = "model";
-        chart.renderChart();
-      });
-      $("dim-user")?.addEventListener("click", () => {
-        state.dimension = "user";
-        chart.renderChart();
-      });
-      $("model-view-simple")?.addEventListener("click", () => {
-        state.modelViewMode = "simple";
-        state.disabledModels.clear();
-        chart.renderChart();
-      });
-      $("model-view-detailed")?.addEventListener("click", () => {
-        state.modelViewMode = "detailed";
-        state.disabledModels.clear();
-        chart.renderChart();
-      });
       $("hourly-mode-combined")?.addEventListener("click", (e) => {
         e.stopPropagation();
         state.hourlyMode = "combined";
@@ -1080,6 +1644,8 @@ module.exports = function createUsageDashboard(...args) {
           { duration: turn, iterations: Infinity }
         ) ?? null;
         try {
+          state.projectOverviewKey = "";
+          state.projectDetailKey = "";
           await options.onRefresh();
         } catch {
           if (!state.disposed) {
@@ -1110,10 +1676,22 @@ module.exports = function createUsageDashboard(...args) {
       });
       return {
         dismissGuide,
+        syncPickers,
+        syncPreferences: (prefs) => {
+          if (!prefs || "error" in prefs) return;
+          prefsLoaded = true;
+          fontPopover?.sync(prefs);
+          if ("usageFontScale" in prefs) applyUsageFontScale(prefs.usageFontScale);
+        },
+        closeSubPopovers,
+        loadPreferencesIfNeeded,
         dispose() {
           if (refreshDelay) clearTimeout(refreshDelay);
           finishRefresh?.();
           refreshMotion?.cancel();
+          dimPicker?.dispose();
+          modelViewPicker?.dispose();
+          fontPopover?.dispose();
         }
       };
     }
@@ -1135,6 +1713,7 @@ module.exports = function createUsageDashboard(...args) {
       };
       const close = () => {
         handlers.onCloseYear(false);
+        handlers.onCloseSubPopovers?.();
         conceal();
         const tip = $("tip");
         if (tip) tip.hidden = true;
@@ -1153,6 +1732,7 @@ module.exports = function createUsageDashboard(...args) {
           const manualModal = $("manual-modal");
           if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
           else if (handlers.onIsYearOpen()) handlers.onCloseYear();
+          else if (handlers.onCloseSubPopovers?.()) return;
           else close();
           return;
         }
@@ -1491,6 +2071,7 @@ module.exports = function createUsageDashboard(...args) {
       for (const [id, label] of [
         ["locale", w("\u5207\u6362\u5230\u82F1\u6587", "Switch to Chinese")],
         ["refresh", w("\u5237\u65B0\u7528\u91CF", "Refresh usage")],
+        ["font-settings", w("\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E", "Font size settings")],
         ["close", w("\u5173\u95ED", "Close")]
       ]) {
         const btn = $(id);
@@ -1718,8 +2299,653 @@ module.exports = function createUsageDashboard(...args) {
       return { closeManualModal };
     }
 
+    // src/ui/shared/model-donut.ts
+    var SVG_NS2 = "http://www.w3.org/2000/svg";
+    var ROLE_COLORS = {
+      plan: "var(--pulse-accent)",
+      worker: "var(--pulse-success)",
+      subagent: "var(--pulse-warning)"
+    };
+    var PANEL_MIX_PALETTE = [
+      "var(--pulse-accent)",
+      "var(--pulse-success)",
+      "var(--pulse-warning)",
+      "#c084fc",
+      "#38bdf8",
+      "#fb7185"
+    ];
+    function metricValueOf(model, metric = "total") {
+      if (!model) return 0;
+      if (metric === "calls") return Number(model.requests) || 0;
+      if (metric === "output") return Number(model.outputTokens) || 0;
+      return Number(model.totalTokens) || 0;
+    }
+    function assignModelColors(models, palette = PANEL_MIX_PALETTE) {
+      const used = /* @__PURE__ */ new Set();
+      const map = /* @__PURE__ */ new Map();
+      models.forEach((entry, idx) => {
+        const key = typeof entry === "string" ? entry : entry.name || entry.id;
+        if (!key || map.has(key)) return;
+        const role = typeof entry === "string" ? null : entry.role ?? null;
+        const preferred = role ? ROLE_COLORS[role] : void 0;
+        let chosen;
+        if (preferred && !used.has(preferred)) {
+          chosen = preferred;
+        } else {
+          chosen = palette.find((c) => !used.has(c)) ?? palette[idx % palette.length];
+        }
+        used.add(chosen);
+        map.set(key, chosen);
+      });
+      return map;
+    }
+    function partitionModelSlices(models, options) {
+      const metric = options.metric ?? "total";
+      const sorted = [...models].sort(
+        (a, b) => metricValueOf(b, metric) - metricValueOf(a, metric) || (Number(b?.totalTokens) || 0) - (Number(a?.totalTokens) || 0) || (Number(b?.requests) || 0) - (Number(a?.requests) || 0)
+      );
+      const capped = sorted.length > options.maxVisible ? [
+        ...sorted.slice(0, options.headCount),
+        sorted.slice(options.headCount).reduce(
+          (acc, m) => ({
+            id: "__other__",
+            name: options.otherLabel,
+            role: "model",
+            requests: acc.requests + (Number(m?.requests) || 0),
+            outputTokens: acc.outputTokens + (Number(m?.outputTokens) || 0),
+            totalTokens: acc.totalTokens + (Number(m?.totalTokens) || 0)
+          }),
+          { id: "__other__", name: options.otherLabel, role: "model", requests: 0, outputTokens: 0, totalTokens: 0 }
+        )
+      ] : sorted;
+      const palette = options.palette ?? PANEL_MIX_PALETTE;
+      const colorMap = assignModelColors(capped, palette);
+      const totalMetric = capped.reduce((sum, m) => sum + Math.max(0, metricValueOf(m, metric)), 0);
+      return capped.map((m, idx) => {
+        const id = String(m?.id || m?.name || idx);
+        const name = String(m?.name || m?.id || "\u2014");
+        const val = Math.max(0, metricValueOf(m, metric));
+        const resolvedColor = id === "__other__" && options.otherColor ? options.otherColor : colorMap.get(m?.name || m?.id || name) || palette[idx % palette.length];
+        return {
+          id,
+          name,
+          role: String(m?.role || "model"),
+          requests: Number(m?.requests) || 0,
+          outputTokens: Number(m?.outputTokens) || 0,
+          totalTokens: Number(m?.totalTokens) || 0,
+          value: val,
+          share: totalMetric > 0 ? val / totalMetric : 0,
+          color: resolvedColor
+        };
+      });
+    }
+    function createDonutSegment(opts, doc = document) {
+      const circle = doc.createElementNS(SVG_NS2, "circle");
+      circle.setAttribute("class", opts.className);
+      circle.setAttribute("cx", String(opts.cx));
+      circle.setAttribute("cy", String(opts.cy));
+      circle.setAttribute("r", String(opts.r));
+      if (opts.pathLength != null) circle.setAttribute("pathLength", String(opts.pathLength));
+      circle.setAttribute("stroke-dasharray", opts.dasharray);
+      circle.setAttribute("stroke-dashoffset", opts.dashoffset);
+      circle.dataset.modelId = opts.modelId;
+      circle.style.setProperty("stroke", opts.color);
+      if (opts.tabIndex != null) circle.setAttribute("tabindex", String(opts.tabIndex));
+      if (opts.role) circle.setAttribute("role", opts.role);
+      if (opts.ariaLabel) circle.setAttribute("aria-label", opts.ariaLabel);
+      return circle;
+    }
+
+    // src/ui/usage-modal/project-detail.ts
+    var INITIAL_VISIBLE_MAIN = 10;
+    var DONUT_PALETTE = [
+      "#5b8ff9",
+      "#5ad8a6",
+      "#5d7092",
+      "#f6bd16",
+      "#e86452",
+      "#6dc8ec",
+      "#945fb9",
+      "#ff9845",
+      "#1e9493",
+      "#ff99c3",
+      "#269a99",
+      "#9270ca",
+      "#52c41a",
+      "#fa8c16",
+      "#2f54eb"
+    ];
+    function buildMergedGroups(items, totalTokens) {
+      const mainByTitle = /* @__PURE__ */ new Map();
+      for (const item of items) {
+        if (!item.isSubagent) mainByTitle.set(item.title.toLowerCase(), item);
+      }
+      const groups = /* @__PURE__ */ new Map();
+      for (const item of items) {
+        const inferredRoot = item.isSubagent && !item.rootId && item.title.includes(" \xB7 ") ? mainByTitle.get(item.title.slice(0, item.title.lastIndexOf(" \xB7 ")).toLowerCase()) : void 0;
+        const rawRootId = item.isSubagent ? item.rootId || inferredRoot?.id || item.id : item.id;
+        const key = rawRootId.toLowerCase();
+        let group = groups.get(key);
+        if (!group) {
+          const rootTitle = item.isSubagent ? item.rootTitle || inferredRoot?.title || item.title.split(" \xB7 ")[0] || item.title : item.title;
+          group = {
+            id: rawRootId,
+            title: rootTitle,
+            uncached: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 0,
+            total: 0,
+            requests: 0,
+            share: 0,
+            isRemote: item.isRemote,
+            selfTotal: 0,
+            selfRequests: 0,
+            selfUncached: 0,
+            selfCacheRead: 0,
+            selfOutput: 0,
+            subagents: []
+          };
+          groups.set(key, group);
+        }
+        group.uncached += item.uncached;
+        group.cacheRead += item.cacheRead;
+        group.cacheWrite += item.cacheWrite;
+        group.output += item.output;
+        group.total += item.total;
+        group.requests += item.requests;
+        if (item.isSubagent) {
+          group.subagents.push(item);
+        } else {
+          group.title = item.title;
+          group.isRemote = item.isRemote;
+          group.selfTotal += item.total;
+          group.selfRequests += item.requests;
+          group.selfUncached += item.uncached;
+          group.selfCacheRead += item.cacheRead;
+          group.selfOutput += item.output;
+        }
+      }
+      const result = Array.from(groups.values());
+      for (const g of result) {
+        g.share = totalTokens > 0 ? g.total / totalTokens : 0;
+        g.subagents.sort((a, b) => b.total - a.total || a.title.localeCompare(b.title));
+      }
+      result.sort((a, b) => b.total - a.total || a.title.localeCompare(b.title));
+      return result;
+    }
+    function subagentDisplayLabel(sub, parentTitle) {
+      if (sub.agentName) return sub.agentName;
+      const prefix = `${parentTitle} \xB7 `;
+      if (sub.title.startsWith(prefix)) return sub.title.slice(prefix.length) || sub.title;
+      const idx = sub.title.lastIndexOf(" \xB7 ");
+      return idx >= 0 ? sub.title.slice(idx + 3) || sub.title : sub.title;
+    }
+    function createProjectDetailController(ctx, palette, tooltip, onSelectProject) {
+      const { $, w, full, compactNum, state, dialog, view, options } = ctx;
+      const host = $("project-detail-section");
+      let picker = null;
+      let lastRenderSig = "";
+      let lastDetailIdentity = "";
+      let expandAllSubagents = false;
+      let showAllMain = false;
+      const expandedMainIds = /* @__PURE__ */ new Set();
+      let renderedGroups = [];
+      let renderedSlices = [];
+      if (host) {
+        options.setMarkup(
+          host,
+          '<div class="project-detail-head"><div class="project-detail-title-group"><h2 id="project-detail-title"></h2><div class="picker" id="project-detail-picker"><button id="project-detail-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="project-detail-menu" aria-expanded="false"><span id="project-detail-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="project-detail-menu" class="picker-menu" role="listbox" popover="manual"></div></div></div><div id="project-detail-summary" class="muted"></div></div><div id="project-detail-body" class="project-detail-body"></div>'
+        );
+        const trigger = $("project-detail-trigger");
+        const menu = $("project-detail-menu");
+        const labelEl = $("project-detail-label");
+        if (trigger && menu && labelEl) {
+          picker = createPopoverListbox({
+            trigger,
+            menu,
+            labelEl,
+            dialog,
+            view,
+            setMarkup: options.setMarkup,
+            getSelected: () => state.selectedProjectKey || "",
+            placeholder: () => w("\u9009\u62E9\u9879\u76EE\u2026", "Select project\u2026"),
+            onSelect: (projectKey) => onSelectProject(projectKey)
+          });
+        }
+      }
+      const syncPicker = () => {
+        if (!picker) return;
+        const projects = state.projectOverview?.projects || [];
+        picker.setOptions(
+          projects.map((p) => ({ value: p.projectKey, label: p.name, hint: compactNum(p.total) })),
+          w("\u9009\u62E9\u9879\u76EE", "Select project")
+        );
+      };
+      const applyHighlight = (convId) => {
+        state.activeConvId = convId;
+        if (!host) return;
+        for (const seg of host.querySelectorAll(".proj-donut-seg[data-model-id]")) {
+          const id = seg.dataset.modelId || "";
+          seg.classList.toggle("is-active", Boolean(convId && id === convId));
+          seg.classList.toggle("is-dimmed", Boolean(convId && id !== convId));
+        }
+        for (const row of host.querySelectorAll("[data-conv-id]")) {
+          const id = row.dataset.convId || "";
+          row.classList.toggle("is-active", Boolean(convId && id === convId));
+        }
+        const centerVal = $("proj-donut-center-val");
+        const centerSub = $("proj-donut-center-sub");
+        if (centerVal && centerSub) {
+          if (convId) {
+            const sl = renderedSlices.find((s) => s.id === convId);
+            if (sl) {
+              centerVal.textContent = `${(sl.share * 100).toFixed(1)}%`;
+              centerSub.textContent = sl.name;
+              return;
+            }
+          }
+          centerVal.textContent = compactNum(state.projectDetail?.totalTokens ?? 0);
+          centerSub.textContent = w("\u9879\u76EE\u603B\u7528\u91CF", "Project total");
+        }
+      };
+      const showTip = (target, title, stats) => {
+        if (!target) return;
+        tooltip.showNodes(target, [
+          createDomNode("div", "tip-title", title),
+          createDomNode("strong", "", `${full(stats.total)} Token`),
+          createDomNode("div", "muted", `${(stats.share * 100).toFixed(1)}% \xB7 ${stats.requests} ${w("\u6B21\u8BF7\u6C42", "requests")}`),
+          createDomNode(
+            "div",
+            "tip-sub",
+            `${w("\u8F93\u5165", "Uncached")}: ${compactNum(stats.uncached)} \xB7 ${w("\u7F13\u5B58\u8BFB", "Cache read")}: ${compactNum(stats.cacheRead)} \xB7 ${w("\u8F93\u51FA", "Output")}: ${compactNum(stats.output)}`
+          )
+        ]);
+      };
+      const renderLoaded = (body) => {
+        const detail = state.projectDetail;
+        if (!detail) return;
+        const prevScroll = body.querySelector(".proj-bars")?.scrollTop ?? 0;
+        const prevDonutScroll = body.querySelector(".proj-donut-list")?.scrollTop ?? 0;
+        if (!renderedGroups.length) {
+          body.replaceChildren(
+            createDomNode(
+              "div",
+              "project-detail-empty",
+              w("\u8BE5\u9879\u76EE\u5728\u6B64\u65F6\u95F4\u8303\u56F4\u5185\u6682\u65E0\u4F1A\u8BDD\u7528\u91CF\u8BB0\u5F55\u3002", "No conversation token usage recorded for this project in range.")
+            )
+          );
+          return;
+        }
+        const totalSubagents = renderedGroups.reduce((s, g) => s + g.subagents.length, 0);
+        const donutHeadCount = showAllMain ? renderedGroups.length : 6;
+        const slices = partitionModelSlices(
+          renderedGroups.map((g) => ({
+            id: g.id,
+            name: g.title,
+            role: "model",
+            requests: g.requests,
+            inputTokens: g.uncached + g.cacheRead + g.cacheWrite,
+            uncachedTokens: g.uncached,
+            cachedTokens: g.cacheRead,
+            cacheWriteTokens: g.cacheWrite,
+            outputTokens: g.output,
+            thinkingTokens: 0,
+            totalTokens: g.total
+          })),
+          {
+            metric: "total",
+            maxVisible: showAllMain ? renderedGroups.length : 7,
+            headCount: donutHeadCount,
+            otherLabel: w("\u5176\u4ED6\u4F1A\u8BDD", "Other sessions"),
+            otherColor: "#8c95a6",
+            palette: [...DONUT_PALETTE]
+          }
+        );
+        renderedSlices = slices;
+        const colorById = new Map(slices.map((s) => [s.id, s.color]));
+        const maxTotal = renderedGroups[0]?.total || 1;
+        const grid = createDomNode("div", "proj-detail-grid");
+        const barPanel = createDomNode("div", "proj-bar-panel");
+        const barHead = createDomNode("div", "proj-panel-head");
+        barHead.append(createDomNode("div", "proj-panel-label", w("\u4E3B\u4F1A\u8BDD\u7528\u91CF\u5206\u5E03", "Main Session Distribution")));
+        const actions = createDomNode("div", "proj-panel-actions");
+        if (totalSubagents > 0) {
+          const subBtn = createDomNode(
+            "button",
+            "proj-action-btn",
+            expandAllSubagents ? w("\u6536\u8D77\u5B50\u4EE3\u7406", "Collapse subagents") : w(`\u5C55\u5F00\u5B50\u4EE3\u7406 (${totalSubagents})`, `Expand subagents (${totalSubagents})`)
+          );
+          subBtn.id = "proj-toggle-subagents";
+          subBtn.type = "button";
+          subBtn.setAttribute("aria-pressed", String(expandAllSubagents));
+          subBtn.addEventListener("click", () => {
+            expandAllSubagents = !expandAllSubagents;
+            expandedMainIds.clear();
+            renderLoaded(body);
+          });
+          actions.append(subBtn);
+        }
+        if (renderedGroups.length > INITIAL_VISIBLE_MAIN) {
+          const allBtn = createDomNode(
+            "button",
+            "proj-action-btn",
+            showAllMain ? w(`\u6536\u8D77 (\u524D${INITIAL_VISIBLE_MAIN})`, `Top ${INITIAL_VISIBLE_MAIN}`) : w(`\u67E5\u770B\u5168\u90E8\u4F1A\u8BDD (${renderedGroups.length})`, `View all (${renderedGroups.length})`)
+          );
+          allBtn.id = "proj-toggle-all";
+          allBtn.type = "button";
+          allBtn.setAttribute("aria-pressed", String(showAllMain));
+          allBtn.addEventListener("click", () => {
+            showAllMain = !showAllMain;
+            renderLoaded(body);
+          });
+          actions.append(allBtn);
+        }
+        if (actions.childElementCount > 0) barHead.append(actions);
+        barPanel.append(barHead);
+        const barsWrap = createDomNode("div", `proj-bars${showAllMain ? " is-all" : ""}`);
+        const shown = showAllMain ? renderedGroups : renderedGroups.slice(0, INITIAL_VISIBLE_MAIN);
+        const toggleMainRow = (groupId) => {
+          if (expandAllSubagents) {
+            expandAllSubagents = false;
+            for (const g of renderedGroups) {
+              if (g.subagents.length > 0 && g.id !== groupId) expandedMainIds.add(g.id);
+            }
+          } else if (expandedMainIds.has(groupId)) {
+            expandedMainIds.delete(groupId);
+          } else {
+            expandedMainIds.add(groupId);
+          }
+          renderLoaded(body);
+        };
+        for (const group of shown) {
+          const wrap = createDomNode("div", "proj-bar-group");
+          const hasSub = group.subagents.length > 0;
+          const isExpanded = hasSub && (expandAllSubagents || expandedMainIds.has(group.id));
+          const color = colorById.get(group.id) || "#8c95a6";
+          const row = createDomNode("div", "proj-bar-row");
+          row.dataset.convId = group.id;
+          row.tabIndex = 0;
+          if (hasSub) {
+            row.setAttribute("role", "button");
+            row.setAttribute("aria-expanded", String(isExpanded));
+          }
+          const metaRow = createDomNode("div", "proj-bar-meta");
+          const titleWrap = createDomNode("span", "proj-bar-title");
+          titleWrap.title = group.title;
+          if (hasSub) titleWrap.append(createDomNode("span", "proj-bar-caret", isExpanded ? "\u25BE" : "\u25B8"));
+          titleWrap.append(createDomNode("span", "proj-bar-name", group.title));
+          if (hasSub) {
+            titleWrap.append(createDomNode("span", "proj-badge", w(`\u542B ${group.subagents.length} \u5B50\u4EE3\u7406`, `${group.subagents.length} sub`)));
+          }
+          if (group.isRemote) titleWrap.append(createDomNode("span", "proj-badge", w("\u8FDC\u7A0B", "Remote")));
+          metaRow.append(titleWrap, createDomNode("span", "proj-bar-val", `${compactNum(group.total)} (${(group.share * 100).toFixed(1)}%)`));
+          const track = createDomNode("div", "proj-bar-track");
+          const fill = createDomNode("div", "proj-bar-fill");
+          fill.style.width = `${Math.max(2, Math.round(group.total / maxTotal * 1e3) / 10)}%`;
+          fill.style.background = color;
+          track.append(fill);
+          row.append(metaRow, track);
+          row.addEventListener("pointerenter", (e) => {
+            applyHighlight(group.id);
+            showTip(e.currentTarget, group.title, group);
+          });
+          row.addEventListener("pointerleave", () => {
+            applyHighlight(null);
+            tooltip.hide();
+          });
+          row.addEventListener("focus", (e) => {
+            applyHighlight(group.id);
+            showTip(e.currentTarget, group.title, group);
+          });
+          row.addEventListener("blur", () => {
+            applyHighlight(null);
+            tooltip.hide();
+          });
+          if (hasSub) {
+            row.addEventListener("click", () => toggleMainRow(group.id));
+            row.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                toggleMainRow(group.id);
+              }
+            });
+          }
+          wrap.append(row);
+          if (isExpanded) {
+            const subList = createDomNode("div", "proj-subagent-list");
+            const subBase = group.total || 1;
+            if (group.selfTotal > 0) {
+              const selfRow = createDomNode("div", "proj-subagent-row");
+              const sMeta = createDomNode("div", "proj-bar-meta");
+              const sTitle = createDomNode("span", "proj-bar-title");
+              sTitle.append(createDomNode("span", "proj-bar-name", w("\u4E3B\u4F1A\u8BDD\u81EA\u8EAB", "Main session direct")));
+              const selfShare = detail.totalTokens > 0 ? group.selfTotal / detail.totalTokens : 0;
+              sMeta.append(sTitle, createDomNode("span", "proj-bar-val", `${compactNum(group.selfTotal)} (${(selfShare * 100).toFixed(1)}%)`));
+              const sTrack = createDomNode("div", "proj-bar-track");
+              const sFill = createDomNode("div", "proj-bar-fill");
+              sFill.style.width = `${Math.max(2, Math.round(group.selfTotal / subBase * 1e3) / 10)}%`;
+              sFill.style.background = color;
+              sTrack.append(sFill);
+              selfRow.append(sMeta, sTrack);
+              selfRow.addEventListener(
+                "pointerenter",
+                (e) => showTip(e.currentTarget, `${group.title} (${w("\u4E3B\u4F1A\u8BDD\u81EA\u8EAB", "Main direct")})`, {
+                  total: group.selfTotal,
+                  share: selfShare,
+                  requests: group.selfRequests,
+                  uncached: group.selfUncached,
+                  cacheRead: group.selfCacheRead,
+                  output: group.selfOutput
+                })
+              );
+              selfRow.addEventListener("pointerleave", () => tooltip.hide());
+              subList.append(selfRow);
+            }
+            for (const sub of group.subagents) {
+              const sRow = createDomNode("div", "proj-subagent-row");
+              const label = subagentDisplayLabel(sub, group.title);
+              const sMeta = createDomNode("div", "proj-bar-meta");
+              const sTitle = createDomNode("span", "proj-bar-title");
+              sTitle.title = sub.title;
+              sTitle.append(
+                createDomNode("span", "proj-bar-name", label),
+                createDomNode("span", "proj-badge", w("\u5B50\u4EE3\u7406", "Subagent"))
+              );
+              sMeta.append(sTitle, createDomNode("span", "proj-bar-val", `${compactNum(sub.total)} (${(sub.share * 100).toFixed(1)}%)`));
+              const sTrack = createDomNode("div", "proj-bar-track");
+              const sFill = createDomNode("div", "proj-bar-fill");
+              sFill.style.width = `${Math.max(2, Math.round(sub.total / subBase * 1e3) / 10)}%`;
+              sFill.style.background = color;
+              sTrack.append(sFill);
+              sRow.append(sMeta, sTrack);
+              sRow.addEventListener("pointerenter", (e) => showTip(e.currentTarget, sub.title, sub));
+              sRow.addEventListener("pointerleave", () => tooltip.hide());
+              subList.append(sRow);
+            }
+            wrap.append(subList);
+          }
+          barsWrap.append(wrap);
+        }
+        if (renderedGroups.length > INITIAL_VISIBLE_MAIN) {
+          const foot = createDomNode("div", "proj-bars-more muted");
+          foot.append(
+            createDomNode(
+              "span",
+              "",
+              showAllMain ? w(`\u5DF2\u5C55\u5F00\u5168\u90E8 ${renderedGroups.length} \u4E2A\u4E3B\u4F1A\u8BDD`, `Showing all ${renderedGroups.length} main sessions`) : w(`\u4EC5\u5C55\u793A\u524D ${shown.length} \u4E2A\u4E3B\u4F1A\u8BDD\uFF08\u5171 ${renderedGroups.length} \u4E2A\uFF09`, `Showing top ${shown.length} of ${renderedGroups.length} main sessions`)
+            )
+          );
+          barsWrap.append(foot);
+        }
+        barPanel.append(barsWrap);
+        const donutPanel = createDomNode("div", "proj-donut-panel");
+        donutPanel.append(createDomNode("div", "proj-panel-label", w("\u4E3B\u4F1A\u8BDD\u5360\u6BD4\u73AF\u5F62\u56FE", "Main Session Share")));
+        const donutWrap = createDomNode("div", "proj-donut-layout");
+        const chartBox = createDomNode("div", "proj-donut-box");
+        const svg = document.createElementNS(SVG_NS2, "svg");
+        svg.setAttribute("viewBox", "0 0 120 120");
+        svg.setAttribute("class", "proj-donut-svg");
+        svg.setAttribute("aria-label", w("\u4E3B\u4F1A\u8BDD\u7528\u91CF\u73AF\u5F62\u56FE", "Main session share donut chart"));
+        const trackCircle = document.createElementNS(SVG_NS2, "circle");
+        trackCircle.setAttribute("class", "proj-donut-track");
+        trackCircle.setAttribute("cx", "60");
+        trackCircle.setAttribute("cy", "60");
+        trackCircle.setAttribute("r", "44");
+        svg.append(trackCircle);
+        let offset = 0;
+        for (const slice of slices) {
+          const len = Math.max(0.25, slice.share * 100);
+          const seg = createDonutSegment({
+            className: "proj-donut-seg",
+            cx: 60,
+            cy: 60,
+            r: 44,
+            pathLength: 100,
+            dasharray: `${len} ${Math.max(0, 100 - len)}`,
+            dashoffset: String(-offset),
+            modelId: slice.id,
+            color: slice.color,
+            tabIndex: 0,
+            role: "img",
+            ariaLabel: `${slice.name}: ${(slice.share * 100).toFixed(1)}%`
+          });
+          offset += slice.share * 100;
+          seg.addEventListener("pointerenter", () => applyHighlight(slice.id));
+          seg.addEventListener("pointerleave", () => applyHighlight(null));
+          seg.addEventListener("focus", () => applyHighlight(slice.id));
+          seg.addEventListener("blur", () => applyHighlight(null));
+          svg.append(seg);
+        }
+        const center = createDomNode("div", "proj-donut-center");
+        const cVal = createDomNode("strong", "", compactNum(detail.totalTokens));
+        cVal.id = "proj-donut-center-val";
+        const cSub = createDomNode("span", "", w("\u9879\u76EE\u603B\u7528\u91CF", "Project total"));
+        cSub.id = "proj-donut-center-sub";
+        center.append(cVal, cSub);
+        chartBox.append(svg, center);
+        const shareList = createDomNode("div", `proj-donut-list${showAllMain ? " is-all" : ""}`);
+        for (const slice of slices) {
+          const item = createDomNode("div", "proj-donut-item");
+          item.dataset.convId = slice.id;
+          const dot = createDomNode("i", "proj-donut-dot");
+          dot.style.background = slice.color;
+          const nameEl = createDomNode("span", "proj-donut-item-name", slice.name);
+          nameEl.title = slice.name;
+          item.append(dot, nameEl, createDomNode("span", "proj-donut-item-pct", `${(slice.share * 100).toFixed(1)}%`));
+          item.addEventListener("pointerenter", () => applyHighlight(slice.id));
+          item.addEventListener("pointerleave", () => applyHighlight(null));
+          item.addEventListener("click", () => {
+            applyHighlight(slice.id);
+            const targetBar = body.querySelector(`.proj-bar-row[data-conv-id="${CSS.escape(slice.id)}"]`);
+            targetBar?.scrollIntoView({ block: "nearest" });
+          });
+          shareList.append(item);
+        }
+        donutWrap.append(chartBox, shareList);
+        donutPanel.append(donutWrap);
+        grid.append(barPanel, donutPanel);
+        body.replaceChildren(grid);
+        if (prevScroll > 0) {
+          const newBars = body.querySelector(".proj-bars");
+          if (newBars) newBars.scrollTop = prevScroll;
+        }
+        if (prevDonutScroll > 0) {
+          const newList = body.querySelector(".proj-donut-list");
+          if (newList) newList.scrollTop = prevDonutScroll;
+        }
+        applyHighlight(null);
+      };
+      const render = () => {
+        if (!host) return;
+        const isProjectDim = state.dimension === "project";
+        host.hidden = !isProjectDim;
+        if (!isProjectDim) return;
+        const titleEl = $("project-detail-title");
+        if (titleEl) titleEl.textContent = w("\u9879\u76EE\u5185\u4F1A\u8BDD\u5206\u5E03", "Project Conversations");
+        syncPicker();
+        const summaryEl = $("project-detail-summary");
+        const bodyEl = $("project-detail-body");
+        if (!summaryEl || !bodyEl) return;
+        const sig = JSON.stringify([
+          options.language.language,
+          state.selectedProjectKey,
+          state.projectDetailLoading,
+          state.projectDetailError,
+          state.projectDetail?.updatedAt || null,
+          state.projectDetail?.projectKey || null,
+          state.projectDetail?.from || null,
+          state.projectDetail?.to || null,
+          state.projectDetail?.totalTokens ?? 0,
+          state.projectDetail?.conversations.length ?? 0
+        ]);
+        if (sig === lastRenderSig) return;
+        lastRenderSig = sig;
+        if (!state.selectedProjectKey) {
+          summaryEl.textContent = w("\u6309\u9700\u52A0\u8F7D \xB7 \u9ED8\u8BA4\u4E0D\u8BA1\u7B97", "On demand \xB7 Not loaded");
+          bodyEl.replaceChildren(
+            createDomNode(
+              "div",
+              "project-detail-empty",
+              w(
+                "\u70B9\u51FB\u4E0A\u65B9\u8868\u683C\u4E2D\u7684\u4EFB\u610F\u9879\u76EE\u6216\u901A\u8FC7\u4E0B\u62C9\u6846\u9009\u62E9\u7279\u5B9A\u9879\u76EE\u540E\uFF0C\u518D\u8BA1\u7B97\u9879\u76EE\u5185\u5404\u4E2A\u4F1A\u8BDD\u7684\u4F7F\u7528\u91CF\u67F1\u5F62\u56FE\u4E0E\u73AF\u5F62\u56FE\u5360\u6BD4\u3002",
+                "Select a project from the table or dropdown above to compute per-conversation bar and donut share charts on demand."
+              )
+            )
+          );
+          return;
+        }
+        if (state.projectDetailLoading) {
+          summaryEl.textContent = w("\u6B63\u5728\u52A0\u8F7D\u4F1A\u8BDD\u660E\u7EC6\u2026", "Loading sessions\u2026");
+          bodyEl.replaceChildren(
+            createDomNode(
+              "div",
+              "project-detail-empty",
+              w("\u6B63\u5728\u6309\u9700\u8BFB\u53D6\u8BE5\u9879\u76EE\u7684\u4F1A\u8BDD\u7528\u91CF\u2026", "Calculating conversation usage for selected project\u2026")
+            )
+          );
+          return;
+        }
+        if (state.projectDetailError) {
+          summaryEl.textContent = w("\u52A0\u8F7D\u5931\u8D25", "Load failed");
+          bodyEl.replaceChildren(createDomNode("div", "project-detail-empty", state.projectDetailError));
+          return;
+        }
+        const detail = state.projectDetail;
+        if (detail) {
+          const identity = `${detail.projectKey}|${detail.from}|${detail.to}|${detail.updatedAt}`;
+          if (identity !== lastDetailIdentity) {
+            lastDetailIdentity = identity;
+            expandAllSubagents = false;
+            showAllMain = false;
+            expandedMainIds.clear();
+            renderedGroups = buildMergedGroups(detail.conversations, detail.totalTokens);
+          }
+          const totalAll = detail.conversations.length;
+          const totalMain = renderedGroups.length;
+          const rangeLabel = detail.from === detail.to ? detail.from : `${detail.from}..${detail.to}`;
+          summaryEl.textContent = totalAll > totalMain ? w(
+            `${detail.projectName} \xB7 ${rangeLabel} \xB7 ${totalMain} \u4E2A\u4E3B\u4F1A\u8BDD\uFF08\u5171 ${totalAll} \u542B\u5B50\u4EE3\u7406\uFF09 \xB7 ${compactNum(detail.totalTokens)} Token`,
+            `${detail.projectName} \xB7 ${rangeLabel} \xB7 ${totalMain} main (${totalAll} total) \xB7 ${compactNum(detail.totalTokens)} Token`
+          ) : w(
+            `${detail.projectName} \xB7 ${rangeLabel} \xB7 ${totalMain} \u4E2A\u4F1A\u8BDD \xB7 ${compactNum(detail.totalTokens)} Token`,
+            `${detail.projectName} \xB7 ${rangeLabel} \xB7 ${totalMain} sessions \xB7 ${compactNum(detail.totalTokens)} Token`
+          );
+          renderLoaded(bodyEl);
+        }
+      };
+      return {
+        render,
+        syncPicker,
+        closePicker: (restore) => picker?.close(restore),
+        isPickerOpen: () => Boolean(picker?.isOpen()),
+        positionPicker: () => picker?.position(),
+        dispose: () => picker?.dispose()
+      };
+    }
+
     // src/ui/usage-modal/breakdown-table.ts
-    function renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery) {
+    function renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, onSelectProject) {
       const { $, view, state, w, full, compactNum } = ctx;
       if (!state.value || !state.currentBuckets.length) return;
       const resetBtn = $("reset-drilldown");
@@ -1741,7 +2967,99 @@ module.exports = function createUsageDashboard(...args) {
       const tableHead = $("table-head");
       const tableBody = $("table-body");
       if (!tableHead || !tableBody) return;
-      if (state.dimension === "user") {
+      if (state.dimension === "project") {
+        tableHead.replaceChildren(
+          ...[
+            w("\u9879\u76EE", "Project"),
+            w("\u603B Token", "Total tokens"),
+            w("\u5360\u6BD4", "Share"),
+            w("\u4F1A\u8BDD\u6570", "Sessions"),
+            w("\u8BF7\u6C42\u6B21\u6570", "Requests"),
+            w("\u6765\u6E90 / \u8BE6\u60C5", "Type / Detail")
+          ].map((label) => createDomNode("th", "", label))
+        );
+        if (state.projectLoading && !state.projectOverview) {
+          const tr = createDomNode("tr");
+          const td = createDomNode("td", "muted", w("\u6B63\u5728\u7EDF\u8BA1\u5F53\u524D\u8D26\u53F7\u9879\u76EE\u7528\u91CF\u2026", "Loading current account projects\u2026"));
+          td.colSpan = 6;
+          td.style.textAlign = "center";
+          tr.append(td);
+          bodyFrag.append(tr);
+        } else if (state.projectError) {
+          const tr = createDomNode("tr");
+          const td = createDomNode("td", "muted", state.projectError);
+          td.colSpan = 6;
+          td.style.textAlign = "center";
+          tr.append(td);
+          bodyFrag.append(tr);
+        } else {
+          const metaByKey = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p]));
+          const activeFrom = state.selectedBar?.from || state.currentBuckets[0]?.from || "";
+          const activeTo = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || "";
+          const overviewMatchesActiveRange = Boolean(
+            !state.selectedBar || state.projectOverview && state.projectOverview.from === activeFrom && state.projectOverview.to === activeTo
+          );
+          const rows = Object.entries(activeTotals.projects || {}).sort((a, b) => b[1].total - a[1].total);
+          const kindLabel = (kind) => kind === "conversations" ? w("\u72EC\u7ACB\u4F1A\u8BDD", "conversations") : kind === "cli" ? "cli" : kind === "remote" ? w("\u8FDC\u7A0B\u9879\u76EE", "Remote") : w("\u5DE5\u4F5C\u533A", "Workspace");
+          for (const [pKey, r] of rows) {
+            const meta = metaByKey.get(pKey);
+            const row = createDomNode(
+              "tr",
+              `project-row${state.selectedProjectKey === pKey ? " is-selected" : ""}`
+            );
+            row.tabIndex = 0;
+            row.setAttribute("role", "button");
+            row.setAttribute("aria-pressed", String(state.selectedProjectKey === pKey));
+            row.dataset.projectKey = pKey;
+            const handleSelect = () => onSelectProject?.(pKey);
+            row.addEventListener("click", handleSelect);
+            row.addEventListener("keydown", (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleSelect();
+              }
+            });
+            const label = createDomNode("td");
+            const dot = createDomNode("span", "dot");
+            dot.style.setProperty("--model-color", palette.projectColor(pKey));
+            label.append(dot, document.createTextNode(meta?.name || pKey));
+            const share = activeTotals.total ? `${(r.total / activeTotals.total * 100).toFixed(1)}%` : "0%";
+            const actionTd = createDomNode("td");
+            actionTd.append(
+              createDomNode("span", "project-kind-badge", kindLabel(meta?.kind)),
+              document.createTextNode(" "),
+              createDomNode(
+                "span",
+                "project-open-cue",
+                state.selectedProjectKey === pKey ? w("\u5DF2\u9009\u4E2D", "Selected") : w("\u67E5\u770B\u8BE6\u60C5 \u25B8", "Inspect \u25B8")
+              )
+            );
+            const detailMatchesActiveRange = Boolean(
+              state.projectDetail && state.projectDetail.projectKey === pKey && state.projectDetail.from === activeFrom && state.projectDetail.to === activeTo
+            );
+            const convTd = createDomNode(
+              "td",
+              overviewMatchesActiveRange || detailMatchesActiveRange ? "" : "muted",
+              overviewMatchesActiveRange ? full(meta?.conversationCount ?? 0) : detailMatchesActiveRange ? full(state.projectDetail.conversations.length) : "\u2014"
+            );
+            if (!overviewMatchesActiveRange && !detailMatchesActiveRange) {
+              convTd.title = w(
+                "\u4E0B\u94BB\u65F6\u6BB5\u9700\u70B9\u51FB\u67E5\u770B\u8BE6\u60C5\u4EE5\u7EDF\u8BA1\u8BE5\u65F6\u6BB5\u7CBE\u786E\u4F1A\u8BDD\u6570",
+                "Inspect project to load exact session count for this drill-down range"
+              );
+            }
+            row.append(
+              label,
+              createDomNode("td", "", full(r.total)),
+              createDomNode("td", "", share),
+              convTd,
+              createDomNode("td", "", full(r.requests)),
+              actionTd
+            );
+            bodyFrag.append(row);
+          }
+        }
+      } else if (state.dimension === "user") {
         tableHead.replaceChildren(
           ...[
             w("\u7528\u6237 / \u8D26\u53F7", "User / Account"),
@@ -1881,7 +3199,7 @@ module.exports = function createUsageDashboard(...args) {
     }
 
     // src/ui/usage-modal/stacked-bar.ts
-    function createStackedBarController(ctx, dayIndex, palette, tooltip, getQuery) {
+    function createStackedBarController(ctx, dayIndex, palette, tooltip, getQuery, handlers = {}) {
       const { $, view, state, root, text, w, compactNum } = ctx;
       const chartSummary = createDomNode("div", "chart-summary");
       const resetDrilldown = createDomNode("button", "reset-drilldown", w("\u663E\u793A\u5168\u90E8\u65F6\u6BB5", "Show all"));
@@ -1902,8 +3220,11 @@ module.exports = function createUsageDashboard(...args) {
           col.classList.toggle("selected", active);
           col.setAttribute("aria-pressed", String(active));
         }
-        renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery);
-        renderHourlySpline(ctx, dayIndex, tooltip);
+        renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
+        if (state.dimension === "project") {
+          handlers.onProjectDrilldown?.();
+          handlers.onRenderProjectDetail?.();
+        } else renderHourlySpline(ctx, dayIndex, tooltip);
       };
       resetDrilldown.addEventListener("click", () => {
         state.selectedBar = null;
@@ -1927,6 +3248,9 @@ module.exports = function createUsageDashboard(...args) {
         );
         text("range-label", rangeLabel);
         state.currentBuckets = buckets;
+        if (state.dimension === "project" && buckets.length) {
+          handlers.onProjectRange?.(buckets[0].from, buckets.at(-1).to);
+        }
         const plotEl = $("plot");
         const chartEl = view.querySelector(".chart");
         const wrapEl = view.querySelector(".chart-wrap");
@@ -1959,21 +3283,52 @@ module.exports = function createUsageDashboard(...args) {
         if (nextBtn) {
           nextBtn.disabled = state.period === "custom" ? true : state.period === "week" ? startOfWeek(state.anchor) >= startOfWeek(state.value.today) : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
         }
-        $("dim-model")?.setAttribute("aria-pressed", String(state.dimension === "model"));
-        $("dim-user")?.setAttribute("aria-pressed", String(state.dimension === "user"));
-        text("dim-model", w("\u6309\u6A21\u578B\u7EDF\u8BA1", "By Model"));
-        text("dim-user", w("\u6309\u7528\u6237\u7EDF\u8BA1", "By User"));
-        const mvCtrl = $("model-view-controls");
-        if (mvCtrl) mvCtrl.hidden = state.dimension !== "model";
-        $("model-view-simple")?.setAttribute("aria-pressed", String(state.modelViewMode === "simple"));
-        $("model-view-detailed")?.setAttribute("aria-pressed", String(state.modelViewMode === "detailed"));
-        text("model-view-simple", w("\u7B80\u6613", "Simple"));
-        text("model-view-detailed", w("\u8BE6\u7EC6", "Detailed"));
-        text("detail-title", state.dimension === "model" ? w("\u6309\u6A21\u578B\u7EDF\u8BA1", "Usage by model") : w("\u6309\u7528\u6237\u7EDF\u8BA1", "Usage by user"));
+        const mvPicker = $("model-view-picker");
+        if (mvPicker) mvPicker.hidden = state.dimension !== "model";
+        const scopeNote = $("project-scope-note");
+        if (scopeNote) {
+          scopeNote.hidden = state.dimension !== "project";
+          scopeNote.textContent = w(
+            "\u4EC5\u7EDF\u8BA1\u5F53\u524D\u767B\u5F55\u8D26\u53F7\u53EF\u89C1\u9879\u76EE",
+            "Only shows projects visible to the currently signed-in account"
+          );
+        }
+        const hourlySec = $("hourly-section");
+        if (hourlySec) hourlySec.hidden = state.dimension === "project";
+        const projectSec = $("project-detail-section");
+        if (projectSec) projectSec.hidden = state.dimension !== "project";
+        text(
+          "detail-title",
+          state.dimension === "model" ? w("\u6309\u6A21\u578B\u7EDF\u8BA1", "Usage by model") : state.dimension === "user" ? w("\u6309\u7528\u6237\u7EDF\u8BA1", "Usage by user") : w("\u9879\u76EE\u7EDF\u8BA1", "Project Stats")
+        );
+        handlers.onSyncPickers?.();
         const allRangeTotals = dayIndex.totals(buckets[0].from, buckets.at(-1).to, query, false);
         const legendFrag = document.createDocumentFragment();
-        const modelKeys = state.dimension === "user" ? [] : [.../* @__PURE__ */ new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
-        if (state.dimension === "user") {
+        const modelKeys = state.dimension !== "model" ? [] : [.../* @__PURE__ */ new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
+        if (state.dimension === "project") {
+          const projList = (state.projectOverview?.projects || []).filter(
+            (p) => (allRangeTotals.projects?.[p.projectKey]?.total ?? 0) > 0 || p.total > 0
+          );
+          for (const p of projList) {
+            const button = createDomNode("button");
+            const dot = createDomNode("i", "dot");
+            dot.style.setProperty("--model-color", palette.projectColor(p.projectKey));
+            button.append(dot, document.createTextNode(p.name));
+            button.type = "button";
+            button.setAttribute("aria-pressed", String(!state.disabledProjects.has(p.projectKey)));
+            button.addEventListener("click", () => {
+              if (state.disabledProjects.has(p.projectKey)) state.disabledProjects.delete(p.projectKey);
+              else state.disabledProjects.add(p.projectKey);
+              renderChart();
+            });
+            button.addEventListener(
+              "pointerenter",
+              () => tooltip.highlightItem(state.disabledProjects.has(p.projectKey) ? null : p.projectKey)
+            );
+            button.addEventListener("pointerleave", () => tooltip.highlightItem(null));
+            legendFrag.append(button);
+          }
+        } else if (state.dimension === "user") {
           const activeUserSet = new Set(Object.keys(allRangeTotals.users).filter((u) => allRangeTotals.users[u].total > 0));
           for (const u of (state.value.users || []).filter((user) => activeUserSet.has(user))) {
             const button = createDomNode("button");
@@ -2057,7 +3412,19 @@ module.exports = function createUsageDashboard(...args) {
           if (isDrilled) button.classList.add("selected");
           button.setAttribute("aria-pressed", String(isDrilled));
           const stack = createDomNode("div", "stack");
-          if (state.dimension === "user") {
+          if (state.dimension === "project") {
+            const projEntries = Object.entries(bucket.projects || {}).filter(([pKey, b]) => b.total > 0 && !state.disabledProjects.has(pKey)).sort((a, b) => b[1].total - a[1].total);
+            for (const [j, [pKey, b]] of projEntries.entries()) {
+              const height = b.total / ceiling * 227;
+              const bar = createDomNode("i", "bar-segment");
+              bar.dataset.project = pKey;
+              bar.setAttribute("aria-hidden", "true");
+              bar.style.setProperty("--model-color", palette.projectColor(pKey));
+              bar.style.height = `${height}px`;
+              if (j && height >= 3) bar.style.boxShadow = "inset 0 -1px 0 color-mix(in srgb,var(--pulse-background) 48%,transparent)";
+              stack.append(bar);
+            }
+          } else if (state.dimension === "user") {
             const segments = (state.value.users || []).filter((u) => bucket.users[u]?.total > 0 && !state.disabledUsers.has(u));
             for (const [j, u] of segments.entries()) {
               const height = bucket.users[u].total / ceiling * 227;
@@ -2102,15 +3469,17 @@ module.exports = function createUsageDashboard(...args) {
           plotFrag.append(button);
         }
         if (!buckets.some((b) => b.total)) {
-          plotFrag.append(createDomNode("div", "chart-empty", w("\u6240\u9009\u65F6\u6BB5\u6682\u65E0\u7528\u91CF\u8BB0\u5F55", "No usage recorded in this period")));
+          const emptyMsg = state.dimension === "project" && state.projectLoading ? w("\u6B63\u5728\u52A0\u8F7D\u5F53\u524D\u8D26\u53F7\u9879\u76EE\u7528\u91CF\u2026", "Loading project statistics\u2026") : w("\u6240\u9009\u65F6\u6BB5\u6682\u65E0\u7528\u91CF\u8BB0\u5F55", "No usage recorded in this period");
+          plotFrag.append(createDomNode("div", "chart-empty", emptyMsg));
         }
         $("axis")?.replaceChildren(axisFrag);
         plotEl?.replaceChildren(plotFrag);
-        renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery);
+        renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
         for (const b of view.querySelectorAll("[data-period]")) {
           b.setAttribute("aria-pressed", String(b.dataset.period === state.period));
         }
-        renderHourlySpline(ctx, dayIndex, tooltip);
+        if (state.dimension === "project") handlers.onRenderProjectDetail?.();
+        else renderHourlySpline(ctx, dayIndex, tooltip);
       };
       return { renderChart, updateDrilldownView };
     }
@@ -2125,7 +3494,7 @@ module.exports = function createUsageDashboard(...args) {
         if (!plot) return;
         if (item) plot.dataset.highlight = item;
         else delete plot.dataset.highlight;
-        const attr = state.dimension === "user" ? "user" : "model";
+        const attr = state.dimension === "user" ? "user" : state.dimension === "project" ? "project" : "model";
         for (const bar of plot.querySelectorAll(".bar-segment")) {
           if (item && bar.dataset[attr] === item) bar.dataset.highlight = "true";
           else delete bar.dataset.highlight;
@@ -2150,7 +3519,20 @@ module.exports = function createUsageDashboard(...args) {
           createDomNode("strong", "", `${full(bucket.total)} Token`),
           createDomNode("div", "muted", w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`))
         );
-        if (state.dimension === "user") {
+        if (state.dimension === "project") {
+          const projName = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p.name]));
+          for (const [pKey, r2] of Object.entries(bucket.projects || {}).sort((a, b) => b[1].total - a[1].total)) {
+            const row = createDomNode("div", `tip-model${activeItem ? activeItem === pKey ? " active" : " dimmed" : ""}`);
+            const label = createDomNode("span");
+            const dot = createDomNode("i", "dot");
+            dot.style.setProperty("--model-color", palette.projectColor(pKey));
+            label.append(dot, document.createTextNode(projName.get(pKey) || pKey));
+            const amount = createDomNode("span", "", compactNum(r2.total));
+            amount.append(createDomNode("span", "model-share", bucket.total ? `${(r2.total / bucket.total * 100).toFixed(1)}%` : "0%"));
+            row.append(label, amount);
+            tip.append(row);
+          }
+        } else if (state.dimension === "user") {
           for (const [u, r2] of Object.entries(bucket.users || {}).sort((a, b) => b[1].total - a[1].total)) {
             const row = createDomNode("div", `tip-model${activeItem ? activeItem === u ? " active" : " dimmed" : ""}`);
             const label = createDomNode("span");
@@ -2191,12 +3573,25 @@ module.exports = function createUsageDashboard(...args) {
         button.addEventListener("blur", hide);
         button.addEventListener("pointermove", (event) => {
           const seg = event.target?.closest?.(".bar-segment");
-          const item = state.dimension === "user" ? seg?.dataset.user || null : seg?.dataset.model || null;
+          const item = state.dimension === "user" ? seg?.dataset.user || null : state.dimension === "project" ? seg?.dataset.project || null : seg?.dataset.model || null;
           show(bucket, button, item);
         });
         button.addEventListener("click", () => onSelect(bucket));
       };
-      return { show, hide, highlightItem, bindBucket };
+      const showNodes = (target, nodes) => {
+        const tip = $("tip");
+        if (!tip) return;
+        tipTarget = target;
+        tipItem = null;
+        tip.replaceChildren(...nodes);
+        tip.hidden = false;
+        const rect = target.getBoundingClientRect();
+        const bounds = dialog.getBoundingClientRect();
+        const r = tip.getBoundingClientRect();
+        tip.style.left = `${Math.min(bounds.right - r.width - 12, Math.max(bounds.left + 12, rect.left + rect.width / 2 - r.width / 2))}px`;
+        tip.style.top = `${Math.max(bounds.top + 12, rect.top - r.height - 10)}px`;
+      };
+      return { show, showNodes, hide, highlightItem, bindBucket };
     }
 
     // src/ui/usage-modal/index.ts
@@ -2212,7 +3607,18 @@ module.exports = function createUsageDashboard(...args) {
         selected: null,
         disabledModels: /* @__PURE__ */ new Set(),
         disabledUsers: /* @__PURE__ */ new Set(),
+        disabledProjects: /* @__PURE__ */ new Set(),
         dimension: "model",
+        projectOverview: null,
+        projectOverviewKey: "",
+        projectLoading: false,
+        projectError: null,
+        selectedProjectKey: null,
+        projectDetail: null,
+        projectDetailKey: "",
+        projectDetailLoading: false,
+        projectDetailError: null,
+        activeConvId: null,
         modelViewMode: "simple",
         expandedModelGroups: /* @__PURE__ */ new Set(),
         hourlyMode: "combined",
@@ -2242,16 +3648,133 @@ module.exports = function createUsageDashboard(...args) {
         dimension: state.dimension,
         modelViewMode: state.modelViewMode,
         disabledModels: state.disabledModels,
-        disabledUsers: state.disabledUsers
+        disabledUsers: state.disabledUsers,
+        disabledProjects: state.disabledProjects
       });
       const tooltip = createTooltipController(ctx, palette);
       const heatmap = createHeatmapController(ctx, dayIndex, tooltip, getQuery);
-      const chart = createStackedBarController(ctx, dayIndex, palette, tooltip, getQuery);
+      let events;
+      let projectDetail;
+      let projectReqEpoch = 0;
+      let projectDetailEpoch = 0;
+      const activeRangeBounds = () => {
+        if (state.selectedBar) {
+          return { from: state.selectedBar.from, to: state.selectedBar.to };
+        }
+        return {
+          from: state.currentBuckets[0]?.from || state.value?.today || "",
+          to: state.currentBuckets.at(-1)?.to || state.value?.today || ""
+        };
+      };
+      const loadProjectDetail = async (projectKey, from, to) => {
+        const scope = state.value?.activeAccount || null;
+        const reqKey = `${scope || ""}|${projectKey}|${from}|${to}`;
+        if (state.projectDetailKey === reqKey && state.projectDetail) return;
+        const bridge = window.agPulseBridge || window.agPulseHost;
+        if (typeof bridge?.getProjectDetail !== "function") return;
+        const myEpoch = ++projectDetailEpoch;
+        state.projectDetailKey = reqKey;
+        state.projectDetailLoading = true;
+        state.projectDetailError = null;
+        projectDetail.render();
+        try {
+          const res = await bridge.getProjectDetail({ projectKey, scope, from, to });
+          if (state.disposed || myEpoch !== projectDetailEpoch) return;
+          if (res && typeof res === "object" && "error" in res) {
+            state.projectDetail = null;
+            state.projectDetailError = res.error;
+          } else {
+            state.projectDetail = res;
+          }
+        } catch (err) {
+          if (state.disposed || myEpoch !== projectDetailEpoch) return;
+          state.projectDetail = null;
+          state.projectDetailError = err instanceof Error ? err.message : ctx.w("\u52A0\u8F7D\u5931\u8D25", "Load failed");
+        } finally {
+          if (!state.disposed && myEpoch === projectDetailEpoch) {
+            state.projectDetailLoading = false;
+            projectDetail.render();
+          }
+        }
+      };
+      const ensureProjectUsage = async (from, to) => {
+        const scope = state.value?.activeAccount || null;
+        const reqKey = `${scope || ""}|${from}|${to}`;
+        if (state.projectOverviewKey === reqKey) return;
+        const bridge = window.agPulseBridge || window.agPulseHost;
+        if (typeof bridge?.getProjectUsage !== "function") return;
+        const myEpoch = ++projectReqEpoch;
+        state.projectOverviewKey = reqKey;
+        state.projectLoading = true;
+        state.projectError = null;
+        try {
+          const res = await bridge.getProjectUsage({ scope, from, to });
+          if (state.disposed || myEpoch !== projectReqEpoch) return;
+          if (res && typeof res === "object" && "error" in res) {
+            state.projectOverview = null;
+            dayIndex.rebuildProjects(null);
+            state.projectError = res.error;
+          } else {
+            state.projectOverview = res;
+            dayIndex.rebuildProjects(res);
+            if (state.selectedProjectKey) {
+              if (res.projects.some((p) => p.projectKey === state.selectedProjectKey)) {
+                const bounds = activeRangeBounds();
+                void loadProjectDetail(state.selectedProjectKey, bounds.from || from, bounds.to || to);
+              } else {
+                state.selectedProjectKey = null;
+                state.projectDetail = null;
+                state.projectDetailKey = "";
+              }
+            }
+          }
+        } catch (err) {
+          if (state.disposed || myEpoch !== projectReqEpoch) return;
+          state.projectOverview = null;
+          dayIndex.rebuildProjects(null);
+          state.projectError = err instanceof Error ? err.message : ctx.w("\u52A0\u8F7D\u5931\u8D25", "Load failed");
+        } finally {
+          if (!state.disposed && myEpoch === projectReqEpoch) {
+            state.projectLoading = false;
+            if (state.tab === "details" && state.dimension === "project") chart.renderChart();
+          }
+        }
+      };
+      const syncProjectDetailToActiveRange = () => {
+        if (!state.selectedProjectKey) return;
+        const { from, to } = activeRangeBounds();
+        if (from && to) void loadProjectDetail(state.selectedProjectKey, from, to);
+      };
+      const selectProject = (projectKey) => {
+        state.selectedProjectKey = projectKey;
+        state.projectDetailKey = "";
+        chart.updateDrilldownView();
+        syncProjectDetailToActiveRange();
+      };
+      projectDetail = createProjectDetailController(ctx, palette, tooltip, selectProject);
+      const chart = createStackedBarController(ctx, dayIndex, palette, tooltip, getQuery, {
+        onSyncPickers: () => events?.syncPickers(),
+        onProjectRange: (from, to) => {
+          void ensureProjectUsage(from, to);
+        },
+        onSelectProject: selectProject,
+        onRenderProjectDetail: () => projectDetail.render(),
+        onProjectDrilldown: syncProjectDetailToActiveRange
+      });
       const manual = bindManualModal(ctx);
       bindAccountSwitcher(ctx);
       const focusTrap = createFocusTrap(ctx, {
         onCloseYear: (restore) => heatmap.closeYear(restore),
         onIsYearOpen: () => heatmap.isYearOpen(),
+        onCloseSubPopovers: () => {
+          let closed = false;
+          if (projectDetail.isPickerOpen()) {
+            projectDetail.closePicker();
+            closed = true;
+          }
+          if (events?.closeSubPopovers()) closed = true;
+          return closed;
+        },
         onCloseManualModal: (restore) => manual.closeManualModal(restore)
       });
       const render = () => {
@@ -2273,7 +3796,7 @@ module.exports = function createUsageDashboard(...args) {
         if (state.tab === "overview") heatmap.renderHeat();
         else chart.renderChart();
       };
-      const events = bindUsageModalEvents(ctx, options, {
+      events = bindUsageModalEvents(ctx, options, {
         palette,
         dayIndex,
         tooltip,
@@ -2304,6 +3827,7 @@ module.exports = function createUsageDashboard(...args) {
           state.anchor ||= data.today;
           state.lastKey = contentKey(data);
           dayIndex.rebuild(data);
+          events.loadPreferencesIfNeeded();
           render();
           focusTrap.present();
         },
@@ -2322,7 +3846,13 @@ module.exports = function createUsageDashboard(...args) {
             state.selectedBar = null;
             state.disabledModels.clear();
             state.disabledUsers.clear();
+            state.disabledProjects.clear();
             state.expandedModelGroups.clear();
+            state.projectOverview = null;
+            state.projectOverviewKey = "";
+            state.selectedProjectKey = null;
+            state.projectDetail = null;
+            state.projectDetailKey = "";
             state.lastAccQueryKey = "";
             state.year = data.today.slice(0, 4);
             state.anchor = data.today;
@@ -2346,10 +3876,14 @@ module.exports = function createUsageDashboard(...args) {
         syncGuideDismissed() {
           if (window.__agPulseUsageGuidePreview !== true) events.dismissGuide();
         },
+        syncPreferences(prefs) {
+          events.syncPreferences(prefs);
+        },
         dispose() {
           state.disposed = true;
           themeObserver.disconnect();
           events.dispose();
+          projectDetail.dispose();
           heatmap.dispose();
           focusTrap.dispose();
           dialog.remove();

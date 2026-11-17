@@ -6,6 +6,7 @@ import type {
   TimelineSwimlaneItem,
 } from '../../contracts/index.ts';
 import type { DashboardI18n, PreferencesController } from '../i18n/index.ts';
+import type { FontPopoverHandle } from '../shared/font-popover.ts';
 import type { MixMetricKind, PartitionedModelSlice } from '../shared/model-donut.ts';
 import type { AgPulseThemeAttachment } from '../theme/index.ts';
 
@@ -75,6 +76,7 @@ export interface PanelDomContext {
   state: PanelState;
   language: DashboardI18n;
   preferences: PreferencesController;
+  fontPopover?: FontPopoverHandle | null;
   themeController: AgPulseThemeAttachment;
   setThemeController: (next: AgPulseThemeAttachment) => void;
   setPreferences: (next: PreferencesController) => void;

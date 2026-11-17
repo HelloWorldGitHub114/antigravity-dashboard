@@ -27,6 +27,27 @@ module.exports = function installAgPulseInlineWidget(...args) {
       default: () => installAgPulseInlineWidget
     });
 
+    // src/contracts/preferences.ts
+    var FONT_SCALE_KEYS = [
+      "usageFontScale",
+      "sidebarFontScale",
+      "inlineFontScale"
+    ];
+    var FONT_SCALE_MIN = 0.8;
+    var FONT_SCALE_MAX = 1.5;
+    function resolveFontScale(value, fallback = 1) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+      const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
+      return Math.round(clamped * 100) / 100;
+    }
+    var PREFERENCE_KEYS = [
+      "language",
+      "languageGuideDismissed",
+      "usageGuideDismissed",
+      "modelTimelineEnabled",
+      ...FONT_SCALE_KEYS
+    ];
+
     // src/shared/dom.ts
     var SVG_NS = "http://www.w3.org/2000/svg";
     var ALLOWED_MARKUP_TAGS = new Set(
@@ -1605,7 +1626,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     color-scheme: var(--pulse-scheme);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     color: var(--pulse-foreground);
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
   }
 
   * {
@@ -1682,7 +1703,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .countdown {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     font-variant-numeric: tabular-nums;
   }
 
@@ -1704,7 +1725,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   .group {
     color: var(--pulse-muted);
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     margin-right: 1px;
   }
 
@@ -1719,7 +1740,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     box-shadow: 0 8px 32px var(--pulse-shadow);
     border: 1px solid var(--pulse-border);
     color: var(--pulse-foreground);
-    font-size: 12px;
+    font-size: calc(12px * var(--pulse-inline-font-scale, 1));
     opacity: 1;
     transition: opacity 140ms cubic-bezier(.22, 1, .36, 1);
   }
@@ -1760,7 +1781,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .tag {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     font-weight: 400;
     color: var(--pulse-muted);
   }
@@ -1779,12 +1800,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   dt {
     color: var(--pulse-label);
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
   }
 
   dd {
     margin: 0;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
@@ -1795,7 +1816,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .footnote {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     color: var(--pulse-subtle);
     line-height: 1.6;
     margin: 10px 0 0;
@@ -1809,7 +1830,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .balance strong {
-    font-size: 27px;
+    font-size: calc(27px * var(--pulse-inline-font-scale, 1));
     font-weight: 550;
     letter-spacing: -.6px;
     font-variant-numeric: tabular-nums;
@@ -1817,7 +1838,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   .balance span {
     color: var(--pulse-muted);
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
   }
 
   .track {
@@ -1842,7 +1863,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: var(--pulse-control);
     border: 0;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     padding: 3px 5px;
     max-width: 120px;
   }
@@ -1859,7 +1880,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     border: 0;
     background: transparent;
     padding: 0 3px;
-    font-size: 14px;
+    font-size: calc(14px * var(--pulse-inline-font-scale, 1));
     transition: color 140ms ease;
   }
 
@@ -1882,7 +1903,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: var(--pulse-control);
     border: 0;
     border-radius: 5px;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     padding: 4px 7px;
     white-space: nowrap;
     transition: background-color 140ms ease, color 140ms ease;
@@ -1941,7 +1962,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   .chip {
     padding: 2px 4px;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     gap: 4px;
     min-width: 0;
   }
@@ -1955,7 +1976,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: none;
     color: var(--pulse-muted);
     border-radius: 4px;
-    font-size: 9px;
+    font-size: calc(9px * var(--pulse-inline-font-scale, 1));
     padding: 3px 4px;
     margin-left: auto;
     cursor: pointer;
@@ -1985,7 +2006,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   :host(.narrow) .chip {
     padding: 2px 3px;
-    font-size: 9px;
+    font-size: calc(9px * var(--pulse-inline-font-scale, 1));
   }
 
   :host(.narrow) .bar {
@@ -2024,7 +2045,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   .scope-note {
     margin: 0 0 10px;
     color: var(--pulse-muted);
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
   }
 
   :host([data-scope=main]) .scope-note,
@@ -2054,7 +2075,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   #rate-note {
     display: none !important;
     white-space: pre-line;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     line-height: 1.65;
   }
 
@@ -2084,7 +2105,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: transparent;
     color: var(--pulse-label);
     font: inherit;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     text-align: left;
     line-height: 20px;
     cursor: pointer;
@@ -2138,7 +2159,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   #transcript-details summary {
     cursor: pointer;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     color: var(--pulse-label);
   }
 
@@ -2147,7 +2168,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     margin-left: 8px;
     font-variant-numeric: tabular-nums;
     color: var(--pulse-foreground);
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
   }
 
   .bar {
@@ -2155,13 +2176,13 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .chip {
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     gap: 5px;
     padding: 3px 5px;
   }
 
   .context-card > strong {
-    font-size: 16px;
+    font-size: calc(16px * var(--pulse-inline-font-scale, 1));
   }
 
   .context-card > p {
@@ -2178,7 +2199,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
   }
 
   .quota-title > span:first-child {
@@ -2190,7 +2211,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   .quota-title strong {
     font-variant-numeric: tabular-nums;
-    font-size: 13px;
+    font-size: calc(13px * var(--pulse-inline-font-scale, 1));
   }
 
   .quota-section + .quota-section {
@@ -2249,7 +2270,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--pulse-separator);
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     color: var(--pulse-muted);
   }
 
@@ -2311,7 +2332,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
 
   #context-orchestrator-row .orchestrator-note {
     flex: 1 0 100%;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     line-height: 1.45;
     color: var(--pulse-muted);
     text-align: left;
@@ -2334,7 +2355,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     color: var(--pulse-label);
   }
 
@@ -2374,7 +2395,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     justify-content: space-between;
     gap: 6px;
     min-width: 0;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     line-height: 1.4;
   }
 
@@ -2413,7 +2434,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     border-top: 1px solid var(--pulse-separator);
     border-bottom: 0;
     gap: 8px;
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
   }
 
   .language-options {
@@ -2426,7 +2447,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .language-options .language-button {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     padding: 3px 6px;
     margin: 0;
     border-radius: 4px;
@@ -2455,7 +2476,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: var(--pulse-card);
     color: var(--pulse-foreground);
     box-shadow: 0 4px 16px var(--pulse-shadow);
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     z-index: 2147483000;
     overflow: visible;
   }
@@ -2501,7 +2522,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .guide-heading strong {
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     font-weight: 600;
   }
 
@@ -2530,7 +2551,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   #guide-close {
-    font-size: 15px;
+    font-size: calc(15px * var(--pulse-inline-font-scale, 1));
     line-height: 18px;
     width: 20px;
     height: 20px;
@@ -2556,7 +2577,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   #guide-open span[lang] {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     color: var(--pulse-muted);
   }
 
@@ -2613,7 +2634,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .usage-summary dt {
-    font-size: 10px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
     line-height: 16px;
     color: var(--pulse-muted);
     margin: 0 0 5px;
@@ -2631,7 +2652,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .usage-summary strong {
-    font-size: 20px;
+    font-size: calc(20px * var(--pulse-inline-font-scale, 1));
     font-weight: 550;
     letter-spacing: -.5px;
     color: var(--pulse-foreground);
@@ -2639,7 +2660,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .usage-unit {
-    font-size: 9px;
+    font-size: calc(9px * var(--pulse-inline-font-scale, 1));
     letter-spacing: 0;
     color: var(--pulse-muted);
   }
@@ -2658,7 +2679,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
     background: transparent;
     color: var(--pulse-label);
     font: inherit;
-    font-size: 11px;
+    font-size: calc(11px * var(--pulse-inline-font-scale, 1));
     text-align: left;
     line-height: 20px;
     transition: background 140ms ease, transform 120ms ease;
@@ -3114,6 +3135,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         guide,
         polling,
         onChooseLanguage,
+        onFontScaleChange,
         onObserveComposer
       } = options;
       const node = document.createElement("div");
@@ -3186,6 +3208,8 @@ module.exports = function installAgPulseInlineWidget(...args) {
           setMarkup: setMarkup2,
           hostLabel: surface?.usageHostLabel || "Antigravity",
           guideDismissed: guide.usageGuideDismissed,
+          initialPreferences: polling.data?.preferences ?? null,
+          onPreferencesSaved: onFontScaleChange,
           onDismissGuide: async () => {
             const saved = await polling.setPreferences({ usageGuideDismissed: true });
             if (!("usageGuideDismissed" in saved) || saved.usageGuideDismissed !== true) {
@@ -3494,6 +3518,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
       let layoutFrame = null;
       let usageDashboard = null;
       let updateMenu = null;
+      let inlineFontScale = resolveFontScale(localGet("ag-pulse-inline-font-scale"));
+      const applyInlineFontScale = (scale) => {
+        inlineFontScale = resolveFontScale(scale);
+        localSet("ag-pulse-inline-font-scale", String(inlineFontScale));
+        node?.style.setProperty("--pulse-inline-font-scale", String(inlineFontScale));
+      };
       const density = new DensityMotionController();
       const guide = new LanguageGuideController({
         getRoot: () => root,
@@ -3529,6 +3559,10 @@ module.exports = function installAgPulseInlineWidget(...args) {
           guide.sync(prefs);
           preferences.sync(prefs);
           guide.guideReady = !preferences.error;
+          if (prefs && "inlineFontScale" in prefs) {
+            applyInlineFontScale(prefs.inlineFontScale);
+          }
+          if (prefs) usageDashboard?.syncPreferences?.(prefs);
         },
         onThemeSync: (hostTheme) => themeController?.setHostTheme(hostTheme)
       });
@@ -3643,9 +3677,15 @@ module.exports = function installAgPulseInlineWidget(...args) {
           guide,
           polling,
           onChooseLanguage: (next) => preferences.choose(next),
+          onFontScaleChange: (prefs) => {
+            if ("inlineFontScale" in prefs) applyInlineFontScale(prefs.inlineFontScale);
+            guide.sync(prefs);
+            preferences.sync(prefs);
+          },
           onObserveComposer: observeComposer
         });
         ({ node, root, themeController, updateMenu, usageDashboard } = mounted);
+        applyInlineFontScale(inlineFontScale);
         localize();
         render();
         void polling.refresh();

@@ -9,10 +9,12 @@ import type {
   ManualUsageInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  ProjectDetailRequest,
+  ProjectUsageRequest,
   SwitchAccountRequest,
   UpdatePluginRequest,
 } from '../../contracts/index.ts';
-import { PREFERENCE_KEYS } from '../../contracts/preferences.ts';
+import { PREFERENCE_KEYS, validateFontScaleInput } from '../../contracts/preferences.ts';
 import { platformPaths } from '../../platform/paths.ts';
 import { GUID_RE, validatedInput } from './renderer-bridge.ts';
 import type { RuntimeSessionConnection, RuntimeUiOptions } from './types.ts';
@@ -24,6 +26,8 @@ const USAGE_OPERATIONS = new Set([
   'deleteManualUsage',
   'getAccounts',
   'switchAccount',
+  'getProjectUsage',
+  'getProjectDetail',
   'clearTimeline',
 ]);
 
@@ -53,6 +57,8 @@ export interface RuntimeDispatchHost {
   deleteManualUsage?: RuntimeUiOptions['deleteManualUsage'];
   getAccounts?: RuntimeUiOptions['getAccounts'];
   switchAccount?: RuntimeUiOptions['switchAccount'];
+  getProjectUsage?: RuntimeUiOptions['getProjectUsage'];
+  getProjectDetail?: RuntimeUiOptions['getProjectDetail'];
   clearTimeline?: RuntimeUiOptions['clearTimeline'];
 }
 
@@ -87,6 +93,7 @@ export async function dispatchBindingCall(
     ) {
       throw new Error('Invalid timeline preference');
     }
+    validateFontScaleInput(value);
     result = Object.keys(value).length
       ? await host.preferences.set(value as PreferencesUpdateInput)
       : await host.preferences.get();
@@ -149,6 +156,39 @@ export async function dispatchBindingCall(
       const account = typeof raw === 'string' ? raw : raw?.account || raw?.id;
       result = { success: true, active: account, activeAccount: account };
     }
+  } else if (input.type === 'getProjectUsage') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    const req = (input.input && typeof input.input === 'object' && !Array.isArray(input.input)
+      ? input.input
+      : {}) as ProjectUsageRequest;
+    if (typeof host.getProjectUsage === 'function') {
+      result = await host.getProjectUsage(req);
+    } else {
+      const { UsageLedger, queryProjectUsageOverview } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      result = await queryProjectUsageOverview({ ledger, scope: req.scope ?? null, from: req.from, to: req.to });
+    }
+  } else if (input.type === 'getProjectDetail') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    const req = (input.input && typeof input.input === 'object' && !Array.isArray(input.input)
+      ? input.input
+      : {}) as Partial<ProjectDetailRequest>;
+    if (!req.projectKey || typeof req.projectKey !== 'string') {
+      throw new Error('Invalid projectKey');
+    }
+    if (typeof host.getProjectDetail === 'function') {
+      result = await host.getProjectDetail(req as ProjectDetailRequest);
+    } else {
+      const { UsageLedger, queryProjectConversationDetail } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      result = await queryProjectConversationDetail({
+        ledger,
+        projectKey: req.projectKey,
+        scope: req.scope ?? null,
+        from: req.from,
+        to: req.to,
+      });
+    }
   } else if (input.type === 'clearTimeline') {
     if (!(await host.enabled())) throw Error('Plugin disabled');
     const value = (input.input ?? {}) as ClearTimelineRequest;
@@ -185,7 +225,7 @@ export function formatBindingError(type: string, error: unknown): unknown {
   if (type === 'preferences') {
     return {
       error:
-        message === 'Invalid timeline preference'
+        message === 'Invalid timeline preference' || message === 'Invalid font scale preference'
           ? message
           : 'Language preference could not be saved or read',
     };

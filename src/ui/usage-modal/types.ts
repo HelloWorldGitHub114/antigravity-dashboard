@@ -1,5 +1,8 @@
 import type {
   LanguageCode,
+  PreferencesSnapshot,
+  ProjectConversationDetail,
+  ProjectUsageOverview,
   RuntimeBridgeApi,
   UsageBucketCounts,
   UsageDayBucket,
@@ -10,7 +13,7 @@ import type {
 export type UsageTab = 'overview' | 'details';
 export type UsageHeatMode = 'day' | 'week';
 export type UsagePeriod = 'day' | 'week' | 'month' | 'custom';
-export type UsageDimension = 'model' | 'user';
+export type UsageDimension = 'model' | 'user' | 'project';
 export type ModelViewMode = 'simple' | 'detailed';
 export type HourlyMode = 'combined' | 'today';
 
@@ -24,9 +27,11 @@ export interface UsageDashboardOptions {
   setMarkup: (element: Element | ShadowRoot, markup: string) => void;
   hostLabel?: string;
   guideDismissed?: boolean;
+  initialPreferences?: Partial<PreferencesSnapshot> | null;
   onDismissGuide: () => Promise<void>;
   onLanguage: (next: LanguageCode) => Promise<void>;
   onRefresh: () => Promise<void>;
+  onPreferencesSaved?: (prefs: PreferencesSnapshot) => void;
 }
 
 export interface UsageDashboardHandle {
@@ -36,6 +41,7 @@ export interface UsageDashboardHandle {
   restoreModal(): void;
   close(): void;
   syncGuideDismissed(): void;
+  syncPreferences?(prefs: PreferencesSnapshot): void;
   dispose(): void;
 }
 
@@ -45,6 +51,7 @@ export interface UsageTotalsResult {
   models: Record<string, UsageBucketCounts>;
   modelVariants: Record<string, Record<string, UsageBucketCounts>>;
   users: Record<string, UsageUserBucket>;
+  projects?: Record<string, UsageBucketCounts>;
   legacyTokens: number;
   total: number;
   requests: number;
@@ -66,7 +73,18 @@ export interface UsageModalState {
   selected: UsageTotalsResult | null;
   disabledModels: Set<string>;
   disabledUsers: Set<string>;
+  disabledProjects: Set<string>;
   dimension: UsageDimension;
+  projectOverview: ProjectUsageOverview | null;
+  projectOverviewKey: string;
+  projectLoading: boolean;
+  projectError: string | null;
+  selectedProjectKey: string | null;
+  projectDetail: ProjectConversationDetail | null;
+  projectDetailKey: string;
+  projectDetailLoading: boolean;
+  projectDetailError: string | null;
+  activeConvId: string | null;
   modelViewMode: ModelViewMode;
   expandedModelGroups: Set<string>;
   hourlyMode: HourlyMode;

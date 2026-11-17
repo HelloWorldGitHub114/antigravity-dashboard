@@ -52,6 +52,7 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
   for (const [id, label] of [
     ['locale', w('切换到英文', 'Switch to Chinese')],
     ['refresh', w('刷新用量', 'Refresh usage')],
+    ['font-settings', w('字体大小设置', 'Font size settings')],
     ['close', w('关闭', 'Close')],
   ] as const) {
     const btn = $(id);

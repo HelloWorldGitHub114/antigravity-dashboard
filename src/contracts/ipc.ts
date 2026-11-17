@@ -1,7 +1,13 @@
 import type { MetricsSnapshot } from './metrics.ts';
 import type { PreferencesSnapshot, PreferencesUpdateInput } from './preferences.ts';
 import type { ClearTimelineResult } from './timeline.ts';
-import type { ManualUsageInput, ManualUsageRecord, UsageAccountInfo } from './usage.ts';
+import type {
+  ManualUsageInput,
+  ManualUsageRecord,
+  ProjectConversationDetail,
+  ProjectUsageOverview,
+  UsageAccountInfo,
+} from './usage.ts';
 
 /**
  * Host application theme preference mode.
@@ -38,7 +44,9 @@ export type BridgeCallType =
   | 'addManualUsage'
   | 'deleteManualUsage'
   | 'getAccounts'
-  | 'switchAccount';
+  | 'switchAccount'
+  | 'getProjectUsage'
+  | 'getProjectDetail';
 
 /**
  * Input payload for `getMetrics` / `ag-pulse:metrics`.
@@ -100,6 +108,21 @@ export type SwitchAccountRequest = SwitchAccountPayload | string;
  */
 export interface ClearTimelineRequest {
   conversationId?: string | null;
+}
+
+export interface ProjectUsageRequest {
+  scope?: string | null;
+  from?: string;
+  to?: string;
+  timeZone?: string;
+}
+
+export interface ProjectDetailRequest {
+  projectKey: string;
+  scope?: string | null;
+  from?: string;
+  to?: string;
+  timeZone?: string;
 }
 
 export type UpdateAction = 'check' | 'status' | 'apply' | 'reload';
@@ -178,6 +201,8 @@ export interface RuntimeBridgeApi {
   deleteManualUsage(input: DeleteManualUsageRequest): Promise<boolean | { error: string }>;
   getAccounts(input?: ManualUsageScopeInput): Promise<UsageAccountInfo[] | AccountsResponse>;
   switchAccount(input: SwitchAccountRequest): Promise<SwitchAccountResponse>;
+  getProjectUsage?(input?: ProjectUsageRequest): Promise<ProjectUsageOverview | { error: string }>;
+  getProjectDetail?(input: ProjectDetailRequest): Promise<ProjectConversationDetail | { error: string }>;
   openSidebar?(input: OpenSidebarInput): Promise<unknown> | void;
 }
 

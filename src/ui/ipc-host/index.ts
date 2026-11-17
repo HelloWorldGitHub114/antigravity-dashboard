@@ -16,7 +16,7 @@ import type {
   PreferencesSnapshot,
   PreferencesUpdateInput,
 } from '../../contracts/preferences.ts';
-import { PREFERENCE_KEYS } from '../../contracts/preferences.ts';
+import { PREFERENCE_KEYS, validateFontScaleInput } from '../../contracts/preferences.ts';
 import { appendBoundedLogLine } from '../../shared/logger.ts';
 import { createHostStatusHelpers, type FsWithPromises } from './helpers.ts';
 import type {
@@ -124,6 +124,7 @@ export default function installAgPulseIpc(
         ) {
           throw new Error('Invalid timeline preference');
         }
+        validateFontScaleInput(input);
         if (!preferenceStore) {
           const file = path.join(
             os.homedir(),

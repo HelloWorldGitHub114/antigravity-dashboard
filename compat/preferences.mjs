@@ -5,11 +5,33 @@ import { readFile as readFile2 } from "node:fs/promises";
 import { dirname as dirname3, join as join2 } from "node:path";
 
 // src/contracts/preferences.ts
+var FONT_SCALE_KEYS = [
+  "usageFontScale",
+  "sidebarFontScale",
+  "inlineFontScale"
+];
+var FONT_SCALE_MIN = 0.8;
+var FONT_SCALE_MAX = 1.5;
+function resolveFontScale(value, fallback = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
+  return Math.round(clamped * 100) / 100;
+}
+function validateFontScaleInput(input) {
+  for (const key of FONT_SCALE_KEYS) {
+    if (!Object.hasOwn(input, key)) continue;
+    const raw = input[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < FONT_SCALE_MIN || raw > FONT_SCALE_MAX) {
+      throw new Error("Invalid font scale preference");
+    }
+  }
+}
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
   "usageGuideDismissed",
-  "modelTimelineEnabled"
+  "modelTimelineEnabled",
+  ...FONT_SCALE_KEYS
 ];
 
 // src/shared/atomic-fs.ts
@@ -295,6 +317,9 @@ var PreferencesStore = class {
         languageGuideDismissed: value.languageGuideDismissed === true,
         usageGuideDismissed: value.usageGuideDismissed === true,
         modelTimelineEnabled: value.modelTimelineEnabled === true,
+        usageFontScale: resolveFontScale(value.usageFontScale),
+        sidebarFontScale: resolveFontScale(value.sidebarFontScale),
+        inlineFontScale: resolveFontScale(value.inlineFontScale),
         revision: typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0
       };
     } catch (error) {
@@ -304,6 +329,9 @@ var PreferencesStore = class {
           languageGuideDismissed: false,
           usageGuideDismissed: false,
           modelTimelineEnabled: false,
+          usageFontScale: 1,
+          sidebarFontScale: 1,
+          inlineFontScale: 1,
           revision: 0
         };
       }
@@ -334,6 +362,7 @@ var PreferencesStore = class {
     if (Object.hasOwn(input, "modelTimelineEnabled") && typeof input.modelTimelineEnabled !== "boolean") {
       throw new Error("Invalid timeline preference");
     }
+    validateFontScaleInput(input);
     const operation = this.queue.then(async () => {
       const existing = await readJsonSafe(this.file);
       const validRecord = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : null;
@@ -343,12 +372,21 @@ var PreferencesStore = class {
         language: previousLanguage,
         languageGuideDismissed: validRecord?.languageGuideDismissed === true,
         usageGuideDismissed: validRecord?.usageGuideDismissed === true,
-        modelTimelineEnabled: validRecord?.modelTimelineEnabled === true
+        modelTimelineEnabled: validRecord?.modelTimelineEnabled === true,
+        usageFontScale: resolveFontScale(validRecord?.usageFontScale),
+        sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
+        inlineFontScale: resolveFontScale(validRecord?.inlineFontScale)
       };
       const language = hasLanguage ? input.language : previous.language;
       const languageGuideDismissed = previous.languageGuideDismissed || hasLanguage || input.languageGuideDismissed === true;
       const usageGuideDismissed = previous.usageGuideDismissed || input.usageGuideDismissed === true;
       const modelTimelineEnabled = Object.hasOwn(input, "modelTimelineEnabled") ? input.modelTimelineEnabled : previous.modelTimelineEnabled;
+      const scales = Object.fromEntries(
+        FONT_SCALE_KEYS.map((key) => [
+          key,
+          Object.hasOwn(input, key) ? resolveFontScale(input[key]) : previous[key]
+        ])
+      );
       const revision = Math.max(Date.now(), prior + 1);
       const diskRecord = {
         schema: 1,
@@ -356,6 +394,7 @@ var PreferencesStore = class {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        ...scales,
         revision
       };
       await atomicWriteJson(this.file, diskRecord, { fsync: true, trailingNewline: true });
@@ -364,6 +403,7 @@ var PreferencesStore = class {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        ...scales,
         revision
       };
     });

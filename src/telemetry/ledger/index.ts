@@ -3,6 +3,13 @@ export { usageRecords, type RawTrajectoryContainer } from './extractor.ts';
 export { loadKnownAccounts } from './storage.ts';
 export { UsageLedger, addManualUsage, deleteManualUsage } from './summary.ts';
 export {
+  queryProjectUsageOverview,
+  queryProjectConversationDetail,
+  type ProjectStatsStoreLike,
+  type ProjectUsageQueryOptions,
+  type ProjectDetailQueryOptions,
+} from './project-stats.ts';
+export {
   DesktopUsage,
   type DesktopUsageOptions,
   type DesktopUsageStore,

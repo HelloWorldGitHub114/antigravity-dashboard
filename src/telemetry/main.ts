@@ -25,10 +25,15 @@ import { SidecarOwner } from '../platform/sidecar-owner.ts';
 import { AntigravityClient } from './client/index.ts';
 import { HostLivenessWatchdog } from './host-watchdog.ts';
 import { LazyVertexController } from './lazy-vertex.ts';
-import { DesktopUsage, UsageLedger } from './ledger/index.ts';
+import {
+  DesktopUsage,
+  UsageLedger,
+  queryProjectConversationDetail,
+  queryProjectUsageOverview,
+} from './ledger/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
 import { startPreviewServer } from './preview-server.ts';
-import { discoverLocalConversations } from './reader/local-conversations.ts';
+import { defaultConversationsDir, discoverLocalConversations } from './reader/local-conversations.ts';
 import { TranscriptReader } from './reader/transcript.ts';
 import { loadSidecarSdk } from './sdk.ts';
 import { SessionHistory } from './store/history.ts';
@@ -165,6 +170,25 @@ const integration = new RuntimeUi({
     ),
   getAccounts: () => usage.getAccounts(),
   switchAccount: (input) => usage.switchAccount(input),
+  getProjectUsage: (input) =>
+    queryProjectUsageOverview({
+      ledger: usage.ledger,
+      store,
+      profileDir: dirname(defaultConversationsDir('app', homedir())),
+      scope: input?.scope ?? null,
+      from: input?.from,
+      to: input?.to,
+    }),
+  getProjectDetail: (input) =>
+    queryProjectConversationDetail({
+      ledger: usage.ledger,
+      store,
+      profileDir: dirname(defaultConversationsDir('app', homedir())),
+      projectKey: input.projectKey,
+      scope: input?.scope ?? null,
+      from: input?.from,
+      to: input?.to,
+    }),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
 });
 
@@ -230,6 +254,29 @@ const createVertexInstance = () => {
       vertexController?.recordActivity('runtime-ui-switch');
       return vertexUsage.switchAccount(input);
     },
+    getProjectUsage: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return queryProjectUsageOverview({
+        ledger: vertexUsage.ledger,
+        store: vStore,
+        profileDir: dirname(defaultConversationsDir('app', vertexHome)),
+        scope: input?.scope ?? null,
+        from: input?.from,
+        to: input?.to,
+      });
+    },
+    getProjectDetail: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return queryProjectConversationDetail({
+        ledger: vertexUsage.ledger,
+        store: vStore,
+        profileDir: dirname(defaultConversationsDir('app', vertexHome)),
+        projectKey: input.projectKey,
+        scope: input?.scope ?? null,
+        from: input?.from,
+        to: input?.to,
+      });
+    },
     clearTimeline: (input) => {
       vertexController?.recordActivity('runtime-ui-timeline');
       return vStore.clearTimeline(input?.conversationId || null);
@@ -261,8 +308,12 @@ const runVertexMetrics = async (input?: MetricsRequestInput): Promise<MetricsSna
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-const prefError = (error: unknown): string =>
-  errorMessage(error) === 'Invalid timeline preference' ? 'Invalid timeline preference' : 'Language preference could not be saved';
+const prefError = (error: unknown): string => {
+  const msg = errorMessage(error);
+  return msg === 'Invalid timeline preference' || msg === 'Invalid font scale preference'
+    ? msg
+    : 'Language preference could not be saved';
+};
 
 if (isSidecar) {
   const { SidecarApp, Response } = await loadSidecarSdk();

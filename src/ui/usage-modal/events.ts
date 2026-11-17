@@ -1,21 +1,32 @@
+import type { PreferencesSnapshot } from '../../contracts/index.ts';
+import { resolveFontScale } from '../../contracts/preferences.ts';
+import { createFontPopover } from '../shared/font-popover.ts';
 import type { UsageDayIndex } from './aggregator.ts';
 import { addDays, shiftMonth } from './aggregator.ts';
 import { renderOnboardingGuide } from './dom-shell.ts';
 import type { HeatmapController } from './heatmap.ts';
 import { renderHourlySpline } from './hourly-spline.ts';
 import type { UsagePalette } from './palette.ts';
+import { createPopoverListbox } from './picker.ts';
 import type { StackedBarController } from './stacked-bar.ts';
 import type { TooltipController } from './tooltip.ts';
 import type {
+  ModelViewMode,
   UsageDashboardOptions,
+  UsageDimension,
   UsageDomContext,
   UsageHeatMode,
   UsagePeriod,
   UsageTab,
+  UsageWindow,
 } from './types.ts';
 
 export interface UsageEventsCleanup {
   dismissGuide: () => void;
+  syncPickers: () => void;
+  syncPreferences: (prefs?: Partial<PreferencesSnapshot> | null) => void;
+  closeSubPopovers: () => boolean;
+  loadPreferencesIfNeeded: () => void;
   dispose: () => void;
 }
 
@@ -31,8 +42,145 @@ export function bindUsageModalEvents(
     render: () => void;
   },
 ): UsageEventsCleanup {
-  const { $, view, dialog, state, text, zh, w } = ctx;
+  const { $, view, page, dialog, state, text, zh, w } = ctx;
   const { palette, dayIndex, tooltip, heatmap, chart, render } = deps;
+
+  const applyUsageFontScale = (scale: unknown): void => {
+    const resolved = String(resolveFontScale(scale));
+    dialog.style.setProperty('--pulse-usage-font-scale', resolved);
+    page.style.setProperty('--pulse-usage-font-scale', resolved);
+  };
+  const initScale =
+    options.initialPreferences &&
+    !('error' in options.initialPreferences) &&
+    'usageFontScale' in options.initialPreferences
+      ? options.initialPreferences.usageFontScale
+      : undefined;
+  applyUsageFontScale(initScale);
+
+  const fontTrigger = $<HTMLButtonElement>('font-settings');
+  const fontPopover = fontTrigger
+    ? createFontPopover({
+        trigger: fontTrigger,
+        mountRoot: view,
+        getLanguage: () => options.language.language,
+        initial: options.initialPreferences ?? null,
+        onChange: async (update, next) => {
+          applyUsageFontScale(next.usageFontScale);
+          const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+          try {
+            if (typeof bridge?.setPreferences === 'function') {
+              const saved = await bridge.setPreferences(update);
+              if (saved && typeof saved === 'object' && !('error' in saved)) {
+                fontPopover?.sync(saved);
+                applyUsageFontScale(saved.usageFontScale);
+                options.onPreferencesSaved?.(saved);
+              }
+            }
+          } catch {
+            // Keep optimistic preview if persistence fails.
+          }
+        },
+      })
+    : null;
+
+  let prefsLoaded = Boolean(options.initialPreferences && !('error' in options.initialPreferences));
+  const loadPreferencesIfNeeded = (): void => {
+    fontPopover?.localize();
+    if (prefsLoaded) return;
+    prefsLoaded = true;
+    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    if (typeof bridge?.getPreferences !== 'function') return;
+    void bridge
+      .getPreferences()
+      .then((prefs) => {
+        if (state.disposed || !prefs || typeof prefs !== 'object' || 'error' in prefs) return;
+        fontPopover?.sync(prefs);
+        applyUsageFontScale(prefs.usageFontScale);
+        options.onPreferencesSaved?.(prefs);
+      })
+      .catch(() => {
+        prefsLoaded = false;
+      });
+  };
+
+  const dimTrigger = $<HTMLButtonElement>('dim-trigger');
+  const dimMenu = $('dim-menu');
+  const dimLabel = $('dim-label');
+  const dimPicker =
+    dimTrigger && dimMenu && dimLabel
+      ? createPopoverListbox({
+          trigger: dimTrigger,
+          menu: dimMenu,
+          labelEl: dimLabel,
+          dialog,
+          view,
+          setMarkup: options.setMarkup,
+          getSelected: () => state.dimension,
+          onSelect: (val) => {
+            state.dimension = (val as UsageDimension) || 'model';
+            state.selectedBar = null;
+            chart.renderChart();
+          },
+        })
+      : null;
+
+  const mvTrigger = $<HTMLButtonElement>('model-view-trigger');
+  const mvMenu = $('model-view-menu');
+  const mvLabel = $('model-view-label');
+  const modelViewPicker =
+    mvTrigger && mvMenu && mvLabel
+      ? createPopoverListbox({
+          trigger: mvTrigger,
+          menu: mvMenu,
+          labelEl: mvLabel,
+          dialog,
+          view,
+          setMarkup: options.setMarkup,
+          getSelected: () => state.modelViewMode,
+          onSelect: (val) => {
+            state.modelViewMode = (val as ModelViewMode) || 'simple';
+            state.disabledModels.clear();
+            chart.renderChart();
+          },
+        })
+      : null;
+
+  const syncPickers = (): void => {
+    dimPicker?.setOptions(
+      [
+        { value: 'model', label: w('按模型统计', 'By Model') },
+        { value: 'user', label: w('按用户统计', 'By User') },
+        { value: 'project', label: w('项目统计', 'Project Stats') },
+      ],
+      w('统计维度', 'Dimension'),
+    );
+    modelViewPicker?.setOptions(
+      [
+        { value: 'simple', label: w('简易', 'Simple') },
+        { value: 'detailed', label: w('详细', 'Detailed') },
+      ],
+      w('视图模式', 'View mode'),
+    );
+    fontPopover?.localize();
+  };
+
+  const closeSubPopovers = (): boolean => {
+    let closed = false;
+    if (dimPicker?.isOpen()) {
+      dimPicker.close();
+      closed = true;
+    }
+    if (modelViewPicker?.isOpen()) {
+      modelViewPicker.close();
+      closed = true;
+    }
+    if (fontPopover?.element.matches(':popover-open')) {
+      fontPopover.close();
+      closed = true;
+    }
+    return closed;
+  };
 
   const dismissGuide = (): void => {
     if (state.disposed) return;
@@ -94,19 +242,6 @@ export function bindUsageModalEvents(
   };
   $('custom-start')?.addEventListener('change', handleCustomChange);
   $('custom-end')?.addEventListener('change', handleCustomChange);
-
-  $('dim-model')?.addEventListener('click', () => { state.dimension = 'model'; chart.renderChart(); });
-  $('dim-user')?.addEventListener('click', () => { state.dimension = 'user'; chart.renderChart(); });
-  $('model-view-simple')?.addEventListener('click', () => {
-    state.modelViewMode = 'simple';
-    state.disabledModels.clear();
-    chart.renderChart();
-  });
-  $('model-view-detailed')?.addEventListener('click', () => {
-    state.modelViewMode = 'detailed';
-    state.disabledModels.clear();
-    chart.renderChart();
-  });
   $('hourly-mode-combined')?.addEventListener('click', (e) => {
     e.stopPropagation();
     state.hourlyMode = 'combined';
@@ -162,6 +297,8 @@ export function bindUsageModalEvents(
       { duration: turn, iterations: Infinity },
     ) ?? null;
     try {
+      state.projectOverviewKey = '';
+      state.projectDetailKey = '';
       await options.onRefresh();
     } catch {
       if (!state.disposed) {
@@ -193,10 +330,22 @@ export function bindUsageModalEvents(
 
   return {
     dismissGuide,
+    syncPickers,
+    syncPreferences: (prefs) => {
+      if (!prefs || 'error' in prefs) return;
+      prefsLoaded = true;
+      fontPopover?.sync(prefs);
+      if ('usageFontScale' in prefs) applyUsageFontScale(prefs.usageFontScale);
+    },
+    closeSubPopovers,
+    loadPreferencesIfNeeded,
     dispose() {
       if (refreshDelay) clearTimeout(refreshDelay);
       finishRefresh?.();
       refreshMotion?.cancel();
+      dimPicker?.dispose();
+      modelViewPicker?.dispose();
+      fontPopover?.dispose();
     },
   };
 }

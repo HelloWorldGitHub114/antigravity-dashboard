@@ -2,11 +2,18 @@
 
 // src/ide/main.ts
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PreferencesStore } from "../compat/preferences.mjs";
 import { SidecarOwner } from "../compat/sidecar-owner.mjs";
-import { DesktopUsage as LocalUsage, UsageLedger } from "../sidecars/panel/usage.mjs";
+import {
+  DesktopUsage as LocalUsage,
+  UsageLedger,
+  queryProjectConversationDetail,
+  queryProjectUsageOverview
+} from "../sidecars/panel/usage.mjs";
+import { defaultConversationsDir } from "../sidecars/panel/local-conversations.mjs";
 import { TranscriptReader, transcriptBrainRoot } from "../sidecars/panel/transcript.mjs";
 import { SessionHistory } from "../sidecars/panel/history.mjs";
 import { MetricsStore } from "../sidecars/panel/store.mjs";
@@ -110,6 +117,23 @@ var ui = new RuntimeUi({
   preferences: livePreferences,
   snapshot,
   dataDir: data,
+  getProjectUsage: (input) => queryProjectUsageOverview({
+    ledger: usage.ledger,
+    store,
+    profileDir: dirname(defaultConversationsDir("ide", homedir())),
+    scope: input?.scope ?? null,
+    from: input?.from,
+    to: input?.to
+  }),
+  getProjectDetail: (input) => queryProjectConversationDetail({
+    ledger: usage.ledger,
+    store,
+    profileDir: dirname(defaultConversationsDir("ide", homedir())),
+    projectKey: input.projectKey,
+    scope: input?.scope ?? null,
+    from: input?.from,
+    to: input?.to
+  }),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
   targetOrigin: () => "vscode-file://vscode-app",
   discover: async () => {

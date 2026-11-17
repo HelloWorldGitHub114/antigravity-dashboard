@@ -140,8 +140,20 @@ try{
   await mkdir(join(repo,'.data/sidebar-design'),{recursive:true});
   for(const name of ['speed','cache','context']){await view.locator(`[data-card=${name}]`).click();await view.locator(`#${name}-card`).evaluate(e=>e.scrollTop=0);await page.waitForTimeout(180);await page.screenshot({path:join(repo,`.data/sidebar-design/${mode}-${name}-zh.png`)});}
   rate=51.2;await view.locator('#refresh-button').click();await view.locator('#strip-tps').filter({hasText:'51.2'}).waitFor();
+  await view.locator('#font-settings').click();
+  await view.locator('.font-popover').waitFor({state:'visible'});
+  assert.deepEqual(await view.locator('.font-popover .font-row-label').allTextContents(),['统计页','侧边栏','底部状态卡片']);
+  await view.locator('.font-row[data-font-key="sidebarFontScale"] .font-step-btn[data-font-step="5"]').click();
+  await page.waitForTimeout(80);
+  const pctInput=view.locator('.font-row[data-font-key="sidebarFontScale"] input.font-pct-input');
+  await pctInput.fill('115');await pctInput.press('Enter');
+  await page.waitForTimeout(80);
+  assert.equal(await view.locator('html').evaluate(h=>h.style.getPropertyValue('--pulse-sidebar-font-scale')),'1.15');
+  assert.equal(await view.locator('.widget').evaluate(e=>e.scrollWidth>e.clientWidth),false,'Font scaling keeps sidebar free of horizontal overflow');
+  await pctInput.fill('100');await pctInput.press('Enter');
+  await view.locator('#font-settings').click();
   const installed=await view.locator('html').evaluate(()=>window.__agPulsePanelInstalled);assert.equal(installed,true);
-  results.push({mode,tokens:true,context:true,language:true,manualRefresh:true});await page.close();
+  results.push({mode,tokens:true,context:true,language:true,manualRefresh:true,fontPopover:true});await page.close();
  }
  for(const width of [280,360,440]){
   scenario='default';const page=await browser.newPage({viewport:{width,height:800}});page.on('pageerror',e=>errors.push(e.message));prefs={language:'en',revision:1,modelTimelineEnabled:false};

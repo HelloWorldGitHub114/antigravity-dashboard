@@ -98,6 +98,7 @@ export interface UsageDashboardHandle {
   update(data: UsageSummarySnapshot | null | undefined): void;
   restoreModal(): void;
   syncGuideDismissed(): void;
+  syncPreferences?(prefs: PreferencesSnapshot): void;
   dispose(): void;
 }
 
@@ -107,6 +108,8 @@ export interface UsageDashboardOptions {
   setMarkup: (element: Element | ShadowRoot, markup: string) => void;
   hostLabel: string;
   guideDismissed: boolean;
+  initialPreferences?: Partial<PreferencesSnapshot> | null;
+  onPreferencesSaved?: (prefs: PreferencesSnapshot) => void;
   onDismissGuide: () => Promise<void>;
   onLanguage: (next: LanguageCode) => Promise<void>;
   onRefresh: () => Promise<void>;

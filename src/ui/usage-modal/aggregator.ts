@@ -1,4 +1,11 @@
-import type { UsageBucketCounts, UsageDayBucket, UsageSummarySnapshot, UsageUserBucket } from '../../contracts/index.ts';
+import type {
+  ProjectUsageDayBucket,
+  ProjectUsageOverview,
+  UsageBucketCounts,
+  UsageDayBucket,
+  UsageSummarySnapshot,
+  UsageUserBucket,
+} from '../../contracts/index.ts';
 import { effectiveModelKey } from './palette.ts';
 import type { ModelViewMode, UsageDimension, UsagePeriod, UsageTotalsResult } from './types.ts';
 
@@ -24,6 +31,7 @@ export interface AggregationQuery {
   modelViewMode: ModelViewMode;
   disabledModels: Set<string>;
   disabledUsers: Set<string>;
+  disabledProjects?: Set<string>;
 }
 
 const COUNT_KEYS: ReadonlyArray<keyof UsageBucketCounts> = [
@@ -42,6 +50,8 @@ function createEmptyBucket(): UsageBucketCounts {
 export class UsageDayIndex {
   readonly dayMap = new Map<string, UsageDayBucket>();
   sortedDays: UsageDayBucket[] = [];
+  readonly projectDayMap = new Map<string, ProjectUsageDayBucket>();
+  sortedProjectDays: ProjectUsageDayBucket[] = [];
 
   rebuild(value: UsageSummarySnapshot | null): void {
     this.dayMap.clear();
@@ -56,13 +66,57 @@ export class UsageDayIndex {
     this.sortedDays = list;
   }
 
+  rebuildProjects(overview: ProjectUsageOverview | null): void {
+    this.projectDayMap.clear();
+    const list: ProjectUsageDayBucket[] = [];
+    for (const day of overview?.days || []) {
+      if (day?.date) {
+        this.projectDayMap.set(day.date, day);
+        list.push(day);
+      }
+    }
+    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    this.sortedProjectDays = list;
+  }
+
   totals(from: string, to: string, query: AggregationQuery, filter = false): UsageTotalsResult {
     const models: Record<string, UsageBucketCounts> = {};
     const modelVariants: Record<string, Record<string, UsageBucketCounts>> = {};
     const users: Record<string, UsageUserBucket> = {};
+    const projects: Record<string, UsageBucketCounts> = {};
     let legacyTokens = 0;
     let total = 0;
     let requests = 0;
+
+    if (query.dimension === 'project') {
+      const accumProj = (day: ProjectUsageDayBucket | undefined): void => {
+        if (!day) return;
+        for (const [pKey, r] of Object.entries(day.projects || {})) {
+          if (filter && query.disabledProjects?.has(pKey)) continue;
+          const b = (projects[pKey] ??= createEmptyBucket());
+          for (const k of COUNT_KEYS) b[k] += r[k] || 0;
+          total += r.total || 0;
+          requests += r.requests || 0;
+        }
+      };
+      if (from === to) {
+        accumProj(this.projectDayMap.get(from));
+      } else if (from <= to && this.sortedProjectDays.length) {
+        let lo = 0;
+        let hi = this.sortedProjectDays.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (this.sortedProjectDays[mid].date < from) lo = mid + 1;
+          else hi = mid;
+        }
+        for (let i = lo; i < this.sortedProjectDays.length; i++) {
+          const day = this.sortedProjectDays[i];
+          if (day.date > to) break;
+          accumProj(day);
+        }
+      }
+      return { from, to, models, modelVariants, users, projects, legacyTokens, total, requests };
+    }
 
     const accum = (day: UsageDayBucket | undefined): void => {
       if (!day) return;
@@ -77,7 +131,7 @@ export class UsageDayIndex {
           const v = (gv[rawModel] ??= createEmptyBucket());
           for (const k of COUNT_KEYS) v[k] += r[k] || 0;
         }
-        if (query.dimension !== 'user') {
+        if (query.dimension === 'model') {
           total += r.total || 0;
           requests += r.requests || 0;
         }

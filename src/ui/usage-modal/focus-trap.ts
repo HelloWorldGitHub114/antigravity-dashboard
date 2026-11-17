@@ -3,6 +3,7 @@ import type { UsageDomContext } from './types.ts';
 export interface FocusTrapHandlers {
   onCloseYear: (restore?: boolean) => void;
   onIsYearOpen: () => boolean;
+  onCloseSubPopovers?: () => boolean;
   onCloseManualModal: (restore?: boolean) => void;
 }
 
@@ -32,6 +33,7 @@ export function createFocusTrap(ctx: UsageDomContext, handlers: FocusTrapHandler
 
   const close = (): void => {
     handlers.onCloseYear(false);
+    handlers.onCloseSubPopovers?.();
     conceal();
     const tip = $('tip');
     if (tip) tip.hidden = true;
@@ -52,6 +54,7 @@ export function createFocusTrap(ctx: UsageDomContext, handlers: FocusTrapHandler
       const manualModal = $('manual-modal');
       if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
       else if (handlers.onIsYearOpen()) handlers.onCloseYear();
+      else if (handlers.onCloseSubPopovers?.()) return;
       else close();
       return;
     }

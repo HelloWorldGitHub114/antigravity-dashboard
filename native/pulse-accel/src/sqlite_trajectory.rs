@@ -2230,6 +2230,93 @@ pub fn read_sqlite_conversation_meta_json(
     serde_json::to_string(&val).ok()
 }
 
+fn parse_sqlite_modified_ms(val: rusqlite::types::ValueRef<'_>) -> i64 {
+    match val {
+        rusqlite::types::ValueRef::Integer(n) => n.max(0),
+        rusqlite::types::ValueRef::Real(f) => {
+            if f.is_finite() && f > 0.0 {
+                f as i64
+            } else {
+                0
+            }
+        }
+        rusqlite::types::ValueRef::Text(bytes) => {
+            let Ok(raw) = std::str::from_utf8(bytes) else {
+                return 0;
+            };
+            let s = raw.trim();
+            if s.is_empty() {
+                return 0;
+            }
+            if let Ok(n) = s.parse::<i64>() {
+                return n.max(0);
+            }
+            let b = s.as_bytes();
+            let normalized = if b.len() >= 19 && (b[10] == b'T' || b[10] == b' ') {
+                let mut tmp = String::with_capacity(s.len() + 1);
+                tmp.push_str(&s[..10]);
+                tmp.push('T');
+                tmp.push_str(&s[11..]);
+                if b.len() == 19 {
+                    tmp.push('Z');
+                }
+                tmp
+            } else {
+                s.to_string()
+            };
+            parse_iso_to_epoch_ns(&normalized)
+                .and_then(|ns| i64::try_from(ns / 1_000_000).ok())
+                .filter(|&ms| ms > 0)
+                .unwrap_or(0)
+        }
+        _ => 0,
+    }
+}
+
+pub fn read_sqlite_conversation_summaries_json(db_path: &str) -> Option<String> {
+    let conn = open_readonly_db(db_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT conversation_id, COALESCE(title, ''), COALESCE(preview, ''), \
+             COALESCE(last_modified_time, 0), COALESCE(workspace_uris, ''), \
+             COALESCE(project_id, ''), COALESCE(parent_conversation_id, ''), \
+             COALESCE(source, ''), COALESCE(agent_name, '') \
+             FROM conversation_summaries",
+        )
+        .ok()?;
+    let rows = stmt
+        .query_map([], |row| {
+            let cid: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let preview: String = row.get(2)?;
+            let modified_ms = row.get_ref(3).map(parse_sqlite_modified_ms).unwrap_or(0);
+            let workspace_uris: String = row.get(4)?;
+            let project_id: String = row.get(5)?;
+            let parent_id: String = row.get(6)?;
+            let source: String = row.get(7)?;
+            let agent_name: String = row.get(8)?;
+            Ok(json!({
+                "conversationId": cid,
+                "title": title,
+                "preview": preview,
+                "lastModifiedTime": modified_ms,
+                "workspaceUris": workspace_uris,
+                "projectId": project_id,
+                "parentConversationId": parent_id,
+                "source": source,
+                "agentName": agent_name,
+            }))
+        })
+        .ok()?;
+    let mut out = Vec::new();
+    for item in rows {
+        if let Ok(val) = item {
+            out.push(val);
+        }
+    }
+    serde_json::to_string(&out).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -164,3 +164,67 @@ export interface UsageSummarySnapshot {
   retryingConversations?: number;
   persistenceError?: boolean;
 }
+
+export type ProjectKind = 'project' | 'conversations' | 'cli' | 'remote';
+
+export interface ProjectUsageItem {
+  projectKey: string;
+  name: string;
+  kind: ProjectKind;
+  workspacePath?: string;
+  conversationCount: number;
+  uncached: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  total: number;
+  requests: number;
+}
+
+export interface ProjectUsageDayBucket {
+  date: string;
+  projects: Record<string, UsageBucketCounts>;
+}
+
+export interface ProjectUsageOverview {
+  accountKey: string;
+  from: string;
+  to: string;
+  projects: ProjectUsageItem[];
+  days: ProjectUsageDayBucket[];
+  totalTokens: number;
+  requests: number;
+  updatedAt: string;
+}
+
+export interface ProjectConversationItem {
+  id: string;
+  title: string;
+  uncached: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  total: number;
+  requests: number;
+  share: number;
+  lastActiveAt: string | null;
+  isSubagent: boolean;
+  isRemote: boolean;
+  parentId?: string | null;
+  rootId?: string | null;
+  rootTitle?: string | null;
+  agentName?: string | null;
+}
+
+export interface ProjectConversationDetail {
+  accountKey: string;
+  projectKey: string;
+  projectName: string;
+  kind: ProjectKind;
+  from: string;
+  to: string;
+  totalTokens: number;
+  requests: number;
+  conversations: ProjectConversationItem[];
+  updatedAt: string;
+}

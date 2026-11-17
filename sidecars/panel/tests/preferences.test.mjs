@@ -25,13 +25,13 @@ test('guide dismissal survives a fresh backend without selecting a language; old
 });
 
 test('Chinese and English survive a new backend and a renderer with empty origin storage',async t=>{
-  const {file,store}=await fixture(t);assert.deepEqual(await store.get(),{language:null,languageGuideDismissed:false,usageGuideDismissed:false,modelTimelineEnabled:false,revision:0});
+  const {file,store}=await fixture(t);assert.deepEqual(await store.get(),{language:null,languageGuideDismissed:false,usageGuideDismissed:false,modelTimelineEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1,revision:0});
   const first=create(null),controller=connect(first,store);await controller.ready;await controller.toggle();
   assert.equal(first.language,'zh-CN');controller.dispose();
   const afterRestart=create(null),restored=connect(afterRestart,new PreferencesStore({file}));await restored.ready;
   assert.equal(afterRestart.language,'zh-CN');await restored.toggle();restored.dispose();
   const again=create(null);await connect(again,new PreferencesStore({file})).ready;assert.equal(again.language,'en');
-  const json=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(Object.keys(json).sort(),['language','languageGuideDismissed','modelTimelineEnabled','revision','schema','usageGuideDismissed']);
+  const json=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(Object.keys(json).sort(),['inlineFontScale','language','languageGuideDismissed','modelTimelineEnabled','revision','schema','sidebarFontScale','usageFontScale','usageGuideDismissed']);
 });
 
 test('usage onboarding completion persists independently of language and language onboarding',async t=>{
@@ -108,4 +108,32 @@ test('modelTimelineEnabled defaults false, toggles boolean cleanly, and rejects 
     await assert.rejects(store.set({modelTimelineEnabled:bad}),{message:'Invalid timeline preference'});
   }
   assert.equal((await store.get()).modelTimelineEnabled,false);
+});
+
+test('independent font scale preferences default to 1, round cleanly, persist across updates, and reject out-of-range inputs',async t=>{
+  const {file,store}=await fixture(t);
+  await writeFile(file,JSON.stringify({schema:1,language:'zh-CN',revision:2,usageFontScale:0.5,sidebarFontScale:'bad',inlineFontScale:2.4}));
+  const migrated=await store.get();
+  assert.equal(migrated.usageFontScale,0.8);
+  assert.equal(migrated.sidebarFontScale,1);
+  assert.equal(migrated.inlineFontScale,1.5);
+
+  const updated=await store.set({usageFontScale:1.153,sidebarFontScale:1.2,inlineFontScale:0.9});
+  assert.equal(updated.usageFontScale,1.15);
+  assert.equal(updated.sidebarFontScale,1.2);
+  assert.equal(updated.inlineFontScale,0.9);
+  const reread=await new PreferencesStore({file}).get();
+  assert.equal(reread.usageFontScale,1.15);
+  assert.equal(reread.sidebarFontScale,1.2);
+  assert.equal(reread.inlineFontScale,0.9);
+
+  for(const bad of [0.79,1.51,'1.1',null,Number.NaN,Infinity]) {
+    await assert.rejects(store.set({usageFontScale:bad}),{message:'Invalid font scale preference'});
+    await assert.rejects(store.set({sidebarFontScale:bad}),{message:'Invalid font scale preference'});
+    await assert.rejects(store.set({inlineFontScale:bad}),{message:'Invalid font scale preference'});
+  }
+  const unchanged=await store.get();
+  assert.equal(unchanged.usageFontScale,1.15);
+  assert.equal(unchanged.sidebarFontScale,1.2);
+  assert.equal(unchanged.inlineFontScale,0.9);
 });

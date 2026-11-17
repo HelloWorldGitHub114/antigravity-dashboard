@@ -1,4 +1,5 @@
 import type { QuotaGroup, RuntimeBridgeApi } from '../../contracts/index.ts';
+import { resolveFontScale } from '../../contracts/preferences.ts';
 import { setMarkup as sharedSetMarkup } from '../../shared/dom.ts';
 import { CardInteractionController } from './card-interactions.ts';
 import {
@@ -66,6 +67,12 @@ export default function installAgPulseInlineWidget(): void {
   let layoutFrame: number | null = null;
   let usageDashboard: UsageDashboardHandle | null = null;
   let updateMenu: UpdateMenuHandle | null = null;
+  let inlineFontScale = resolveFontScale(localGet('ag-pulse-inline-font-scale'));
+  const applyInlineFontScale = (scale: unknown): void => {
+    inlineFontScale = resolveFontScale(scale);
+    localSet('ag-pulse-inline-font-scale', String(inlineFontScale));
+    node?.style.setProperty('--pulse-inline-font-scale', String(inlineFontScale));
+  };
   const density = new DensityMotionController();
 
   const guide = new LanguageGuideController({
@@ -104,6 +111,10 @@ export default function installAgPulseInlineWidget(): void {
       guide.sync(prefs);
       preferences.sync(prefs);
       guide.guideReady = !preferences.error;
+      if (prefs && 'inlineFontScale' in prefs) {
+        applyInlineFontScale(prefs.inlineFontScale);
+      }
+      if (prefs) usageDashboard?.syncPreferences?.(prefs);
     },
     onThemeSync: (hostTheme) => themeController?.setHostTheme(hostTheme),
   });
@@ -210,9 +221,15 @@ export default function installAgPulseInlineWidget(): void {
     const mounted = mountWidgetShadowDom({
       win, found, theme, language, surface, bridgeHost, setMarkup, cards, guide, polling,
       onChooseLanguage: (next) => preferences.choose(next),
+      onFontScaleChange: (prefs) => {
+        if ('inlineFontScale' in prefs) applyInlineFontScale(prefs.inlineFontScale);
+        guide.sync(prefs);
+        preferences.sync(prefs);
+      },
       onObserveComposer: observeComposer,
     });
     ({ node, root, themeController, updateMenu, usageDashboard } = mounted);
+    applyInlineFontScale(inlineFontScale);
     localize();
     render();
     void polling.refresh();

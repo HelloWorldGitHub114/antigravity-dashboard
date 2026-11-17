@@ -192,6 +192,13 @@ export const EN_DICTIONARY = {
   timelineEventSubagent: 'Subagent',
   timelineEventModelSwitch: 'Model switch',
   timelineEventError: 'Error',
+  fontSettings: 'Font size settings',
+  fontRowUsage: 'Usage modal',
+  fontRowSidebar: 'Sidebar',
+  fontRowInline: 'Bottom card',
+  fontDecrease: 'Decrease',
+  fontIncrease: 'Increase',
+  fontPercent: 'Font percentage',
 } as const;
 
 export type I18nKey = keyof typeof EN_DICTIONARY;

@@ -8,7 +8,12 @@ import type {
   PreferencesState,
   PreferencesUpdateInput,
 } from '../contracts/preferences.ts';
-import { PREFERENCE_KEYS } from '../contracts/preferences.ts';
+import {
+  FONT_SCALE_KEYS,
+  PREFERENCE_KEYS,
+  resolveFontScale,
+  validateFontScaleInput,
+} from '../contracts/preferences.ts';
 import { atomicWriteJson, readJsonSafe } from '../shared/atomic-fs.ts';
 import { platformPaths } from './paths.ts';
 
@@ -62,6 +67,9 @@ export class PreferencesStore {
         languageGuideDismissed: value.languageGuideDismissed === true,
         usageGuideDismissed: value.usageGuideDismissed === true,
         modelTimelineEnabled: value.modelTimelineEnabled === true,
+        usageFontScale: resolveFontScale(value.usageFontScale),
+        sidebarFontScale: resolveFontScale(value.sidebarFontScale),
+        inlineFontScale: resolveFontScale(value.inlineFontScale),
         revision:
           typeof value.revision === 'number' &&
           Number.isSafeInteger(value.revision) &&
@@ -76,6 +84,9 @@ export class PreferencesStore {
           languageGuideDismissed: false,
           usageGuideDismissed: false,
           modelTimelineEnabled: false,
+          usageFontScale: 1,
+          sidebarFontScale: 1,
+          inlineFontScale: 1,
           revision: 0,
         };
       }
@@ -110,6 +121,7 @@ export class PreferencesStore {
     ) {
       throw new Error('Invalid timeline preference');
     }
+    validateFontScaleInput(input as Record<string, unknown>);
 
     const operation = this.queue.then(async (): Promise<PreferencesState> => {
       const existing = await readJsonSafe<Record<string, unknown>>(this.file);
@@ -130,6 +142,9 @@ export class PreferencesStore {
         languageGuideDismissed: validRecord?.languageGuideDismissed === true,
         usageGuideDismissed: validRecord?.usageGuideDismissed === true,
         modelTimelineEnabled: validRecord?.modelTimelineEnabled === true,
+        usageFontScale: resolveFontScale(validRecord?.usageFontScale),
+        sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
+        inlineFontScale: resolveFontScale(validRecord?.inlineFontScale),
       };
 
       const language: LanguageCode | null = hasLanguage
@@ -142,6 +157,12 @@ export class PreferencesStore {
       const modelTimelineEnabled = Object.hasOwn(input, 'modelTimelineEnabled')
         ? (input.modelTimelineEnabled as boolean)
         : previous.modelTimelineEnabled;
+      const scales = Object.fromEntries(
+        FONT_SCALE_KEYS.map((key) => [
+          key,
+          Object.hasOwn(input, key) ? resolveFontScale(input[key]) : previous[key],
+        ]),
+      ) as Record<(typeof FONT_SCALE_KEYS)[number], number>;
       const revision = Math.max(Date.now(), prior + 1);
 
       const diskRecord: PreferencesDiskRecord = {
@@ -150,6 +171,7 @@ export class PreferencesStore {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        ...scales,
         revision,
       };
       await atomicWriteJson(this.file, diskRecord, { fsync: true, trailingNewline: true });
@@ -159,6 +181,7 @@ export class PreferencesStore {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        ...scales,
         revision,
       };
     });

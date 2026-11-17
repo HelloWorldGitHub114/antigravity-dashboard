@@ -18,7 +18,8 @@ days.unshift({date:'2024-11-01',models:{[models[0]]:{uncached:100,cacheRead:0,ca
 const fixture={accountKey:'fixture',today:'2026-10-11',timeZone:'Asia/Shanghai',models,days,todayTokens:45000,weekTokens:400000,monthTokens:700000,totalTokens:6000000,requests:500,firstDate:days[0].date,syncing:false,unknownRequests:0,partialRequests:0,unreadableFiles:0};
 const html=`<!doctype html><html><head><meta charset="utf-8">${ide?`<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; style-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'">`:''}<style>body{margin:0;background:#17181a;color:#ddd;font:13px 'Segoe UI';padding:50px}.rounded-composer{max-width:900px;margin:300px auto 0;background:#27282a;padding:12px;border-radius:18px}.editor{height:45px}.actions{display:flex;align-items:center;gap:5px}.left{display:flex;flex:1;min-width:0}.right{display:flex;gap:5px}button{background:transparent;border:0;color:inherit;height:28px}</style></head><body>${ide?'<div class="antigravity-agent-side-panel"><div id="conversation" role="region"><div data-testid="conversation-view" data-cascade-id="11111111-1111-1111-1111-111111111111"></div>':''}<div class="rounded-composer" ${ide?'id="antigravity.agentSidePanelInputBox"':''}><div class="editor" contenteditable="true" role="combobox" aria-label="Message input"></div><div class="actions"><div class="left"><button aria-label="Add context">＋</button><button data-testid="model-selector-trigger">Gemini 3.8 Flash</button></div><div class="right"><button aria-label="Record voice memo">♩</button><button aria-label="Send message">➜</button></div></div></div>${ide?'</div></div>':''}<script>
 history.replaceState({},'', '/c/11111111-1111-1111-1111-111111111111');window.testData=${JSON.stringify(fixture)};window.testPrefs={language:'zh-CN',languageGuideDismissed:true,revision:1};
-window.agPulseHost={getMetrics:async()=>({connection:'live',usage:testData,preferences:testPrefs,groups:[],speed:null}),getPreferences:async()=>testPrefs,setPreferences:async x=>{if(window.failGuideSave&&x.usageGuideDismissed)throw Error('Fixture save failure');return testPrefs={...testPrefs,...x,revision:testPrefs.revision+1};}};
+window.projectUsageCalls=0;window.projectDetailCalls=0;
+window.agPulseHost={getMetrics:async()=>({connection:'live',usage:testData,preferences:testPrefs,groups:[],speed:null}),getPreferences:async()=>testPrefs,setPreferences:async x=>{if(window.failGuideSave&&x.usageGuideDismissed)throw Error('Fixture save failure');return testPrefs={...testPrefs,...x,revision:testPrefs.revision+1};},getProjectUsage:async()=>{window.projectUsageCalls++;return {accountKey:'multi-suffix',from:'2026-10-11',to:'2026-10-11',scope:'current-account',unavailable:false,totalTokens:7500,requests:6,updatedAt:'2026-10-11T12:00:00Z',projects:[{projectKey:'ws:antigrative-dashboard',name:'antigrative-dashboard',kind:'project',conversationCount:2,uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},{projectKey:'cli',name:'cli',kind:'cli',conversationCount:1,uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},{projectKey:'conversations',name:'conversations',kind:'conversations',conversationCount:1,uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}],days:[{date:'2026-10-11',projects:{'ws:antigrative-dashboard':{uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},'cli':{uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},'conversations':{uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}}}]};},getProjectDetail:async input=>{window.projectDetailCalls++;const extra=Array.from({length:11},(_,i)=>({id:'00000000-0000-0000-0000-'+String(i+3).padStart(12,'0'),title:'Extra main session '+(i+1)+' with an exceptionally long title that should ellipsis cleanly inside the donut legend',uncached:100,cacheRead:50,cacheWrite:0,output:20,total:170,requests:1,share:170/6870,lastActiveAt:'2026-10-11T09:00:00Z',isSubagent:false,isRemote:false}));return {projectKey:input.projectKey,projectName:'antigrative-dashboard',kind:'project',from:'2026-10-11',to:'2026-10-11',totalTokens:6870,requests:15,conversations:[{id:'11111111-1111-1111-1111-111111111111',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',uncached:2000,cacheRead:1000,cacheWrite:0,output:300,total:3300,requests:3,share:3300/6870,lastActiveAt:'2026-10-11T10:00:00Z',isSubagent:false,isRemote:false,rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names'},{id:'22222222-2222-2222-2222-222222222222',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names · researcher',uncached:1000,cacheRead:500,cacheWrite:0,output:200,total:1700,requests:1,share:1700/6870,lastActiveAt:'2026-10-11T11:00:00Z',isSubagent:true,isRemote:false,parentId:'11111111-1111-1111-1111-111111111111',rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',agentName:'researcher'},...extra]};}};
 ${ide?`window.__agPulseSurface=${invokeCjsFactory(surface,'surface')}`:''}${bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')}${bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')}${bindWindowFactory('__agPulseUsageFactory',sources[3],'usage-ui')}${invokeCjsFactory(sources[2],'inline-widget')}
 </script></body></html>`;
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html;charset=utf-8');res.end(html);});server.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -92,8 +93,8 @@ try{
  await page.evaluate(()=>{const old=document.querySelector('.rounded-composer'),replacement=old.cloneNode(true);replacement.querySelector('#ag-pulse-status-bar')?.remove();window.savedUsageDialog=document.getElementById('ag-pulse-status-bar').shadowRoot.getElementById('usage-dashboard');old.replaceWith(replacement);});
  await page.waitForFunction(()=>savedUsageDialog.isConnected&&savedUsageDialog.matches(':popover-open'));
  assert.equal(await page.locator('#usage-dashboard').evaluate(n=>n===savedUsageDialog&&n.open&&getComputedStyle(n).visibility==='visible'),true);
- const actionGeometry=await page.locator('#usage-dashboard .actions button').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect(),i=b.firstElementChild.getBoundingClientRect();return {width:r.width,height:r.height,y:r.y,iconWidth:i.width,iconHeight:i.height,offsetX:(i.left+i.width/2)-(r.left+r.width/2),offsetY:(i.top+i.height/2)-(r.top+r.height/2)};}));
- assert.equal(new Set(actionGeometry.map(b=>b.y)).size,1);for(const b of actionGeometry){assert.equal(b.width,32);assert.equal(b.height,32);assert.equal(b.iconHeight,16);assert.equal(b.offsetX,0);assert.equal(b.offsetY,0);}
+ const actionGeometry=await page.locator('#usage-dashboard .actions button').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect(),c=b.querySelector('svg')||b.firstElementChild,i=c.getBoundingClientRect();return {width:r.width,height:r.height,y:r.y,hasSvg:Boolean(b.querySelector('svg')),iconWidth:i.width,iconHeight:i.height,offsetX:(i.left+i.width/2)-(r.left+r.width/2),offsetY:(i.top+i.height/2)-(r.top+r.height/2)};}));
+ assert.equal(new Set(actionGeometry.map(b=>b.y)).size,1);for(const b of actionGeometry){assert.equal(b.width,32);assert.equal(b.height,32);if(b.hasSvg)assert.equal(b.iconHeight,16);assert.ok(Math.abs(b.offsetX)<=0.6);assert.ok(Math.abs(b.offsetY)<=0.6);}
  // Manual refresh must queue behind an automatic poll, then force a fresh
  // request. An instant success must still leave a visible rotation.
  await page.evaluate(()=>{const original=agPulseHost.getMetrics;window.refreshCalls=[];window.holdAuto=true;agPulseHost.getMetrics=async input=>{refreshCalls.push({force:input.force});if(holdAuto&&!input.force){holdAuto=false;await new Promise(resolve=>window.releaseAuto=resolve);}return original(input);};});
@@ -167,11 +168,9 @@ try{
  },multiModels);
  await page.locator('#details-tab').click();await page.locator('#usage-dashboard #refresh').click();
  await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar').shadowRoot.getElementById('usage-dashboard').firstElementChild.shadowRoot.querySelectorAll('tr.model-group-row').length===3);
- assert.equal(await page.locator('#model-view-controls').isVisible(),true,'Model view toggle is visible in model dimension');
- assert.equal(await page.locator('#model-view-simple').getAttribute('aria-pressed'),'true');
- assert.equal(await page.locator('#model-view-detailed').getAttribute('aria-pressed'),'false');
- assert.equal(await page.locator('#model-view-simple').textContent(),'简易');
- assert.equal(await page.locator('#model-view-detailed').textContent(),'详细');
+ assert.equal(await page.locator('#model-view-picker').isVisible(),true,'Model view picker is visible in model dimension');
+ assert.equal(await page.locator('#dim-label').textContent(),'按模型统计');
+ assert.equal(await page.locator('#model-view-label').textContent(),'简易');
  assert.deepEqual((await page.locator('#legend button').allTextContents()).sort(),['Claude Opus 5.5','Gemini 3.8 Flash','Orchestrator (Argon)']);
  assert.equal(await page.locator('#plot .bar-column[data-from="2026-10-11"] .bar-segment').count(),3,'Chart bar segments merge variants into base groups');
  assert.equal(await page.locator('#table-body tr.model-group-row').count(),3);
@@ -198,20 +197,86 @@ try{
  await page.keyboard.press('Space');
  assert.equal(await opusRow.getAttribute('aria-expanded'),'false');
  assert.equal(await page.locator('#table-body tr.model-variant-row').count(),0);
- await page.locator('#model-view-detailed').click();
- assert.equal(await page.locator('#model-view-detailed').getAttribute('aria-pressed'),'true');
- assert.equal(await page.locator('#model-view-simple').getAttribute('aria-pressed'),'false');
+ await page.locator('#model-view-trigger').click();
+ assert.equal(await page.locator('#model-view-menu').isVisible(),true);
+ await page.locator('#model-view-menu [data-value="detailed"]').click();
+ assert.equal(await page.locator('#model-view-label').textContent(),'详细');
  assert.equal(await page.locator('#legend button').count(),8);
  assert.equal(await page.locator('#plot .bar-column[data-from="2026-10-11"] .bar-segment').count(),8);
  assert.equal(await page.locator('#table-body tr.model-group-row').count(),0);
  assert.equal(await page.locator('#table-body tr').count(),8);
- await page.locator('#dim-user').click();
- assert.equal(await page.locator('#model-view-controls').isVisible(),false,'Switching to user dimension hides model view toggle');
- await page.locator('#dim-model').click();
- assert.equal(await page.locator('#model-view-controls').isVisible(),true,'Returning to model dimension shows model view toggle');
- await page.locator('#model-view-simple').click();
+ await page.locator('#dim-trigger').click();
+ await page.locator('#dim-menu [data-value="user"]').click();
+ assert.equal(await page.locator('#dim-label').textContent(),'按用户统计');
+ assert.equal(await page.locator('#model-view-picker').isVisible(),false,'Switching to user dimension hides model view picker');
+ await page.locator('#dim-trigger').click();
+ await page.locator('#dim-menu [data-value="model"]').click();
+ assert.equal(await page.locator('#model-view-picker').isVisible(),true,'Returning to model dimension shows model view picker');
+ await page.locator('#model-view-trigger').click();
+ await page.locator('#model-view-menu [data-value="simple"]').click();
  assert.equal(await page.locator('#table-body tr.model-group-row').count(),3);
- assert.deepEqual(errors,[]);console.log(JSON.stringify({host:ide?'ide':'desktop',trustedTypes:ide,checks:'Usage entry and onboarding persistence/retry/local replay; hover dismissal and keyboard return; themed year menu; stable frame; heatmap and model chart/filter; polling; language/theme; narrow layout; account isolation; missing snapshots and composer replacement; simple/detailed model grouping and expandable suffix details',passed:true}));
+
+ // On-demand project stats: hides 24h hourly trend, does not fetch detail until selected, renders bar + donut with conversation names
+ await page.locator('#dim-trigger').click();
+ await page.locator('#dim-menu [data-value="project"]').click();
+ await page.waitForFunction(()=>window.projectUsageCalls>=1);
+ assert.equal(await page.locator('#dim-label').textContent(),'项目统计');
+ assert.equal(await page.locator('#model-view-picker').isVisible(),false);
+ assert.equal(await page.locator('#project-scope-note').isVisible(),true);
+ assert.ok((await page.locator('#project-scope-note').textContent()).includes('仅统计当前登录账号可见项目'));
+ assert.equal(await page.locator('#hourly-section').isVisible(),false,'Hourly trend hides in project dimension');
+ assert.equal(await page.locator('#project-detail-section').isVisible(),true);
+ assert.equal(await page.evaluate(()=>window.projectDetailCalls),0,'Lazy detail must not compute before a project is selected');
+ assert.equal(await page.locator('#table-body tr.project-row').count(),3);
+ assert.ok((await page.locator('#table-body').textContent()).includes('cli'));
+ await page.locator('#table-body tr.project-row[data-project-key="ws:antigrative-dashboard"]').click();
+ await page.waitForFunction(()=>window.projectDetailCalls===1);
+ await page.locator('.proj-bar-row').first().waitFor({state:'visible'});
+ assert.equal(await page.locator('.proj-bar-row').count(),10,'Merged main sessions capped at top 10 initially');
+ assert.equal(await page.locator('.proj-subagent-row').count(),0,'Subagents merged and collapsed by default');
+ assert.equal(await page.locator('.proj-donut-seg').count(),7,'Top 6 main sessions + 其他会话 segment in donut chart');
+ const detailText=await page.locator('#project-detail-section').textContent();
+ assert.ok(detailText.includes('Fix navigation layout')&&!detailText.includes('11111111-1111'),'Project breakdown uses conversation titles rather than hashes');
+ const secBox=await page.locator('#project-detail-section').boundingBox();
+ const itemBoxes=await page.locator('.proj-donut-item').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width};}));
+ assert.ok(secBox&&itemBoxes.length>0&&itemBoxes.every(b=>b.right<=secBox.x+secBox.width+1),`Donut legend items must stay within #project-detail-section right bound: sec=${JSON.stringify(secBox)} items=${JSON.stringify(itemBoxes)}`);
+ await page.locator('.proj-bar-row[aria-expanded]').first().click();
+ assert.equal(await page.locator('.proj-subagent-row').count(),2,'Clicking main row expands direct main + subagent breakdown');
+ await page.locator('.proj-bar-row[aria-expanded]').first().click();
+ assert.equal(await page.locator('.proj-subagent-row').count(),0,'Clicking main row again collapses subagents');
+ await page.locator('#proj-toggle-subagents').click();
+ assert.equal(await page.locator('.proj-subagent-row').count(),2,'Toggle-subagents expands all subagent rows');
+ await page.locator('#proj-toggle-subagents').click();
+ assert.equal(await page.locator('.proj-subagent-row').count(),0,'Toggle-subagents again collapses all subagent rows');
+ const donutBox=await page.locator('.proj-donut-box').boundingBox();
+ const donutPanel=await page.locator('.proj-donut-panel').boundingBox();
+ const donutList=await page.locator('.proj-donut-list').boundingBox();
+ assert.ok(donutBox&&donutPanel&&donutList&&donutBox.width>=150&&Math.abs((donutBox.x+donutBox.width/2)-(donutPanel.x+donutPanel.width/2))<=2&&donutList.y>=donutBox.y+donutBox.height-1,`Donut chart should be enlarged (>=150px), horizontally centered in panel, with legend below: box=${JSON.stringify(donutBox)} panel=${JSON.stringify(donutPanel)} list=${JSON.stringify(donutList)}`);
+ await page.locator('#proj-toggle-all').click();
+ assert.equal(await page.locator('.proj-bar-row').count(),12,'Toggle-all expands to all 12 main sessions');
+ assert.equal(await page.locator('.proj-donut-seg').count(),12,'Toggle-all also expands donut slices to all 12 main sessions');
+ assert.equal(await page.locator('.proj-donut-item').count(),12,'Toggle-all renders all 12 scrollable donut legend items');
+ const listScrollable=await page.locator('.proj-donut-list.is-all').evaluate(el=>getComputedStyle(el).overflowY==='auto'&&el.scrollHeight>el.clientHeight);
+ assert.ok(listScrollable,'Expanded donut legend list should have overflow-y:auto scrollbar when items exceed max height');
+ await page.locator('#proj-toggle-all').click();
+ assert.equal(await page.locator('.proj-donut-seg').count(),7,'Collapsing toggle-all returns donut chart to top 6 + other');
+
+ // Font settings (Aa) popover in usage modal: 3 rows + steppers + manual % input
+ await page.locator('#usage-dashboard #font-settings').click();
+ await page.locator('.font-popover').waitFor({state:'visible'});
+ assert.deepEqual(await page.locator('.font-popover .font-row-label').allTextContents(),['统计页','侧边栏','底部状态卡片']);
+ await page.locator('.font-row[data-font-key="usageFontScale"] .font-step-btn[data-font-step="5"]').click();
+ await page.waitForFunction(()=>testPrefs.usageFontScale===1.05);
+ const usageInput=page.locator('.font-row[data-font-key="usageFontScale"] input.font-pct-input');
+ await usageInput.fill('115');
+ await usageInput.press('Enter');
+ await page.waitForFunction(()=>testPrefs.usageFontScale===1.15);
+ assert.equal(await page.locator('#usage-dashboard').evaluate(n=>getComputedStyle(n.firstElementChild.shadowRoot.host||n).getPropertyValue('--pulse-usage-font-scale').trim()||n.firstElementChild.style.getPropertyValue('--pulse-usage-font-scale')),'1.15');
+ await page.locator('.font-row[data-font-key="inlineFontScale"] .font-step-btn[data-font-step="5"]').click();
+ await page.waitForFunction(()=>testPrefs.inlineFontScale===1.05);
+ await page.locator('#usage-dashboard #font-settings').click();
+
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({host:ide?'ide':'desktop',trustedTypes:ide,checks:'Usage entry and onboarding persistence/retry/local replay; hover dismissal and keyboard return; themed year menu; stable frame; heatmap and dual dropdowns; project stats lazy bar/donut breakdown; Aa font settings popover; polling; language/theme; narrow layout; account isolation',passed:true}));
 }finally{await browser.close();await new Promise(r=>server.close(r));}
 }
 if (isDirectEntry(import.meta.url)) await runCheck();

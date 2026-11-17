@@ -167,7 +167,7 @@ test('cache recovery cannot revive TPS rejected by current rate-quality classifi
 
 test('remote agent compound conversation IDs save, load, and snapshot correctly',async t=>{
   const {history}=await fixture(t);
-  const remoteId='v1/default/jetski_remote_agents_3p/00000000-0000-4000-8000-000000000004';
+  const remoteId='v1/default/jetski_remote_agents_3p/72bd7cfa-7ddf-41fa-9056-bf2777fafc90';
   const data=trajectoryMetrics(raw(1));
   const saved=await history.save(scope('a@example.test'),remoteId,data);
   assert.ok(saved);

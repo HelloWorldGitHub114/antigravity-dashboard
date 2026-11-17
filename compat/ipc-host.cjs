@@ -33,11 +33,28 @@ module.exports = function installAgPulseIpc(...args) {
     });
 
     // src/contracts/preferences.ts
+    var FONT_SCALE_KEYS = [
+      "usageFontScale",
+      "sidebarFontScale",
+      "inlineFontScale"
+    ];
+    var FONT_SCALE_MIN = 0.8;
+    var FONT_SCALE_MAX = 1.5;
+    function validateFontScaleInput(input) {
+      for (const key of FONT_SCALE_KEYS) {
+        if (!Object.hasOwn(input, key)) continue;
+        const raw = input[key];
+        if (typeof raw !== "number" || !Number.isFinite(raw) || raw < FONT_SCALE_MIN || raw > FONT_SCALE_MAX) {
+          throw new Error("Invalid font scale preference");
+        }
+      }
+    }
     var PREFERENCE_KEYS = [
       "language",
       "languageGuideDismissed",
       "usageGuideDismissed",
-      "modelTimelineEnabled"
+      "modelTimelineEnabled",
+      ...FONT_SCALE_KEYS
     ];
 
     // src/shared/logger.ts
@@ -595,6 +612,7 @@ module.exports = function installAgPulseIpc(...args) {
             if (Object.hasOwn(input, "modelTimelineEnabled") && typeof input.modelTimelineEnabled !== "boolean") {
               throw new Error("Invalid timeline preference");
             }
+            validateFontScaleInput(input);
             if (!preferenceStore) {
               const file = path.join(
                 os.homedir(),

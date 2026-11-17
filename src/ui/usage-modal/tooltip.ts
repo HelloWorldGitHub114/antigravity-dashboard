@@ -4,6 +4,7 @@ import type { UsageDomContext, UsageTotalsResult } from './types.ts';
 
 export interface TooltipController {
   show(bucket: UsageTotalsResult, target: Element, activeItem?: string | null): void;
+  showNodes(target: Element, nodes: readonly Node[]): void;
   hide(): void;
   highlightItem(item: string | null): void;
   bindBucket(button: HTMLButtonElement, bucket: UsageTotalsResult, onSelect: (bucket: UsageTotalsResult) => void): void;
@@ -19,7 +20,7 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
     if (!plot) return;
     if (item) plot.dataset.highlight = item;
     else delete plot.dataset.highlight;
-    const attr = state.dimension === 'user' ? 'user' : 'model';
+    const attr = state.dimension === 'user' ? 'user' : state.dimension === 'project' ? 'project' : 'model';
     for (const bar of plot.querySelectorAll<HTMLElement>('.bar-segment')) {
       if (item && bar.dataset[attr] === item) bar.dataset.highlight = 'true';
       else delete bar.dataset.highlight;
@@ -48,7 +49,20 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
       createDomNode('div', 'muted', w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)),
     );
 
-    if (state.dimension === 'user') {
+    if (state.dimension === 'project') {
+      const projName = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p.name]));
+      for (const [pKey, r] of Object.entries(bucket.projects || {}).sort((a, b) => b[1].total - a[1].total)) {
+        const row = createDomNode('div', `tip-model${activeItem ? (activeItem === pKey ? ' active' : ' dimmed') : ''}`);
+        const label = createDomNode('span');
+        const dot = createDomNode('i', 'dot');
+        dot.style.setProperty('--model-color', palette.projectColor(pKey));
+        label.append(dot, document.createTextNode(projName.get(pKey) || pKey));
+        const amount = createDomNode('span', '', compactNum(r.total));
+        amount.append(createDomNode('span', 'model-share', bucket.total ? `${((r.total / bucket.total) * 100).toFixed(1)}%` : '0%'));
+        row.append(label, amount);
+        tip.append(row);
+      }
+    } else if (state.dimension === 'user') {
       for (const [u, r] of Object.entries(bucket.users || {}).sort((a, b) => b[1].total - a[1].total)) {
         const row = createDomNode('div', `tip-model${activeItem ? (activeItem === u ? ' active' : ' dimmed') : ''}`);
         const label = createDomNode('span');
@@ -95,11 +109,30 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
     button.addEventListener('blur', hide);
     button.addEventListener('pointermove', (event) => {
       const seg = (event.target as Element | null)?.closest?.('.bar-segment') as HTMLElement | null;
-      const item = state.dimension === 'user' ? seg?.dataset.user || null : seg?.dataset.model || null;
+      const item =
+        state.dimension === 'user'
+          ? seg?.dataset.user || null
+          : state.dimension === 'project'
+            ? seg?.dataset.project || null
+            : seg?.dataset.model || null;
       show(bucket, button, item);
     });
     button.addEventListener('click', () => onSelect(bucket));
   };
 
-  return { show, hide, highlightItem, bindBucket };
+  const showNodes = (target: Element, nodes: readonly Node[]): void => {
+    const tip = $('tip');
+    if (!tip) return;
+    tipTarget = target;
+    tipItem = null;
+    tip.replaceChildren(...nodes);
+    tip.hidden = false;
+    const rect = target.getBoundingClientRect();
+    const bounds = dialog.getBoundingClientRect();
+    const r = tip.getBoundingClientRect();
+    tip.style.left = `${Math.min(bounds.right - r.width - 12, Math.max(bounds.left + 12, rect.left + rect.width / 2 - r.width / 2))}px`;
+    tip.style.top = `${Math.max(bounds.top + 12, rect.top - r.height - 10)}px`;
+  };
+
+  return { show, showNodes, hide, highlightItem, bindBucket };
 }

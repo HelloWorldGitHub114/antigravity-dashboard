@@ -20,6 +20,18 @@ export interface SqliteConversationMeta {
   stepCount?: number;
 }
 
+export interface SqliteConversationSummaryRow {
+  conversationId: string;
+  title: string;
+  preview: string;
+  lastModifiedTime: number;
+  workspaceUris: string;
+  projectId: string;
+  parentConversationId: string;
+  source: string;
+  agentName: string;
+}
+
 export type SnapshotStatusKind = 'running' | 'settled' | 'unknown';
 export type SnapshotTransition = 'unchanged' | 'modified' | 'newly_settled' | 'newly_discovered';
 
@@ -117,6 +129,7 @@ interface PulseAccelAddon {
     maxOutputBytes?: number,
   ): string | null;
   readSqliteConversationMetaJson(dbPath: string, conversationId: string): string | null;
+  readSqliteConversationSummariesJson?: (dbPath: string) => string | null;
   diffSessionSnapshotsJson?: (inputsJson: string) => string | null;
   queryUsageLedgerSummaryJson?: (queryJson: string) => string | null;
   auditOpenSourcePrivacyJson?: (optionsJson: string) => string | null;
@@ -319,6 +332,27 @@ export function readSqliteConversationMeta(
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as SqliteConversationMeta)
       : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads all conversation summary rows from `conversation_summaries.db` via the
+ * native SQLite reader, returning `null` when unavailable or invalid.
+ */
+export function readSqliteConversationSummaries(
+  dbPath: string,
+): SqliteConversationSummaryRow[] | null {
+  if (!dbPath) return null;
+  const addon = getAddon();
+  const fn = addon?.readSqliteConversationSummariesJson;
+  if (typeof fn !== 'function') return null;
+  try {
+    const json = fn(dbPath);
+    if (typeof json !== 'string' || !json) return null;
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as SqliteConversationSummaryRow[]) : null;
   } catch {
     return null;
   }

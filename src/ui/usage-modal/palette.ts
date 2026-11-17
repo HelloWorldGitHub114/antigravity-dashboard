@@ -182,6 +182,19 @@ export class UsagePalette {
     return this.userColors.get(userKey) || (userKey === 'legacy' ? 'var(--pulse-muted)' : 'var(--pulse-accent)');
   }
 
+  projectColor(projectKey: string): string {
+    if (projectKey === 'conversations') return '#6d7b93';
+    if (projectKey === 'cli') return '#4ea8de';
+    if (projectKey.startsWith('remote:')) return '#945fb9';
+    const colors = ['#5b8ff9', '#5ad8a6', '#f6bd16', '#e86452', '#6dc8ec', '#ff9845', '#1e9493', '#7f8ff4'];
+    let h = 2166136261;
+    for (let i = 0; i < projectKey.length; i++) {
+      h ^= projectKey.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return colors[(h >>> 0) % colors.length];
+  }
+
   userDisplayName(userKey: string, value: UsageSummarySnapshot | null, w: (cn: string, en: string) => string): string {
     if (userKey === 'legacy') return w('早期历史未区分用量', 'Legacy unassigned');
     return value?.userMeta?.[userKey]?.email || value?.userMeta?.[userKey]?.name || userKey;

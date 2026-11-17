@@ -22,8 +22,12 @@ export interface PreviewServerOptions {
 }
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-const prefError = (error: unknown): string =>
-  errorMessage(error) === 'Invalid timeline preference' ? 'Invalid timeline preference' : 'Language preference could not be saved';
+const prefError = (error: unknown): string => {
+  const msg = errorMessage(error);
+  return msg === 'Invalid timeline preference' || msg === 'Invalid font scale preference'
+    ? msg
+    : 'Language preference could not be saved';
+};
 
 function parseClearConversationId(data: unknown, guidPattern: RegExp): string | null {
   if (data != null && (typeof data !== 'object' || Array.isArray(data))) throw new Error('Invalid clear timeline request');

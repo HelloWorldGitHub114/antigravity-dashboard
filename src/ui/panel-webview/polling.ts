@@ -1,4 +1,5 @@
 import type { PreferencesSnapshot, PreferencesUpdateInput } from '../../contracts/index.ts';
+import { resolveFontScale } from '../../contracts/preferences.ts';
 import { setAttr, setText } from '../../shared/dom.ts';
 import { renderTimeline, renderTimelineStatus } from './swimlane-timeline.ts';
 import type { PanelDomContext, PanelMetricsSnapshot, PanelWindow } from './types.ts';
@@ -58,6 +59,7 @@ export function createPanelController(
       if (toggle.title !== nextTitle) toggle.title = nextTitle;
       setAttr(toggle, 'data-save-failed', String(ctx.preferences.error));
     }
+    ctx.fontPopover?.localize();
   };
 
   const connectPreferences = () =>
@@ -117,6 +119,12 @@ export function createPanelController(
           state.syncingFromRefresh = true;
           try {
             ctx.preferences.sync(value.preferences);
+            if ('sidebarFontScale' in value.preferences) {
+              const scale = resolveFontScale(value.preferences.sidebarFontScale);
+              document.documentElement.style.setProperty('--pulse-sidebar-font-scale', String(scale));
+              ctx.localSet('ag-pulse-sidebar-font-scale', String(scale));
+            }
+            ctx.fontPopover?.sync(value.preferences);
           } finally {
             state.syncingFromRefresh = false;
           }
@@ -273,6 +281,7 @@ export function createPanelController(
   return {
     localize,
     connectPreferences,
+    savePreferences: preferenceRequest,
     refresh,
     refreshManually,
     setTimelineEnabled,

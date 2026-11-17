@@ -251,7 +251,14 @@ module.exports = function createDashboardI18n(...args) {
       timelineEventToolGroup: "Tool group",
       timelineEventSubagent: "Subagent",
       timelineEventModelSwitch: "Model switch",
-      timelineEventError: "Error"
+      timelineEventError: "Error",
+      fontSettings: "Font size settings",
+      fontRowUsage: "Usage modal",
+      fontRowSidebar: "Sidebar",
+      fontRowInline: "Bottom card",
+      fontDecrease: "Decrease",
+      fontIncrease: "Increase",
+      fontPercent: "Font percentage"
     };
 
     // src/ui/i18n/dictionary-zh.ts
@@ -440,7 +447,14 @@ module.exports = function createDashboardI18n(...args) {
       timelineEventToolGroup: "\u5DE5\u5177\u7EC4",
       timelineEventSubagent: "\u5B50\u4EE3\u7406",
       timelineEventModelSwitch: "\u5207\u6362\u6A21\u578B",
-      timelineEventError: "\u9519\u8BEF"
+      timelineEventError: "\u9519\u8BEF",
+      fontSettings: "\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E",
+      fontRowUsage: "\u7EDF\u8BA1\u9875",
+      fontRowSidebar: "\u4FA7\u8FB9\u680F",
+      fontRowInline: "\u5E95\u90E8\u72B6\u6001\u5361\u7247",
+      fontDecrease: "\u7F29\u5C0F",
+      fontIncrease: "\u653E\u5927",
+      fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4"
     };
 
     // src/ui/i18n/index.ts

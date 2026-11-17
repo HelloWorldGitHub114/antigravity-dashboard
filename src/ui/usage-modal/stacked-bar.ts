@@ -11,12 +11,21 @@ export interface StackedBarController {
   updateDrilldownView(): void;
 }
 
+export interface StackedBarHandlers {
+  onSyncPickers?: () => void;
+  onProjectRange?: (from: string, to: string) => void;
+  onSelectProject?: (projectKey: string) => void;
+  onRenderProjectDetail?: () => void;
+  onProjectDrilldown?: () => void;
+}
+
 export function createStackedBarController(
   ctx: UsageDomContext,
   dayIndex: UsageDayIndex,
   palette: UsagePalette,
   tooltip: TooltipController,
   getQuery: () => AggregationQuery,
+  handlers: StackedBarHandlers = {},
 ): StackedBarController {
   const { $, view, state, root, text, w, compactNum } = ctx;
 
@@ -40,8 +49,11 @@ export function createStackedBarController(
       col.classList.toggle('selected', active);
       col.setAttribute('aria-pressed', String(active));
     }
-    renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery);
-    renderHourlySpline(ctx, dayIndex, tooltip);
+    renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
+    if (state.dimension === 'project') {
+      handlers.onProjectDrilldown?.();
+      handlers.onRenderProjectDetail?.();
+    } else renderHourlySpline(ctx, dayIndex, tooltip);
   };
 
   resetDrilldown.addEventListener('click', () => {
@@ -68,6 +80,9 @@ export function createStackedBarController(
     );
     text('range-label', rangeLabel);
     state.currentBuckets = buckets;
+    if (state.dimension === 'project' && buckets.length) {
+      handlers.onProjectRange?.(buckets[0].from, buckets.at(-1)!.to);
+    }
 
     const plotEl = $('plot');
     const chartEl = view.querySelector<HTMLElement>('.chart');
@@ -110,26 +125,60 @@ export function createStackedBarController(
             : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
     }
 
-    $('dim-model')?.setAttribute('aria-pressed', String(state.dimension === 'model'));
-    $('dim-user')?.setAttribute('aria-pressed', String(state.dimension === 'user'));
-    text('dim-model', w('按模型统计', 'By Model'));
-    text('dim-user', w('按用户统计', 'By User'));
-    const mvCtrl = $('model-view-controls');
-    if (mvCtrl) mvCtrl.hidden = state.dimension !== 'model';
-    $('model-view-simple')?.setAttribute('aria-pressed', String(state.modelViewMode === 'simple'));
-    $('model-view-detailed')?.setAttribute('aria-pressed', String(state.modelViewMode === 'detailed'));
-    text('model-view-simple', w('简易', 'Simple'));
-    text('model-view-detailed', w('详细', 'Detailed'));
-    text('detail-title', state.dimension === 'model' ? w('按模型统计', 'Usage by model') : w('按用户统计', 'Usage by user'));
+    const mvPicker = $('model-view-picker');
+    if (mvPicker) mvPicker.hidden = state.dimension !== 'model';
+    const scopeNote = $('project-scope-note');
+    if (scopeNote) {
+      scopeNote.hidden = state.dimension !== 'project';
+      scopeNote.textContent = w(
+        '仅统计当前登录账号可见项目',
+        'Only shows projects visible to the currently signed-in account',
+      );
+    }
+    const hourlySec = $('hourly-section');
+    if (hourlySec) hourlySec.hidden = state.dimension === 'project';
+    const projectSec = $('project-detail-section');
+    if (projectSec) projectSec.hidden = state.dimension !== 'project';
+    text(
+      'detail-title',
+      state.dimension === 'model'
+        ? w('按模型统计', 'Usage by model')
+        : state.dimension === 'user'
+          ? w('按用户统计', 'Usage by user')
+          : w('项目统计', 'Project Stats'),
+    );
+    handlers.onSyncPickers?.();
 
     const allRangeTotals = dayIndex.totals(buckets[0].from, buckets.at(-1)!.to, query, false);
     const legendFrag = document.createDocumentFragment();
     const modelKeys =
-      state.dimension === 'user'
+      state.dimension !== 'model'
         ? []
         : [...new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
 
-    if (state.dimension === 'user') {
+    if (state.dimension === 'project') {
+      const projList = (state.projectOverview?.projects || []).filter(
+        (p) => (allRangeTotals.projects?.[p.projectKey]?.total ?? 0) > 0 || p.total > 0,
+      );
+      for (const p of projList) {
+        const button = createDomNode('button');
+        const dot = createDomNode('i', 'dot');
+        dot.style.setProperty('--model-color', palette.projectColor(p.projectKey));
+        button.append(dot, document.createTextNode(p.name));
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(!state.disabledProjects.has(p.projectKey)));
+        button.addEventListener('click', () => {
+          if (state.disabledProjects.has(p.projectKey)) state.disabledProjects.delete(p.projectKey);
+          else state.disabledProjects.add(p.projectKey);
+          renderChart();
+        });
+        button.addEventListener('pointerenter', () =>
+          tooltip.highlightItem(state.disabledProjects.has(p.projectKey) ? null : p.projectKey),
+        );
+        button.addEventListener('pointerleave', () => tooltip.highlightItem(null));
+        legendFrag.append(button);
+      }
+    } else if (state.dimension === 'user') {
       const activeUserSet = new Set(Object.keys(allRangeTotals.users).filter((u) => allRangeTotals.users[u].total > 0));
       for (const u of (state.value.users || []).filter((user) => activeUserSet.has(user))) {
         const button = createDomNode('button');
@@ -218,7 +267,21 @@ export function createStackedBarController(
       button.setAttribute('aria-pressed', String(isDrilled));
       const stack = createDomNode('div', 'stack');
 
-      if (state.dimension === 'user') {
+      if (state.dimension === 'project') {
+        const projEntries = Object.entries(bucket.projects || {})
+          .filter(([pKey, b]) => b.total > 0 && !state.disabledProjects.has(pKey))
+          .sort((a, b) => b[1].total - a[1].total);
+        for (const [j, [pKey, b]] of projEntries.entries()) {
+          const height = (b.total / ceiling) * 227;
+          const bar = createDomNode('i', 'bar-segment');
+          bar.dataset.project = pKey;
+          bar.setAttribute('aria-hidden', 'true');
+          bar.style.setProperty('--model-color', palette.projectColor(pKey));
+          bar.style.height = `${height}px`;
+          if (j && height >= 3) bar.style.boxShadow = 'inset 0 -1px 0 color-mix(in srgb,var(--pulse-background) 48%,transparent)';
+          stack.append(bar);
+        }
+      } else if (state.dimension === 'user') {
         const segments = (state.value.users || []).filter((u) => bucket.users[u]?.total > 0 && !state.disabledUsers.has(u));
         for (const [j, u] of segments.entries()) {
           const height = (bucket.users[u].total / ceiling) * 227;
@@ -282,16 +345,21 @@ export function createStackedBarController(
     }
 
     if (!buckets.some((b) => b.total)) {
-      plotFrag.append(createDomNode('div', 'chart-empty', w('所选时段暂无用量记录', 'No usage recorded in this period')));
+      const emptyMsg =
+        state.dimension === 'project' && state.projectLoading
+          ? w('正在加载当前账号项目用量…', 'Loading project statistics…')
+          : w('所选时段暂无用量记录', 'No usage recorded in this period');
+      plotFrag.append(createDomNode('div', 'chart-empty', emptyMsg));
     }
     $('axis')?.replaceChildren(axisFrag);
     plotEl?.replaceChildren(plotFrag);
 
-    renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery);
+    renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
     for (const b of view.querySelectorAll<HTMLElement>('[data-period]')) {
       b.setAttribute('aria-pressed', String(b.dataset.period === state.period));
     }
-    renderHourlySpline(ctx, dayIndex, tooltip);
+    if (state.dimension === 'project') handlers.onRenderProjectDetail?.();
+    else renderHourlySpline(ctx, dayIndex, tooltip);
   };
 
   return { renderChart, updateDrilldownView };

@@ -318,7 +318,9 @@ function rendererBridge(binding) {
     addManualUsage: (input) => call("addManualUsage", input),
     deleteManualUsage: (input) => call("deleteManualUsage", input),
     getAccounts: () => call("getAccounts", {}),
-    switchAccount: (input) => call("switchAccount", input)
+    switchAccount: (input) => call("switchAccount", input),
+    getProjectUsage: (input) => call("getProjectUsage", input ?? {}),
+    getProjectDetail: (input) => call("getProjectDetail", input)
   };
   win.agPulseHost = Object.assign(win.agPulseHost || {}, hostApi);
   win.agPulseBridge = Object.assign(win.agPulseBridge || {}, hostApi);
@@ -358,11 +360,28 @@ import { platformPaths as platformPaths2 } from "./platform.mjs";
 import { join as join2 } from "node:path";
 
 // src/contracts/preferences.ts
+var FONT_SCALE_KEYS = [
+  "usageFontScale",
+  "sidebarFontScale",
+  "inlineFontScale"
+];
+var FONT_SCALE_MIN = 0.8;
+var FONT_SCALE_MAX = 1.5;
+function validateFontScaleInput(input) {
+  for (const key of FONT_SCALE_KEYS) {
+    if (!Object.hasOwn(input, key)) continue;
+    const raw = input[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < FONT_SCALE_MIN || raw > FONT_SCALE_MAX) {
+      throw new Error("Invalid font scale preference");
+    }
+  }
+}
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
   "usageGuideDismissed",
-  "modelTimelineEnabled"
+  "modelTimelineEnabled",
+  ...FONT_SCALE_KEYS
 ];
 
 // src/ui/runtime-ui/binding-dispatch.ts
@@ -374,6 +393,8 @@ var USAGE_OPERATIONS = /* @__PURE__ */ new Set([
   "deleteManualUsage",
   "getAccounts",
   "switchAccount",
+  "getProjectUsage",
+  "getProjectDetail",
   "clearTimeline"
 ]);
 function offlineSnapshot(message) {
@@ -404,6 +425,7 @@ async function dispatchBindingCall(host, connection, input) {
     if (Object.hasOwn(value, "modelTimelineEnabled") && typeof value.modelTimelineEnabled !== "boolean") {
       throw new Error("Invalid timeline preference");
     }
+    validateFontScaleInput(value);
     result = Object.keys(value).length ? await host.preferences.set(value) : await host.preferences.get();
   } else if (input.type === "diagnostic" && DIAGNOSTIC_STAGES.has(input.input?.stage)) {
     const diag = input.input;
@@ -455,6 +477,35 @@ async function dispatchBindingCall(host, connection, input) {
       const account = typeof raw === "string" ? raw : raw?.account || raw?.id;
       result = { success: true, active: account, activeAccount: account };
     }
+  } else if (input.type === "getProjectUsage") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    const req = input.input && typeof input.input === "object" && !Array.isArray(input.input) ? input.input : {};
+    if (typeof host.getProjectUsage === "function") {
+      result = await host.getProjectUsage(req);
+    } else {
+      const { UsageLedger, queryProjectUsageOverview } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      result = await queryProjectUsageOverview({ ledger, scope: req.scope ?? null, from: req.from, to: req.to });
+    }
+  } else if (input.type === "getProjectDetail") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    const req = input.input && typeof input.input === "object" && !Array.isArray(input.input) ? input.input : {};
+    if (!req.projectKey || typeof req.projectKey !== "string") {
+      throw new Error("Invalid projectKey");
+    }
+    if (typeof host.getProjectDetail === "function") {
+      result = await host.getProjectDetail(req);
+    } else {
+      const { UsageLedger, queryProjectConversationDetail } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      result = await queryProjectConversationDetail({
+        ledger,
+        projectKey: req.projectKey,
+        scope: req.scope ?? null,
+        from: req.from,
+        to: req.to
+      });
+    }
   } else if (input.type === "clearTimeline") {
     if (!await host.enabled()) throw Error("Plugin disabled");
     const value = input.input ?? {};
@@ -486,7 +537,7 @@ function formatBindingError(type, error) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (type === "preferences") {
     return {
-      error: message === "Invalid timeline preference" ? message : "Language preference could not be saved or read"
+      error: message === "Invalid timeline preference" || message === "Invalid font scale preference" ? message : "Language preference could not be saved or read"
     };
   }
   if (USAGE_OPERATIONS.has(type)) {
@@ -719,6 +770,8 @@ var RuntimeUi = class {
   deleteManualUsage;
   getAccounts;
   switchAccount;
+  getProjectUsage;
+  getProjectDetail;
   clearTimeline;
   constructor({
     snapshot,
@@ -738,6 +791,8 @@ var RuntimeUi = class {
     deleteManualUsage = null,
     getAccounts = null,
     switchAccount = null,
+    getProjectUsage = null,
+    getProjectDetail = null,
     clearTimeline = null
   } = {}) {
     this.snapshot = snapshot;
@@ -768,6 +823,8 @@ var RuntimeUi = class {
     this.deleteManualUsage = deleteManualUsage;
     this.getAccounts = getAccounts;
     this.switchAccount = switchAccount;
+    this.getProjectUsage = getProjectUsage;
+    this.getProjectDetail = getProjectDetail;
     this.clearTimeline = clearTimeline;
   }
   lifecycleContext() {

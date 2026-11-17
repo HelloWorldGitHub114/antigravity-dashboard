@@ -10,7 +10,7 @@ use crate::sanitizer_accel::{audit_open_source_privacy_json, sync_and_audit_open
 use crate::snapshot_diff::diff_session_snapshots_json;
 use crate::sqlite_trajectory::{
     extract_sqlite_usage_records_json, read_sqlite_conversation_meta_json,
-    read_sqlite_trajectory_json_budgeted,
+    read_sqlite_conversation_summaries_json, read_sqlite_trajectory_json_budgeted,
 };
 use crate::svg_compiler::{coalesce_swimlanes_json, compile_catmull_rom_svg_path_json};
 use crate::transcript_scan::scan_transcript_file_json;
@@ -414,6 +414,13 @@ unsafe extern "C" fn cb_read_sqlite_conversation_meta_json(
     }
 }
 
+unsafe extern "C" fn cb_read_sqlite_conversation_summaries_json(
+    env: NapiEnv,
+    info: NapiCallbackInfo,
+) -> NapiValue {
+    run_single_json_arg_cb(env, info, read_sqlite_conversation_summaries_json)
+}
+
 unsafe fn run_single_json_arg_cb(
     env: NapiEnv,
     info: NapiCallbackInfo,
@@ -603,6 +610,13 @@ pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValu
                 exports,
                 b"readSqliteConversationMetaJson\0",
                 cb_read_sqlite_conversation_meta_json,
+            );
+            export_fn(
+                napi,
+                env,
+                exports,
+                b"readSqliteConversationSummariesJson\0",
+                cb_read_sqlite_conversation_summaries_json,
             );
             export_fn(
                 napi,

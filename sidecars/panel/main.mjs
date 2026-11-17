@@ -566,7 +566,12 @@ var LazyVertexController = class {
 };
 
 // src/telemetry/main.ts
-import { DesktopUsage, UsageLedger } from "./usage.mjs";
+import {
+  DesktopUsage,
+  UsageLedger,
+  queryProjectConversationDetail,
+  queryProjectUsageOverview
+} from "./usage.mjs";
 import { panelAppSource as panelAppSource2, panelPageSource as panelPageSource2 } from "./panel-source.mjs";
 
 // src/telemetry/preview-server.ts
@@ -575,7 +580,10 @@ import { createServer } from "node:http";
 import { join as join3 } from "node:path";
 import { panelAppSource, panelPageSource } from "./panel-source.mjs";
 var errorMessage = (error) => error instanceof Error ? error.message : String(error);
-var prefError = (error) => errorMessage(error) === "Invalid timeline preference" ? "Invalid timeline preference" : "Language preference could not be saved";
+var prefError = (error) => {
+  const msg = errorMessage(error);
+  return msg === "Invalid timeline preference" || msg === "Invalid font scale preference" ? msg : "Language preference could not be saved";
+};
 function parseClearConversationId(data, guidPattern) {
   if (data != null && (typeof data !== "object" || Array.isArray(data))) throw new Error("Invalid clear timeline request");
   const cid = data?.conversationId;
@@ -731,7 +739,7 @@ function startPreviewServer(options) {
 }
 
 // src/telemetry/main.ts
-import { discoverLocalConversations } from "./local-conversations.mjs";
+import { defaultConversationsDir, discoverLocalConversations } from "./local-conversations.mjs";
 import { TranscriptReader } from "./transcript.mjs";
 import { loadSidecarSdk } from "./sdk.mjs";
 import { SessionHistory } from "./history.mjs";
@@ -849,6 +857,23 @@ var integration = new RuntimeUi({
   ),
   getAccounts: () => usage.getAccounts(),
   switchAccount: (input) => usage.switchAccount(input),
+  getProjectUsage: (input) => queryProjectUsageOverview({
+    ledger: usage.ledger,
+    store,
+    profileDir: dirname(defaultConversationsDir("app", homedir())),
+    scope: input?.scope ?? null,
+    from: input?.from,
+    to: input?.to
+  }),
+  getProjectDetail: (input) => queryProjectConversationDetail({
+    ledger: usage.ledger,
+    store,
+    profileDir: dirname(defaultConversationsDir("app", homedir())),
+    projectKey: input.projectKey,
+    scope: input?.scope ?? null,
+    from: input?.from,
+    to: input?.to
+  }),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null)
 });
 var vertexRoot = join4(homedir(), ".antigravity-vertex");
@@ -911,6 +936,29 @@ var createVertexInstance = () => {
       vertexController?.recordActivity("runtime-ui-switch");
       return vertexUsage.switchAccount(input);
     },
+    getProjectUsage: (input) => {
+      vertexController?.recordActivity("runtime-ui-usage");
+      return queryProjectUsageOverview({
+        ledger: vertexUsage.ledger,
+        store: vStore,
+        profileDir: dirname(defaultConversationsDir("app", vertexHome)),
+        scope: input?.scope ?? null,
+        from: input?.from,
+        to: input?.to
+      });
+    },
+    getProjectDetail: (input) => {
+      vertexController?.recordActivity("runtime-ui-usage");
+      return queryProjectConversationDetail({
+        ledger: vertexUsage.ledger,
+        store: vStore,
+        profileDir: dirname(defaultConversationsDir("app", vertexHome)),
+        projectKey: input.projectKey,
+        scope: input?.scope ?? null,
+        from: input?.from,
+        to: input?.to
+      });
+    },
     clearTimeline: (input) => {
       vertexController?.recordActivity("runtime-ui-timeline");
       return vStore.clearTimeline(input?.conversationId || null);
@@ -938,7 +986,10 @@ var runVertexMetrics = async (input) => {
   return createMetrics(instance.store, instance.usage, () => instance.integration.health)(input);
 };
 var errorMessage2 = (error) => error instanceof Error ? error.message : String(error);
-var prefError2 = (error) => errorMessage2(error) === "Invalid timeline preference" ? "Invalid timeline preference" : "Language preference could not be saved";
+var prefError2 = (error) => {
+  const msg = errorMessage2(error);
+  return msg === "Invalid timeline preference" || msg === "Invalid font scale preference" ? msg : "Language preference could not be saved";
+};
 if (isSidecar) {
   const { SidecarApp, Response } = await loadSidecarSdk();
   const app = new SidecarApp();

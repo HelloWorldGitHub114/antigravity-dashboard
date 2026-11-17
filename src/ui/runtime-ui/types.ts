@@ -11,6 +11,10 @@ import type {
   PreferencesSnapshot,
   PreferencesState,
   PreferencesUpdateInput,
+  ProjectConversationDetail,
+  ProjectDetailRequest,
+  ProjectUsageOverview,
+  ProjectUsageRequest,
   SwitchAccountRequest,
   SwitchAccountResponse,
   UpdatePluginRequest,
@@ -109,5 +113,11 @@ export interface RuntimeUiOptions {
     | ((input?: unknown) => Promise<UsageAccountInfo[] | AccountsResponse>)
     | null;
   switchAccount?: ((input?: SwitchAccountRequest) => Promise<SwitchAccountResponse>) | null;
+  getProjectUsage?:
+    | ((input?: ProjectUsageRequest) => Promise<ProjectUsageOverview | { error: string }>)
+    | null;
+  getProjectDetail?:
+    | ((input: ProjectDetailRequest) => Promise<ProjectConversationDetail | { error: string }>)
+    | null;
   clearTimeline?: ((input?: ClearTimelineRequest) => Promise<ClearTimelineResult>) | null;
 }
