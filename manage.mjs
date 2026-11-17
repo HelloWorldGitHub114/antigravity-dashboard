@@ -1776,6 +1776,12 @@ var ALL_ACCOUNTS_LABEL_RE = /accounts\.push\(\s*\{\s*id:\s*(['"])all\1\s*,\s*nam
 function sanitizeUsageMjs(text) {
   return text.replace(
     ALL_ACCOUNTS_LABEL_RE,
+    'accounts.push({ id: "all", name: "All Accounts (Aggregated)", email: "All Accounts (Aggregated)", active: activeScope === "all" });'
+  );
+}
+function sanitizeAccountsTs(text) {
+  return text.replace(
+    ALL_ACCOUNTS_LABEL_RE,
     "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });"
   );
 }
@@ -1787,7 +1793,7 @@ function sanitizeMultiAccountTest(text) {
 }
 var SANITIZERS = {
   "sidecars/panel/usage.mjs": sanitizeUsageMjs,
-  "src/telemetry/ledger/accounts.ts": sanitizeUsageMjs,
+  "src/telemetry/ledger/accounts.ts": sanitizeAccountsTs,
   "sidecars/panel/tests/multi-account-features.test.mjs": sanitizeMultiAccountTest
 };
 function parseLegacyPythonExportConfig(rootDir) {

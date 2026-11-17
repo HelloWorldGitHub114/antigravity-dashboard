@@ -44,6 +44,13 @@ const ALL_ACCOUNTS_LABEL_RE =
 export function sanitizeUsageMjs(text: string): string {
   return text.replace(
     ALL_ACCOUNTS_LABEL_RE,
+    'accounts.push({ id: "all", name: "All Accounts (Aggregated)", email: "All Accounts (Aggregated)", active: activeScope === "all" });',
+  );
+}
+
+export function sanitizeAccountsTs(text: string): string {
+  return text.replace(
+    ALL_ACCOUNTS_LABEL_RE,
     "accounts.push({ id: 'all', name: 'All Accounts (Aggregated)', email: 'All Accounts (Aggregated)', active: activeScope === 'all' });",
   );
 }
@@ -57,7 +64,7 @@ export function sanitizeMultiAccountTest(text: string): string {
 
 const SANITIZERS: Record<string, (text: string) => string> = {
   'sidecars/panel/usage.mjs': sanitizeUsageMjs,
-  'src/telemetry/ledger/accounts.ts': sanitizeUsageMjs,
+  'src/telemetry/ledger/accounts.ts': sanitizeAccountsTs,
   'sidecars/panel/tests/multi-account-features.test.mjs': sanitizeMultiAccountTest,
 };
 
