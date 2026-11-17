@@ -65,6 +65,23 @@ var PACKAGER_IGNORED_SUFFIXES = /* @__PURE__ */ new Set([
   ".exe",
   ".lib"
 ]);
+var RELEASE_NATIVE_PLATFORMS = [
+  "win32-x64",
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64"
+];
+var RELEASE_NATIVE_ADDONS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `sidecars/panel/pulse-accel.${tag}.node`
+);
+var RELEASE_NATIVE_CLI_BINS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `cli/bin/ag-pulse-statusline.${tag}${tag.startsWith("win32-") ? ".exe" : ""}`
+);
+var RELEASE_NATIVE_ALLOWED_FILES = /* @__PURE__ */ new Set([
+  ...RELEASE_NATIVE_ADDONS,
+  ...RELEASE_NATIVE_CLI_BINS
+]);
 var IDE_VSIX_MODULES = [
   "compat/runtime-ui.mjs",
   "compat/platform.mjs",
@@ -1442,7 +1459,8 @@ function createZipArchive(entries) {
     central.writeUInt16LE(0, 32);
     central.writeUInt16LE(0, 34);
     central.writeUInt16LE(0, 36);
-    central.writeUInt32LE(33188 << 16 >>> 0, 38);
+    const fileMode = entry.mode ?? 33188;
+    central.writeUInt32LE(fileMode << 16 >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     nameBuf.copy(central, 46);
     centralParts.push(central);
@@ -1462,7 +1480,7 @@ function createZipArchive(entries) {
 }
 
 // src/lifecycle/packager.ts
-var VSIX_CONTENT_TYPES_XML = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>';
+var VSIX_CONTENT_TYPES_XML = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="node" ContentType="application/octet-stream"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>';
 function xmlEscape(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -1497,8 +1515,17 @@ function writeSha256Sidecar(archivePath, bytes, ext) {
 `, "utf8");
   return { checksum: checksumPath, sha256: digest };
 }
-function shouldIgnorePackageEntry(name, relPosix) {
-  if (relPosix === "cli/bin" || relPosix?.startsWith("cli/bin/")) return true;
+function isNativeRequired(options) {
+  return options?.requireNative ?? process.env.AG_PULSE_REQUIRE_NATIVE === "1";
+}
+function isPosixExecutableReleasePath(relPosix) {
+  if (relPosix.endsWith(".sh")) return true;
+  return RELEASE_NATIVE_ALLOWED_FILES.has(relPosix) && relPosix.startsWith("cli/bin/") && !relPosix.endsWith(".exe");
+}
+function shouldIgnorePackageEntry(name, relPosix, isDirectory = false) {
+  if (relPosix === "cli/bin") return !isDirectory;
+  if (relPosix?.startsWith("cli/bin/")) return !RELEASE_NATIVE_ALLOWED_FILES.has(relPosix);
+  if (relPosix && RELEASE_NATIVE_ALLOWED_FILES.has(relPosix)) return false;
   if (PACKAGER_IGNORED_NAMES.has(name)) return true;
   const lower = name.toLowerCase();
   for (const suffix of PACKAGER_IGNORED_SUFFIXES) {
@@ -1509,27 +1536,42 @@ function shouldIgnorePackageEntry(name, relPosix) {
 function collectPackageEntries(source, zipPrefix, entries) {
   const st = statSync5(source);
   if (!st.isDirectory()) {
-    entries.push({ name: zipPrefix, data: readFileSync8(source) });
+    const relFromRoot = zipPrefix.includes("/") ? zipPrefix.slice(zipPrefix.indexOf("/") + 1) : zipPrefix;
+    entries.push({
+      name: zipPrefix,
+      data: readFileSync8(source),
+      mode: isPosixExecutableReleasePath(relFromRoot) ? 33261 : void 0
+    });
     return;
   }
   for (const entry of readdirSync4(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const childPath = join6(source, entry.name);
     const childPrefix = zipPrefix ? `${zipPrefix}/${entry.name}` : entry.name;
     const relFromRoot = childPrefix.includes("/") ? childPrefix.slice(childPrefix.indexOf("/") + 1) : childPrefix;
-    if (shouldIgnorePackageEntry(entry.name, relFromRoot)) continue;
+    if (shouldIgnorePackageEntry(entry.name, relFromRoot, entry.isDirectory())) continue;
     if (entry.isDirectory()) {
       collectPackageEntries(childPath, childPrefix, entries);
     } else if (entry.isFile()) {
-      entries.push({ name: childPrefix, data: readFileSync8(childPath) });
+      entries.push({
+        name: childPrefix,
+        data: readFileSync8(childPath),
+        mode: isPosixExecutableReleasePath(relFromRoot) ? 33261 : void 0
+      });
     }
   }
 }
-function packageDesktopRelease(rootDir, outputFile) {
+function packageDesktopRelease(rootDir, outputFile, options) {
   const root = resolve4(rootDir);
   const pluginMeta = readJsonObjectSync(join6(root, "plugin.json"));
   const version = String(pluginMeta.version ?? "0.0.0");
   const archivePath = resolve4(outputFile ?? join6(root, "dist", `antigrative-dashboard-${version}.zip`));
   mkdirSync6(dirname7(archivePath), { recursive: true });
+  if (isNativeRequired(options)) {
+    const missingNative = [...RELEASE_NATIVE_ALLOWED_FILES].filter((rel) => !existsSync6(join6(root, rel)));
+    if (missingNative.length > 0) {
+      throw new Error(`Missing required native release binaries: ${missingNative.join(", ")}`);
+    }
+  }
   const entries = [];
   for (const item of DIST_RELEASE_FILES) {
     const src = join6(root, item);
@@ -1543,7 +1585,7 @@ function packageDesktopRelease(rootDir, outputFile) {
   const { checksum, sha256 } = writeSha256Sidecar(archivePath, zipBytes, ".zip.sha256");
   return { version, archive: archivePath, checksum, sha256, files: entries.length };
 }
-function packageIdeVsix(rootDir, outputFile) {
+function packageIdeVsix(rootDir, outputFile, options) {
   const root = resolve4(rootDir);
   const meta = readJsonObjectSync(join6(root, "ide", "package.json"));
   const name = String(meta.name ?? IDE_PACKAGE_NAME);
@@ -1570,6 +1612,15 @@ function packageIdeVsix(rootDir, outputFile) {
       throw new Error(`Missing VSIX module required by manifest: ${relModule}`);
     }
     entries.push({ name: `extension/${relModule}`, data: readFileSync8(fullPath) });
+  }
+  const requireNative = isNativeRequired(options);
+  for (const relAddon of RELEASE_NATIVE_ADDONS) {
+    const fullPath = join6(root, relAddon);
+    if (existsSync6(fullPath)) {
+      entries.push({ name: `extension/${relAddon}`, data: readFileSync8(fullPath) });
+    } else if (requireNative) {
+      throw new Error(`Missing native VSIX addon required for release: ${relAddon}`);
+    }
   }
   const zipBytes = createZipArchive(entries);
   writeFileSync4(vsixPath, zipBytes);
@@ -2032,6 +2083,7 @@ function runManageCli(argv = process.argv.slice(2)) {
   let exportAll = false;
   let exportCheck = false;
   let skipTests = false;
+  let requireNative;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--home") {
@@ -2067,6 +2119,8 @@ function runManageCli(argv = process.argv.slice(2)) {
       exportCheck = true;
     } else if (arg === "--skip-tests") {
       skipTests = true;
+    } else if (arg === "--require-native") {
+      requireNative = true;
     } else if (!arg.startsWith("-") && !command) {
       command = arg;
     } else {
@@ -2115,13 +2169,13 @@ function runManageCli(argv = process.argv.slice(2)) {
     return 0;
   }
   if (command === "package") {
-    const result = packageDesktopRelease(rootDir, output);
+    const result = packageDesktopRelease(rootDir, output, { requireNative });
     console.log("Package:", result.archive);
     console.log("SHA256:", result.sha256);
     return 0;
   }
   if (command === "package-ide") {
-    const result = packageIdeVsix(rootDir, output);
+    const result = packageIdeVsix(rootDir, output, { requireNative });
     console.log(result.vsix);
     return 0;
   }

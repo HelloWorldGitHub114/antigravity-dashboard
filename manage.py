@@ -28,6 +28,13 @@ DIST_FILES = ('plugin.json', 'assets', 'sidecars', 'compat', 'cli', 'ide', 'mana
               'uninstall.ps1', 'install.sh', 'uninstall.sh', 'README.md', 'LICENSE', 'CHANGELOG.md', 'COMPATIBILITY.md', 'docs', 'package.json',
               '.gitignore', '.gitattributes', '.github', 'tests', 'tools', 'GITHUB_RELEASE.md', 'README.zh-CN.md')
 IGNORED = {'__pycache__', '.data', 'node_modules', '.git', 'dist', 'internal', 'target', 'REFACTORING_ROADMAP.md', 'data', 'history-v1', 'usage-v1', 'timeline-v1', 'sdk'}
+RELEASE_NATIVE_PLATFORMS = ('win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
+RELEASE_NATIVE_ADDONS = tuple(f'sidecars/panel/pulse-accel.{tag}.node' for tag in RELEASE_NATIVE_PLATFORMS)
+RELEASE_NATIVE_CLI_BINS = tuple(
+    f"cli/bin/ag-pulse-statusline.{tag}{'.exe' if tag.startswith('win32-') else ''}"
+    for tag in RELEASE_NATIVE_PLATFORMS
+)
+RELEASE_NATIVE_ALLOWED = frozenset(RELEASE_NATIVE_ADDONS + RELEASE_NATIVE_CLI_BINS)
 
 def lifecycle_operation(function):
     @wraps(function)
@@ -349,7 +356,26 @@ def status(instance='all'):
     print(json.dumps(payload, indent=2))
     return payload
 
-def package(output=None):
+def _write_zip_entry(bundle, file, arc_rel):
+    arcname = (Path('antigrative-dashboard') / arc_rel).as_posix()
+    rel_posix = arc_rel.as_posix()
+    if rel_posix.endswith('.sh') or (rel_posix in RELEASE_NATIVE_ALLOWED and rel_posix.startswith('cli/bin/') and not rel_posix.endswith('.exe')):
+        info = zipfile.ZipInfo.from_file(file, arcname)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.create_system = 3
+        info.external_attr = (0o100755 << 16)
+        bundle.writestr(info, file.read_bytes())
+    else:
+        bundle.write(file, arcname)
+
+
+def package(output=None, require_native=None):
+    if require_native is None:
+        require_native = os.environ.get('AG_PULSE_REQUIRE_NATIVE') == '1'
+    if require_native:
+        missing_native = [rel for rel in sorted(RELEASE_NATIVE_ALLOWED) if not (SOURCE / rel).is_file()]
+        if missing_native:
+            raise RuntimeError('Missing required native release binaries: ' + ', '.join(missing_native))
     version = json_read(SOURCE / 'plugin.json')['version']
     output = Path(output) if output else SOURCE / 'dist' / f'antigrative-dashboard-{version}.zip'
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -360,12 +386,17 @@ def package(output=None):
                 raise RuntimeError(f'Required release file missing: {name}')
             files = sorted(path.rglob('*')) if path.is_dir() else [path]
             for file in files:
-                rel_parts = file.relative_to(SOURCE).parts
-                if not file.is_file() or any(p in IGNORED for p in rel_parts) or rel_parts[:2] == ('cli', 'bin'):
+                rel_path = file.relative_to(SOURCE)
+                rel_parts = rel_path.parts
+                rel_posix = rel_path.as_posix()
+                if not file.is_file():
                     continue
-                if file.suffix.lower() in {'.log', '.pyc', '.node', '.dll', '.so', '.dylib', '.pdb', '.exp', '.exe', '.lib'}:
-                    continue
-                bundle.write(file, Path('antigrative-dashboard') / file.relative_to(SOURCE))
+                if rel_posix not in RELEASE_NATIVE_ALLOWED:
+                    if any(p in IGNORED for p in rel_parts) or rel_parts[:2] == ('cli', 'bin'):
+                        continue
+                    if file.suffix.lower() in {'.log', '.pyc', '.node', '.dll', '.so', '.dylib', '.pdb', '.exp', '.exe', '.lib'}:
+                        continue
+                _write_zip_entry(bundle, file, rel_path)
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     output.with_suffix('.zip.sha256').write_text(f'{digest}  {output.name}\n', encoding='utf-8')
     print('Package:', output)
@@ -386,7 +417,7 @@ def main():
     p.add_argument('--node', help='Node.js 20+ executable (defaults to PATH)')
     p.add_argument('--language', choices=('en', 'zh-CN'), help='Override shared desktop language choice')
     for action in ('uninstall-cli', 'status-cli'): sub.add_parser(action)
-    p = sub.add_parser('package'); p.add_argument('--output')
+    p = sub.add_parser('package'); p.add_argument('--output'); p.add_argument('--require-native', action='store_true')
     args = parser.parse_args()
     if args.action == 'install' and args.app_path:
         APP = args.app_path.expanduser().resolve()
@@ -404,7 +435,7 @@ def main():
         elif args.action == 'disable': set_enabled(False, args.instance)
         elif args.action == 'uninstall': uninstall(args.instance)
         elif args.action == 'status': status(args.instance)
-        elif args.action == 'package': package(args.output)
+        elif args.action == 'package': package(args.output, True if args.require_native else None)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f'Antigrative Dashboard: {error}', file=sys.stderr)
         return 1

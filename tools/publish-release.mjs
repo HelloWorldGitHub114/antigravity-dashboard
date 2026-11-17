@@ -36,6 +36,23 @@ var PACKAGER_IGNORED_NAMES = /* @__PURE__ */ new Set([
   "REFACTORING_ROADMAP.md",
   ...PRIVATE_RUNTIME_DIRS
 ]);
+var RELEASE_NATIVE_PLATFORMS = [
+  "win32-x64",
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64"
+];
+var RELEASE_NATIVE_ADDONS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `sidecars/panel/pulse-accel.${tag}.node`
+);
+var RELEASE_NATIVE_CLI_BINS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `cli/bin/ag-pulse-statusline.${tag}${tag.startsWith("win32-") ? ".exe" : ""}`
+);
+var RELEASE_NATIVE_ALLOWED_FILES = /* @__PURE__ */ new Set([
+  ...RELEASE_NATIVE_ADDONS,
+  ...RELEASE_NATIVE_CLI_BINS
+]);
 var RELEASE_ZIP_REQUIRED_FILES = [
   "ide/package.json",
   "ide/manage.mjs",
@@ -304,7 +321,10 @@ function verifyChecksumFile(archivePath, checksumPath, label) {
     throw new Error(`${label} checksum mismatch`);
   }
 }
-function verifyReleaseAssets(rootDir, tag) {
+function isNativeRequired(options) {
+  return options?.requireNative ?? process.env.AG_PULSE_REQUIRE_NATIVE === "1";
+}
+function verifyReleaseAssets(rootDir, tag, options) {
   const root = resolve2(rootDir);
   const pluginMeta = readJsonObjectSync(join2(root, "plugin.json"));
   const ideMeta = readJsonObjectSync(join2(root, "ide", "package.json"));
@@ -347,6 +367,18 @@ function verifyReleaseAssets(rootDir, tag) {
   const missingVsix = RELEASE_VSIX_REQUIRED_FILES.filter((name) => !vsixEntries.has(name));
   if (missingVsix.length > 0) {
     throw new Error(`Missing files in ${vsixPath}: ${missingVsix.join(", ")}`);
+  }
+  if (isNativeRequired(options)) {
+    const missingZipNative = [...RELEASE_NATIVE_ADDONS, ...RELEASE_NATIVE_CLI_BINS].filter(
+      (name) => !zipEntries.has(`${prefix}${name}`)
+    );
+    if (missingZipNative.length > 0) {
+      throw new Error(`Missing native binaries in ${zipPath}: ${missingZipNative.join(", ")}`);
+    }
+    const missingVsixNative = RELEASE_NATIVE_ADDONS.filter((name) => !vsixEntries.has(`extension/${name}`));
+    if (missingVsixNative.length > 0) {
+      throw new Error(`Missing native addons in ${vsixPath}: ${missingVsixNative.join(", ")}`);
+    }
   }
   return { version, zip: zipPath, zipChecksum, vsix: vsixPath, vsixChecksum, notes: notesPath };
 }
@@ -452,6 +484,7 @@ async function runPublishReleaseCli(argv = process.argv.slice(2)) {
   let commit = (process.env.GITHUB_SHA ?? "").trim();
   let repo = (process.env.GITHUB_REPOSITORY ?? "").trim() || UPDATE_REPO;
   let checkOnly = false;
+  let requireNative;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--tag") {
@@ -465,15 +498,17 @@ async function runPublishReleaseCli(argv = process.argv.slice(2)) {
       i += 1;
     } else if (arg === "--check-only") {
       checkOnly = true;
+    } else if (arg === "--require-native") {
+      requireNative = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
   if (!tag) {
-    throw new Error("Usage: node tools/publish-release.mjs --tag <vX.Y.Z> [--commit <sha>] [--repo <owner/name>] [--check-only]");
+    throw new Error("Usage: node tools/publish-release.mjs --tag <vX.Y.Z> [--commit <sha>] [--repo <owner/name>] [--check-only] [--require-native]");
   }
   const rootDir = dirname4(dirname4(fileURLToPath(import.meta.url)));
-  const assets = verifyReleaseAssets(rootDir, tag);
+  const assets = verifyReleaseAssets(rootDir, tag, { requireNative });
   if (checkOnly) {
     console.log(JSON.stringify(assets, null, 2));
     return 0;

@@ -19,6 +19,7 @@ export async function runPublishReleaseCli(argv = process.argv.slice(2)): Promis
   let commit = (process.env.GITHUB_SHA ?? '').trim();
   let repo = (process.env.GITHUB_REPOSITORY ?? '').trim() || UPDATE_REPO;
   let checkOnly = false;
+  let requireNative: boolean | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -33,17 +34,19 @@ export async function runPublishReleaseCli(argv = process.argv.slice(2)): Promis
       i += 1;
     } else if (arg === '--check-only') {
       checkOnly = true;
+    } else if (arg === '--require-native') {
+      requireNative = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
 
   if (!tag) {
-    throw new Error('Usage: node tools/publish-release.mjs --tag <vX.Y.Z> [--commit <sha>] [--repo <owner/name>] [--check-only]');
+    throw new Error('Usage: node tools/publish-release.mjs --tag <vX.Y.Z> [--commit <sha>] [--repo <owner/name>] [--check-only] [--require-native]');
   }
 
   const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
-  const assets = verifyReleaseAssets(rootDir, tag);
+  const assets = verifyReleaseAssets(rootDir, tag, { requireNative });
   if (checkOnly) {
     console.log(JSON.stringify(assets, null, 2));
     return 0;

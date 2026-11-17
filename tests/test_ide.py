@@ -173,3 +173,41 @@ class IdeTests(unittest.TestCase):
             combined = (main_run.stderr or '') + (main_run.stdout or '')
             self.assertNotIn('ERR_MODULE_NOT_FOUND', combined)
             self.assertIn('IDE profile is required', combined)
+
+    def test_release_require_native_enforces_tagged_binaries_in_zip_and_vsix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            package = json.loads((ROOT / 'plugin.json').read_text(encoding='utf-8'))
+            version = package['version']
+            (fixture / 'ide').mkdir()
+            (fixture / 'plugin.json').write_text(json.dumps(package), encoding='utf-8')
+            (fixture / 'ide/package.json').write_bytes((ROOT / 'ide/package.json').read_bytes())
+
+            staged = []
+            try:
+                for rel in packager.RELEASE_NATIVE_ADDONS + list(desktop_manager.RELEASE_NATIVE_CLI_BINS):
+                    target = ROOT / rel
+                    if not target.exists():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(b'native-fixture')
+                        staged.append(target)
+
+                zip_path = fixture / 'dist' / f'antigrative-dashboard-{version}.zip'
+                desktop_manager.package(
+                    zip_path,
+                    require_native=True,
+                )
+                vsix = packager.build(
+                    fixture / 'dist' / f'antigrative-dashboard-ide-{version}.vsix',
+                    require_native=True,
+                )
+                self.assertEqual(len(publisher.checked_assets(fixture, 'v' + version, require_native=True)), 4)
+
+                with zipfile.ZipFile(zip_path) as zf:
+                    info = zf.getinfo('antigrative-dashboard/cli/bin/ag-pulse-statusline.linux-x64')
+                    self.assertEqual((info.external_attr >> 16) & 0o777, 0o755)
+                with zipfile.ZipFile(vsix) as vf:
+                    self.assertIn('Extension="node"', vf.read('[Content_Types].xml').decode('utf-8'))
+            finally:
+                for target in staged:
+                    target.unlink(missing_ok=True)

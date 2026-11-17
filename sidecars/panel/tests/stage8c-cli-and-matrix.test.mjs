@@ -7,7 +7,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as manifest from '../../../src/platform/manifest.ts';
 import { isExcludedFromOpenSource } from '../../../src/lifecycle/sanitizer.ts';
-import { packageDesktopRelease } from '../../../src/lifecycle/packager.ts';
+import {
+  packageDesktopRelease,
+  packageIdeVsix,
+  verifyReleaseAssets,
+} from '../../../src/lifecycle/packager.ts';
 import { readZipArchive } from '../../../src/shared/zip.ts';
 import {
   NATIVE_TARGET_MATRIX,
@@ -89,7 +93,7 @@ test('manifest.ts, sanitizer.ts, export-opensource.py, and .gitignore exclude na
   }
 });
 
-test('packager excludes .node, .exe, cli/bin/, and docs/internal/ from desktop ZIP', () => {
+test('packager includes tagged cross-platform native binaries while excluding untagged dev binaries and docs/internal', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'ag-stage8c-pkg-'));
   try {
     for (const rel of manifest.DIST_RELEASE_FILES) {
@@ -100,27 +104,69 @@ test('packager excludes .node, .exe, cli/bin/, and docs/internal/ from desktop Z
       }
     }
     mkdirSync(join(tmp, 'sidecars', 'panel'), { recursive: true });
-    writeFileSync(join(tmp, 'sidecars', 'panel', 'pulse-accel.node'), 'binary');
-    writeFileSync(join(tmp, 'sidecars', 'panel', 'pulse-accel.win32-x64.node'), 'binary');
+    writeFileSync(join(tmp, 'sidecars', 'panel', 'pulse-accel.node'), 'untagged-dev-binary');
+    for (const relAddon of manifest.RELEASE_NATIVE_ADDONS) {
+      writeFileSync(join(tmp, relAddon), `addon:${relAddon}`);
+    }
     writeFileSync(join(tmp, 'sidecars', 'panel', 'main.mjs'), '// ok\n');
     mkdirSync(join(tmp, 'cli', 'bin'), { recursive: true });
-    writeFileSync(join(tmp, 'cli', 'bin', 'ag-pulse-statusline.exe'), 'exe');
-    writeFileSync(join(tmp, 'cli', 'bin', 'ag-pulse-statusline.darwin-arm64'), 'macho');
+    writeFileSync(join(tmp, 'cli', 'bin', 'ag-pulse-statusline'), 'untagged-elf');
+    writeFileSync(join(tmp, 'cli', 'bin', 'ag-pulse-statusline.exe'), 'untagged-exe');
+    for (const relCli of manifest.RELEASE_NATIVE_CLI_BINS) {
+      writeFileSync(join(tmp, relCli), `cli:${relCli}`);
+    }
     writeFileSync(join(tmp, 'cli', 'statusline.mjs'), '// ok\n');
     mkdirSync(join(tmp, 'docs', 'internal'), { recursive: true });
     writeFileSync(join(tmp, 'docs', 'internal', 'secret.md'), 'internal');
     writeFileSync(join(tmp, 'sidecars', 'panel', 'debug.pdb'), 'pdb');
+    for (const reqZip of manifest.RELEASE_ZIP_REQUIRED_FILES) {
+      const target = join(tmp, reqZip);
+      mkdirSync(dirname(target), { recursive: true });
+      if (!existsSync(target)) writeFileSync(target, '// required\n');
+    }
 
-    const outZip = join(tmp, 'out.zip');
-    packageDesktopRelease(tmp, outZip);
+    mkdirSync(join(tmp, 'ide'), { recursive: true });
+    writeFileSync(
+      join(tmp, 'ide', 'package.json'),
+      JSON.stringify({ name: manifest.IDE_PACKAGE_NAME, publisher: manifest.IDE_PUBLISHER, version: '0.0.1-test', engines: { vscode: '*' } }),
+    );
+    for (const relStatic of manifest.IDE_VSIX_STATIC_FILES) {
+      const target = join(tmp, relStatic);
+      mkdirSync(dirname(target), { recursive: true });
+      if (!existsSync(target)) writeFileSync(target, 'doc\n');
+    }
+    for (const relMod of manifest.IDE_VSIX_MODULES) {
+      const target = join(tmp, relMod);
+      mkdirSync(dirname(target), { recursive: true });
+      if (!existsSync(target)) writeFileSync(target, '// mod\n');
+    }
+
+    const outZip = join(tmp, 'dist', 'antigrative-dashboard-0.0.1-test.zip');
+    packageDesktopRelease(tmp, outZip, { requireNative: true });
     const entries = readZipArchive(readFileSync(outZip));
     const names = [...entries.keys()];
     assert.ok(names.includes('antigrative-dashboard/sidecars/panel/main.mjs'));
     assert.ok(names.includes('antigrative-dashboard/cli/statusline.mjs'));
-    assert.ok(!names.some((n) => n.endsWith('.node') || n.endsWith('.exe') || n.endsWith('.pdb')));
-    assert.ok(!names.some((n) => n.includes('/cli/bin/') || n.includes('/docs/internal/')));
+    for (const relNative of [...manifest.RELEASE_NATIVE_ADDONS, ...manifest.RELEASE_NATIVE_CLI_BINS]) {
+      assert.ok(names.includes(`antigrative-dashboard/${relNative}`), `ZIP missing ${relNative}`);
+    }
+    assert.ok(!names.includes('antigrative-dashboard/sidecars/panel/pulse-accel.node'));
+    assert.ok(!names.includes('antigrative-dashboard/cli/bin/ag-pulse-statusline'));
+    assert.ok(!names.includes('antigrative-dashboard/cli/bin/ag-pulse-statusline.exe'));
+    assert.ok(!names.some((n) => n.endsWith('.pdb')));
+    assert.ok(!names.some((n) => n.includes('/docs/internal/')));
 
-    // Also verify Python manage.py package() applies identical exclusions.
+    const outVsix = join(tmp, 'dist', `${manifest.IDE_PACKAGE_NAME}-0.0.1-test.vsix`);
+    packageIdeVsix(tmp, outVsix, { requireNative: true });
+    const vsixEntries = readZipArchive(readFileSync(outVsix));
+    const vsixNames = [...vsixEntries.keys()];
+    for (const relAddon of manifest.RELEASE_NATIVE_ADDONS) {
+      assert.ok(vsixNames.includes(`extension/${relAddon}`), `VSIX missing ${relAddon}`);
+    }
+    assert.ok(vsixEntries.get('[Content_Types].xml').readText().includes('Extension="node"'));
+    verifyReleaseAssets(tmp, 'v0.0.1-test', { requireNative: true });
+
+    // Also verify Python manage.py package() applies identical inclusion/exclusion rules.
     const pyPkgScript = [
       'import importlib.util, zipfile',
       'from pathlib import Path',
@@ -128,15 +174,26 @@ test('packager excludes .node, .exe, cli/bin/, and docs/internal/ from desktop Z
       'mod = importlib.util.module_from_spec(spec)',
       'spec.loader.exec_module(mod)',
       `mod.SOURCE = Path(${JSON.stringify(tmp)})`,
-      `mod.package(${JSON.stringify(join(tmp, 'py-out.zip'))})`,
+      `mod.package(${JSON.stringify(join(tmp, 'py-out.zip'))}, require_native=True)`,
     ].join('\n');
     const pyExe = process.platform === 'win32' ? 'python' : 'python3';
     execFileSync(pyExe, ['-c', pyPkgScript], { encoding: 'utf8' });
     const pyEntries = readZipArchive(readFileSync(join(tmp, 'py-out.zip')));
     const pyNames = [...pyEntries.keys()];
     assert.ok(pyNames.includes('antigrative-dashboard/sidecars/panel/main.mjs'));
-    assert.ok(!pyNames.some((n) => n.endsWith('.node') || n.endsWith('.exe') || n.endsWith('.pdb')));
-    assert.ok(!pyNames.some((n) => n.includes('/cli/bin/') || n.includes('/docs/internal/')));
+    for (const relNative of [...manifest.RELEASE_NATIVE_ADDONS, ...manifest.RELEASE_NATIVE_CLI_BINS]) {
+      assert.ok(pyNames.includes(`antigrative-dashboard/${relNative}`), `Python ZIP missing ${relNative}`);
+    }
+    assert.ok(!pyNames.includes('antigrative-dashboard/sidecars/panel/pulse-accel.node'));
+    assert.ok(!pyNames.includes('antigrative-dashboard/cli/bin/ag-pulse-statusline'));
+    assert.ok(!pyNames.includes('antigrative-dashboard/cli/bin/ag-pulse-statusline.exe'));
+    assert.ok(!pyNames.some((n) => n.endsWith('.pdb')));
+    assert.ok(!pyNames.some((n) => n.includes('/docs/internal/')));
+
+    // Removing one platform binary must fail requireNative verification.
+    rmSync(join(tmp, manifest.RELEASE_NATIVE_ADDONS[0]));
+    assert.throws(() => packageDesktopRelease(tmp, outZip, { requireNative: true }), /Missing required native/);
+    assert.throws(() => packageIdeVsix(tmp, outVsix, { requireNative: true }), /Missing native VSIX addon/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -186,6 +243,7 @@ test('tools/build.mjs target matrix, Cargo.toml [[bin]], .cargo/config.toml, and
 
   const nativeYml = readFileSync(join(ROOT, '.github', 'workflows', 'native.yml'), 'utf8');
   for (const expected of [
+    'workflow_call:',
     'windows-latest',
     'macos-latest',
     'ubuntu-latest',
@@ -197,6 +255,18 @@ test('tools/build.mjs target matrix, Cargo.toml [[bin]], .cargo/config.toml, and
     'actions/upload-artifact@v4',
   ]) {
     assert.ok(nativeYml.includes(expected), `.github/workflows/native.yml missing ${expected}`);
+  }
+
+  const releaseYml = readFileSync(join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
+  for (const expected of [
+    'uses: ./.github/workflows/native.yml',
+    'needs: [verify, host-resources, native]',
+    'actions/download-artifact@v4',
+    'pulse-native-*',
+    '--require-native',
+    'AG_PULSE_REQUIRE_NATIVE',
+  ]) {
+    assert.ok(releaseYml.includes(expected), `.github/workflows/release.yml missing ${expected}`);
   }
 });
 

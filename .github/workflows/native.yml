@@ -1,7 +1,6 @@
 name: Native Build Matrix
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
   pull_request:
     paths:
       - 'native/**'

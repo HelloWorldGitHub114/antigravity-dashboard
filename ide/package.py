@@ -2,11 +2,14 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
+RELEASE_NATIVE_PLATFORMS = ('win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
+RELEASE_NATIVE_ADDONS = [f'sidecars/panel/pulse-accel.{tag}.node' for tag in RELEASE_NATIVE_PLATFORMS]
 MODULES = [f'compat/{name}' for name in ['runtime-ui.mjs', 'platform.mjs', 'preferences.mjs',
     'sidecar-owner.mjs', 'i18n.cjs', 'theme.cjs', 'inline-widget.cjs', 'usage-ui.cjs']]
 MODULES += [f'sidecars/panel/{name}.mjs' for name in ['client', 'trajectory-json', 'trajectory-reader', 'discovery', 'store', 'history', 'metrics', 'rate-quality', 'context', 'transcript', 'usage', 'local-conversations', 'delegated-usage', 'delegation', 'timeline', 'timeline-store', 'task-usage']]
@@ -14,13 +17,21 @@ MODULES += [f'ide/{name}' for name in ['extension.cjs', 'host.cjs', 'main.mjs', 
     'discovery.mjs', 'runtime.mjs', 'surface.cjs', 'launch.mjs', 'manage.mjs', 'manage.py']]
 
 
-def build(output=None):
+def build(output=None, require_native=None):
+    if require_native is None:
+        require_native = os.environ.get('AG_PULSE_REQUIRE_NATIVE') == '1'
     package = json.loads((ROOT / 'ide/package.json').read_text(encoding='utf-8'))
     output = Path(output) if output else ROOT / 'dist' / f"antigrative-dashboard-ide-{package['version']}.vsix"
     files = MODULES + ['LICENSE', 'ide/README.md']
     for name in files:
         if not (ROOT / name).is_file():
             raise ValueError('Missing IDE package file: ' + name)
+    native_addons = []
+    for name in RELEASE_NATIVE_ADDONS:
+        if (ROOT / name).is_file():
+            native_addons.append(name)
+        elif require_native:
+            raise ValueError('Missing native VSIX addon required for release: ' + name)
     manifest = f'''<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
 <Metadata><Identity Language="en-US" Id={quoteattr(package['name'])} Version={quoteattr(package['version'])} Publisher={quoteattr(package['publisher'])}/>
@@ -36,9 +47,9 @@ def build(output=None):
     try:
         with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('extension.vsixmanifest', manifest)
-            archive.writestr('[Content_Types].xml', '''<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>''')
+            archive.writestr('[Content_Types].xml', '''<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="node" ContentType="application/octet-stream"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>''')
             archive.writestr('extension/package.json', json.dumps(package, indent=2) + '\n')
-            for name in files:
+            for name in files + native_addons:
                 target = 'README.md' if name == 'ide/README.md' else name
                 archive.write(ROOT / name, 'extension/' + target)
         temporary.replace(output)
@@ -52,4 +63,6 @@ def build(output=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path)
-    print(build(parser.parse_args().output))
+    parser.add_argument('--require-native', action='store_true')
+    args = parser.parse_args()
+    print(build(args.output, True if args.require_native else None))

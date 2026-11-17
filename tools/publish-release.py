@@ -8,7 +8,17 @@ import urllib.request
 import zipfile
 
 
-def checked_assets(root, tag):
+RELEASE_NATIVE_PLATFORMS = ('win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
+RELEASE_NATIVE_ADDONS = tuple(f'sidecars/panel/pulse-accel.{tag}.node' for tag in RELEASE_NATIVE_PLATFORMS)
+RELEASE_NATIVE_CLI_BINS = tuple(
+    f"cli/bin/ag-pulse-statusline.{tag}{'.exe' if tag.startswith('win32-') else ''}"
+    for tag in RELEASE_NATIVE_PLATFORMS
+)
+
+
+def checked_assets(root, tag, require_native=None):
+    if require_native is None:
+        require_native = os.environ.get('AG_PULSE_REQUIRE_NATIVE') == '1'
     version = json.loads((root / 'plugin.json').read_text(encoding='utf-8'))['version']
     if tag != f'v{version}':
         raise ValueError('Tag and plugin version differ')
@@ -34,6 +44,9 @@ def checked_assets(root, tag):
             archive.getinfo(prefix + required)
         for required in ['install.sh', 'uninstall.sh', 'install.ps1', 'uninstall.ps1', 'manage.mjs', 'compat/runtime-ui.mjs', 'compat/theme.cjs', 'compat/host-theme.mjs', 'compat/preferences.mjs', 'compat/sidecar-owner.mjs', 'sidecars/panel/context.mjs', 'cli/statusline.mjs', 'cli/metrics.mjs', 'cli/render.mjs', 'cli/lifecycle.py', 'docs/CLI.md', 'docs/assets/cli-conversation.png', 'docs/assets/cli-conversation-zh.png']:
             archive.getinfo(prefix + required)
+        if require_native:
+            for required in RELEASE_NATIVE_ADDONS + RELEASE_NATIVE_CLI_BINS:
+                archive.getinfo(prefix + required)
     ide_version = json.loads((root / 'ide/package.json').read_text(encoding='utf-8'))['version']
     if ide_version != version:
         raise ValueError('IDE and desktop versions differ')
@@ -55,6 +68,9 @@ def checked_assets(root, tag):
         archive.getinfo('extension/sidecars/panel/trajectory-reader.mjs')
         archive.getinfo('extension/sidecars/panel/transcript.mjs')
         archive.getinfo('extension/sidecars/panel/local-conversations.mjs')
+        if require_native:
+            for required in RELEASE_NATIVE_ADDONS:
+                archive.getinfo('extension/' + required)
     return [bundle, checksum, ide, ide_checksum]
 
 

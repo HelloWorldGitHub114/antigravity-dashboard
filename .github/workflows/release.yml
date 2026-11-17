@@ -9,6 +9,10 @@ jobs:
     uses: ./.github/workflows/host-resources.yml
     permissions:
       contents: read
+  native:
+    uses: ./.github/workflows/native.yml
+    permissions:
+      contents: read
   verify:
     strategy:
       fail-fast: false
@@ -43,7 +47,7 @@ jobs:
       - run: python manage.py package
       - run: python ide/package.py
   release:
-    needs: [verify, host-resources]
+    needs: [verify, host-resources, native]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +57,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Download prebuilt native binaries from matrix
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pulse-native-*
+          merge-multiple: true
+      - name: Verify all 5 platforms' native binaries are staged
+        shell: pwsh
+        run: |
+          $expected = @(
+            'sidecars/panel/pulse-accel.win32-x64.node',
+            'sidecars/panel/pulse-accel.darwin-arm64.node',
+            'sidecars/panel/pulse-accel.darwin-x64.node',
+            'sidecars/panel/pulse-accel.linux-x64.node',
+            'sidecars/panel/pulse-accel.linux-arm64.node',
+            'cli/bin/ag-pulse-statusline.win32-x64.exe',
+            'cli/bin/ag-pulse-statusline.darwin-arm64',
+            'cli/bin/ag-pulse-statusline.darwin-x64',
+            'cli/bin/ag-pulse-statusline.linux-x64',
+            'cli/bin/ag-pulse-statusline.linux-arm64'
+          )
+          foreach ($p in $expected) {
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+              throw "Missing downloaded native binary: $p"
+            }
+          }
       - name: Check version
         shell: pwsh
         run: |
@@ -62,9 +91,16 @@ jobs:
       - run: node tools/build.mjs --check
       - run: npm test
       - run: python -m unittest discover -s tests -v
-      - run: python manage.py package
-      - run: python ide/package.py
+      - name: Package desktop/CLI ZIP with native binaries
+        env:
+          AG_PULSE_REQUIRE_NATIVE: '1'
+        run: python manage.py package --require-native
+      - name: Package IDE VSIX with native binaries
+        env:
+          AG_PULSE_REQUIRE_NATIVE: '1'
+        run: python ide/package.py --require-native
       - name: Publish desktop/CLI ZIP and IDE VSIX with checksums
         env:
           GH_TOKEN: ${{ github.token }}
+          AG_PULSE_REQUIRE_NATIVE: '1'
         run: python tools/publish-release.py

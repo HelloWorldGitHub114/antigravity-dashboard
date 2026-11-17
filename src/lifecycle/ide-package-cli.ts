@@ -4,17 +4,20 @@ import { packageIdeVsix } from './packager.ts';
 
 export function runIdePackageCli(argv = process.argv.slice(2)): number {
   let output: string | undefined;
+  let requireNative: boolean | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--output') {
       output = argv[i + 1];
       if (!output) throw new Error('Missing value for --output');
       i += 1;
+    } else if (argv[i] === '--require-native') {
+      requireNative = true;
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
   const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
-  const result = packageIdeVsix(rootDir, output);
+  const result = packageIdeVsix(rootDir, output, { requireNative });
   console.log(result.vsix);
   return 0;
 }

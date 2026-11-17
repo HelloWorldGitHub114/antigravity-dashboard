@@ -66,6 +66,27 @@ export const PACKAGER_IGNORED_SUFFIXES = new Set<string>([
   '.lib',
 ]);
 
+export const RELEASE_NATIVE_PLATFORMS = [
+  'win32-x64',
+  'darwin-arm64',
+  'darwin-x64',
+  'linux-x64',
+  'linux-arm64',
+] as const;
+
+export const RELEASE_NATIVE_ADDONS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `sidecars/panel/pulse-accel.${tag}.node`,
+);
+
+export const RELEASE_NATIVE_CLI_BINS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `cli/bin/ag-pulse-statusline.${tag}${tag.startsWith('win32-') ? '.exe' : ''}`,
+);
+
+export const RELEASE_NATIVE_ALLOWED_FILES = new Set<string>([
+  ...RELEASE_NATIVE_ADDONS,
+  ...RELEASE_NATIVE_CLI_BINS,
+]);
+
 export const IDE_VSIX_MODULES = [
   'compat/runtime-ui.mjs',
   'compat/platform.mjs',

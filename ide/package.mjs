@@ -39,6 +39,23 @@ var PACKAGER_IGNORED_NAMES = /* @__PURE__ */ new Set([
   "REFACTORING_ROADMAP.md",
   ...PRIVATE_RUNTIME_DIRS
 ]);
+var RELEASE_NATIVE_PLATFORMS = [
+  "win32-x64",
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64"
+];
+var RELEASE_NATIVE_ADDONS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `sidecars/panel/pulse-accel.${tag}.node`
+);
+var RELEASE_NATIVE_CLI_BINS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `cli/bin/ag-pulse-statusline.${tag}${tag.startsWith("win32-") ? ".exe" : ""}`
+);
+var RELEASE_NATIVE_ALLOWED_FILES = /* @__PURE__ */ new Set([
+  ...RELEASE_NATIVE_ADDONS,
+  ...RELEASE_NATIVE_CLI_BINS
+]);
 var IDE_VSIX_MODULES = [
   "compat/runtime-ui.mjs",
   "compat/platform.mjs",
@@ -189,7 +206,8 @@ function createZipArchive(entries) {
     central.writeUInt16LE(0, 32);
     central.writeUInt16LE(0, 34);
     central.writeUInt16LE(0, 36);
-    central.writeUInt32LE(33188 << 16 >>> 0, 38);
+    const fileMode = entry.mode ?? 33188;
+    central.writeUInt32LE(fileMode << 16 >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     nameBuf.copy(central, 46);
     centralParts.push(central);
@@ -289,7 +307,7 @@ function readJsonObjectSync(filePath, fallback = {}) {
 }
 
 // src/lifecycle/packager.ts
-var VSIX_CONTENT_TYPES_XML = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>';
+var VSIX_CONTENT_TYPES_XML = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="mjs" ContentType="text/javascript"/><Default Extension="cjs" ContentType="text/javascript"/><Default Extension="node" ContentType="application/octet-stream"/><Default Extension="py" ContentType="text/plain"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="vsixmanifest" ContentType="text/xml"/><Override PartName="/extension/LICENSE" ContentType="text/plain"/></Types>';
 function xmlEscape(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -324,7 +342,10 @@ function writeSha256Sidecar(archivePath, bytes, ext) {
 `, "utf8");
   return { checksum: checksumPath, sha256: digest };
 }
-function packageIdeVsix(rootDir, outputFile) {
+function isNativeRequired(options) {
+  return options?.requireNative ?? process.env.AG_PULSE_REQUIRE_NATIVE === "1";
+}
+function packageIdeVsix(rootDir, outputFile, options) {
   const root = resolve2(rootDir);
   const meta = readJsonObjectSync(join2(root, "ide", "package.json"));
   const name = String(meta.name ?? IDE_PACKAGE_NAME);
@@ -352,6 +373,15 @@ function packageIdeVsix(rootDir, outputFile) {
     }
     entries.push({ name: `extension/${relModule}`, data: readFileSync3(fullPath) });
   }
+  const requireNative = isNativeRequired(options);
+  for (const relAddon of RELEASE_NATIVE_ADDONS) {
+    const fullPath = join2(root, relAddon);
+    if (existsSync2(fullPath)) {
+      entries.push({ name: `extension/${relAddon}`, data: readFileSync3(fullPath) });
+    } else if (requireNative) {
+      throw new Error(`Missing native VSIX addon required for release: ${relAddon}`);
+    }
+  }
   const zipBytes = createZipArchive(entries);
   writeFileSync2(vsixPath, zipBytes);
   const { checksum, sha256 } = writeSha256Sidecar(vsixPath, zipBytes, ".vsix.sha256");
@@ -361,17 +391,20 @@ function packageIdeVsix(rootDir, outputFile) {
 // src/lifecycle/ide-package-cli.ts
 function runIdePackageCli(argv = process.argv.slice(2)) {
   let output;
+  let requireNative;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--output") {
       output = argv[i + 1];
       if (!output) throw new Error("Missing value for --output");
       i += 1;
+    } else if (argv[i] === "--require-native") {
+      requireNative = true;
     } else {
       throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
   const rootDir = dirname4(dirname4(fileURLToPath(import.meta.url)));
-  const result = packageIdeVsix(rootDir, output);
+  const result = packageIdeVsix(rootDir, output, { requireNative });
   console.log(result.vsix);
   return 0;
 }

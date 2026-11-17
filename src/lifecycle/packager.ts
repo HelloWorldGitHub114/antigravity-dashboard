@@ -9,6 +9,9 @@ import {
   IDE_VSIX_STATIC_FILES,
   PACKAGER_IGNORED_NAMES,
   PACKAGER_IGNORED_SUFFIXES,
+  RELEASE_NATIVE_ADDONS,
+  RELEASE_NATIVE_ALLOWED_FILES,
+  RELEASE_NATIVE_CLI_BINS,
   RELEASE_VSIX_REQUIRED_FILES,
   RELEASE_ZIP_REQUIRED_FILES,
   UPDATE_REPO,
@@ -57,11 +60,16 @@ export interface GitHubReleaseClient {
   ): Promise<Record<string, unknown> | Array<Record<string, unknown>> | null>;
 }
 
+export interface PackageOptions {
+  requireNative?: boolean;
+}
+
 const VSIX_CONTENT_TYPES_XML =
   '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
   '<Default Extension="json" ContentType="application/json"/>' +
   '<Default Extension="mjs" ContentType="text/javascript"/>' +
   '<Default Extension="cjs" ContentType="text/javascript"/>' +
+  '<Default Extension="node" ContentType="application/octet-stream"/>' +
   '<Default Extension="py" ContentType="text/plain"/>' +
   '<Default Extension="md" ContentType="text/markdown"/>' +
   '<Default Extension="vsixmanifest" ContentType="text/xml"/>' +
@@ -120,8 +128,19 @@ function verifyChecksumFile(archivePath: string, checksumPath: string, label: st
   }
 }
 
-function shouldIgnorePackageEntry(name: string, relPosix?: string): boolean {
-  if (relPosix === 'cli/bin' || relPosix?.startsWith('cli/bin/')) return true;
+function isNativeRequired(options?: PackageOptions): boolean {
+  return options?.requireNative ?? process.env.AG_PULSE_REQUIRE_NATIVE === '1';
+}
+
+function isPosixExecutableReleasePath(relPosix: string): boolean {
+  if (relPosix.endsWith('.sh')) return true;
+  return RELEASE_NATIVE_ALLOWED_FILES.has(relPosix) && relPosix.startsWith('cli/bin/') && !relPosix.endsWith('.exe');
+}
+
+function shouldIgnorePackageEntry(name: string, relPosix?: string, isDirectory = false): boolean {
+  if (relPosix === 'cli/bin') return !isDirectory;
+  if (relPosix?.startsWith('cli/bin/')) return !RELEASE_NATIVE_ALLOWED_FILES.has(relPosix);
+  if (relPosix && RELEASE_NATIVE_ALLOWED_FILES.has(relPosix)) return false;
   if (PACKAGER_IGNORED_NAMES.has(name)) return true;
   const lower = name.toLowerCase();
   for (const suffix of PACKAGER_IGNORED_SUFFIXES) {
@@ -133,18 +152,27 @@ function shouldIgnorePackageEntry(name: string, relPosix?: string): boolean {
 function collectPackageEntries(source: string, zipPrefix: string, entries: ZipInputEntry[]): void {
   const st = statSync(source);
   if (!st.isDirectory()) {
-    entries.push({ name: zipPrefix, data: readFileSync(source) });
+    const relFromRoot = zipPrefix.includes('/') ? zipPrefix.slice(zipPrefix.indexOf('/') + 1) : zipPrefix;
+    entries.push({
+      name: zipPrefix,
+      data: readFileSync(source),
+      mode: isPosixExecutableReleasePath(relFromRoot) ? 0o100755 : undefined,
+    });
     return;
   }
   for (const entry of readdirSync(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const childPath = join(source, entry.name);
     const childPrefix = zipPrefix ? `${zipPrefix}/${entry.name}` : entry.name;
     const relFromRoot = childPrefix.includes('/') ? childPrefix.slice(childPrefix.indexOf('/') + 1) : childPrefix;
-    if (shouldIgnorePackageEntry(entry.name, relFromRoot)) continue;
+    if (shouldIgnorePackageEntry(entry.name, relFromRoot, entry.isDirectory())) continue;
     if (entry.isDirectory()) {
       collectPackageEntries(childPath, childPrefix, entries);
     } else if (entry.isFile()) {
-      entries.push({ name: childPrefix, data: readFileSync(childPath) });
+      entries.push({
+        name: childPrefix,
+        data: readFileSync(childPath),
+        mode: isPosixExecutableReleasePath(relFromRoot) ? 0o100755 : undefined,
+      });
     }
   }
 }
@@ -152,12 +180,23 @@ function collectPackageEntries(source: string, zipPrefix: string, entries: ZipIn
 /**
  * Builds `dist/antigrative-dashboard-<version>.zip` and `.zip.sha256` from `DIST_RELEASE_FILES`.
  */
-export function packageDesktopRelease(rootDir: string, outputFile?: string): PackageDesktopResult {
+export function packageDesktopRelease(
+  rootDir: string,
+  outputFile?: string,
+  options?: PackageOptions,
+): PackageDesktopResult {
   const root = resolve(rootDir);
   const pluginMeta = readJsonObjectSync<{ version?: string }>(join(root, 'plugin.json'));
   const version = String(pluginMeta.version ?? '0.0.0');
   const archivePath = resolve(outputFile ?? join(root, 'dist', `antigrative-dashboard-${version}.zip`));
   mkdirSync(dirname(archivePath), { recursive: true });
+
+  if (isNativeRequired(options)) {
+    const missingNative = [...RELEASE_NATIVE_ALLOWED_FILES].filter((rel) => !existsSync(join(root, rel)));
+    if (missingNative.length > 0) {
+      throw new Error(`Missing required native release binaries: ${missingNative.join(', ')}`);
+    }
+  }
 
   const entries: ZipInputEntry[] = [];
   for (const item of DIST_RELEASE_FILES) {
@@ -177,7 +216,11 @@ export function packageDesktopRelease(rootDir: string, outputFile?: string): Pac
 /**
  * Builds `dist/<idePackageName>-<version>.vsix` and `.vsix.sha256` from `IDE_VSIX_MODULES` and `IDE_VSIX_STATIC_FILES`.
  */
-export function packageIdeVsix(rootDir: string, outputFile?: string): PackageVsixResult {
+export function packageIdeVsix(
+  rootDir: string,
+  outputFile?: string,
+  options?: PackageOptions,
+): PackageVsixResult {
   const root = resolve(rootDir);
   const meta = readJsonObjectSync<Record<string, unknown>>(join(root, 'ide', 'package.json'));
   const name = String(meta.name ?? IDE_PACKAGE_NAME);
@@ -208,6 +251,16 @@ export function packageIdeVsix(rootDir: string, outputFile?: string): PackageVsi
     entries.push({ name: `extension/${relModule}`, data: readFileSync(fullPath) });
   }
 
+  const requireNative = isNativeRequired(options);
+  for (const relAddon of RELEASE_NATIVE_ADDONS) {
+    const fullPath = join(root, relAddon);
+    if (existsSync(fullPath)) {
+      entries.push({ name: `extension/${relAddon}`, data: readFileSync(fullPath) });
+    } else if (requireNative) {
+      throw new Error(`Missing native VSIX addon required for release: ${relAddon}`);
+    }
+  }
+
   const zipBytes = createZipArchive(entries);
   writeFileSync(vsixPath, zipBytes);
   const { checksum, sha256 } = writeSha256Sidecar(vsixPath, zipBytes, '.vsix.sha256');
@@ -217,7 +270,11 @@ export function packageIdeVsix(rootDir: string, outputFile?: string): PackageVsi
 /**
  * Verifies tag/version alignment, SHA256 checksums, and required files inside ZIP and VSIX assets.
  */
-export function verifyReleaseAssets(rootDir: string, tag: string): CheckedReleaseAssets {
+export function verifyReleaseAssets(
+  rootDir: string,
+  tag: string,
+  options?: PackageOptions,
+): CheckedReleaseAssets {
   const root = resolve(rootDir);
   const pluginMeta = readJsonObjectSync<{ version?: string }>(join(root, 'plugin.json'));
   const ideMeta = readJsonObjectSync<{ name?: string; version?: string; publisher?: string }>(join(root, 'ide', 'package.json'));
@@ -269,6 +326,19 @@ export function verifyReleaseAssets(rootDir: string, tag: string): CheckedReleas
   const missingVsix = RELEASE_VSIX_REQUIRED_FILES.filter((name) => !vsixEntries.has(name));
   if (missingVsix.length > 0) {
     throw new Error(`Missing files in ${vsixPath}: ${missingVsix.join(', ')}`);
+  }
+
+  if (isNativeRequired(options)) {
+    const missingZipNative = [...RELEASE_NATIVE_ADDONS, ...RELEASE_NATIVE_CLI_BINS].filter(
+      (name) => !zipEntries.has(`${prefix}${name}`),
+    );
+    if (missingZipNative.length > 0) {
+      throw new Error(`Missing native binaries in ${zipPath}: ${missingZipNative.join(', ')}`);
+    }
+    const missingVsixNative = RELEASE_NATIVE_ADDONS.filter((name) => !vsixEntries.has(`extension/${name}`));
+    if (missingVsixNative.length > 0) {
+      throw new Error(`Missing native addons in ${vsixPath}: ${missingVsixNative.join(', ')}`);
+    }
   }
 
   return { version, zip: zipPath, zipChecksum, vsix: vsixPath, vsixChecksum, notes: notesPath };

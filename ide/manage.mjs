@@ -48,6 +48,23 @@ var PACKAGER_IGNORED_NAMES = /* @__PURE__ */ new Set([
   "REFACTORING_ROADMAP.md",
   ...PRIVATE_RUNTIME_DIRS
 ]);
+var RELEASE_NATIVE_PLATFORMS = [
+  "win32-x64",
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64"
+];
+var RELEASE_NATIVE_ADDONS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `sidecars/panel/pulse-accel.${tag}.node`
+);
+var RELEASE_NATIVE_CLI_BINS = RELEASE_NATIVE_PLATFORMS.map(
+  (tag) => `cli/bin/ag-pulse-statusline.${tag}${tag.startsWith("win32-") ? ".exe" : ""}`
+);
+var RELEASE_NATIVE_ALLOWED_FILES = /* @__PURE__ */ new Set([
+  ...RELEASE_NATIVE_ADDONS,
+  ...RELEASE_NATIVE_CLI_BINS
+]);
 var OPENSOURCE_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   ".git",
   ".data",

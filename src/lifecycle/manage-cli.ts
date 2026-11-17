@@ -34,6 +34,7 @@ export function runManageCli(argv = process.argv.slice(2)): number {
   let exportAll = false;
   let exportCheck = false;
   let skipTests = false;
+  let requireNative: boolean | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -70,6 +71,8 @@ export function runManageCli(argv = process.argv.slice(2)): number {
       exportCheck = true;
     } else if (arg === '--skip-tests') {
       skipTests = true;
+    } else if (arg === '--require-native') {
+      requireNative = true;
     } else if (!arg.startsWith('-') && !command) {
       command = arg;
     } else {
@@ -123,13 +126,13 @@ export function runManageCli(argv = process.argv.slice(2)): number {
     return 0;
   }
   if (command === 'package') {
-    const result = packageDesktopRelease(rootDir, output);
+    const result = packageDesktopRelease(rootDir, output, { requireNative });
     console.log('Package:', result.archive);
     console.log('SHA256:', result.sha256);
     return 0;
   }
   if (command === 'package-ide') {
-    const result = packageIdeVsix(rootDir, output);
+    const result = packageIdeVsix(rootDir, output, { requireNative });
     console.log(result.vsix);
     return 0;
   }

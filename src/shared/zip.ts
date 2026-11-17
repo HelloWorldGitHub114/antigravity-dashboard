@@ -5,6 +5,7 @@ export interface ZipInputEntry {
   data: Uint8Array | string;
   compress?: boolean;
   mtime?: Date;
+  mode?: number;
 }
 
 export interface ZipReadEntry {
@@ -130,7 +131,8 @@ export function createZipArchive(entries: readonly ZipInputEntry[]): Buffer {
     central.writeUInt16LE(0, 32);
     central.writeUInt16LE(0, 34);
     central.writeUInt16LE(0, 36);
-    central.writeUInt32LE((0o100644 << 16) >>> 0, 38);
+    const fileMode = entry.mode ?? 0o100644;
+    central.writeUInt32LE((fileMode << 16) >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     nameBuf.copy(central, 46);
 

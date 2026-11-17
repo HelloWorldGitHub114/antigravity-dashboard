@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1 — 2026-11-17
+
+- Bundle 5-platform prebuilt Rust native binaries directly into Release ZIP and IDE VSIX packages (`src/platform/manifest.ts`, `src/lifecycle/packager.ts`, `src/shared/zip.ts`, `manage.py`, `ide/package.py`, `tools/publish-release.py`): allowlist `RELEASE_NATIVE_ADDONS` (`sidecars/panel/pulse-accel.<platform>-<arch>.node` for `win32-x64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`) and `RELEASE_NATIVE_CLI_BINS` (`cli/bin/ag-pulse-statusline.*`) during release packaging while continuing to exclude untagged local binaries, debug symbols, and open-source Git exports; register `.node` MIME type in VSIX `[Content_Types].xml`; preserve Unix `0755` executable mode bits for POSIX CLI binaries and shell scripts when packaged on Windows; and add `--require-native` / `AG_PULSE_REQUIRE_NATIVE=1` verification across Node and Python packagers and release asset checks.
+- Wire `native.yml` into `release.yml` (`.github/workflows/{native,release}.yml`): expose `workflow_call` on `native.yml`, add the `native` matrix job to `release.yml`, download all 5 `pulse-native-*` build artifacts into `sidecars/panel/` and `cli/bin/` before running `manage.py package --require-native`, `ide/package.py --require-native`, and `tools/publish-release.py`.
+- Bump version to `0.12.1` across `plugin.json`, `package.json`, `package-lock.json`, `ide/package.json`, and `sidecars/panel/package.json`.
+
 ## 0.12.0 — 2026-11-17
 
 - Introduce Rust N-API native engine & zero-RPC SQLite direct-read bypass (`native/pulse-accel`, `src/platform/native-bridge.ts`): bundle SQLite + Protobuf wire decoders (`proto_wire.rs`, `enums.rs`, `sqlite_trajectory.rs`) and `napi_entry.rs` bindings with automatic JS/RPC fallback (`PULSE_DISABLE_NATIVE_ACCEL`), bypassing `language_server.exe` RPC calls for settled local conversations across `TrajectoryReader`, `local-conversations.ts`, `UsageLedger`/`backfill-sync.ts`, and `delegated-collector.ts`.
