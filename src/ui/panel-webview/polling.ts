@@ -9,6 +9,8 @@ export function createPanelController(
   handlers: {
     render: () => void;
     updateCountdowns: () => void;
+    onTheme?: (theme: PanelMetricsSnapshot['theme']) => void;
+    onUsage?: (usage: PanelMetricsSnapshot['usage']) => void;
   },
 ) {
   const { $, state, language, host } = ctx;
@@ -16,6 +18,30 @@ export function createPanelController(
   const i18nTextNodes = [...document.querySelectorAll<HTMLElement>('[data-i18n]')];
   const i18nAriaNodes = [...document.querySelectorAll<HTMLElement>('[data-i18n-aria]')];
   const i18nTitleNodes = [...document.querySelectorAll<HTMLElement>('[data-i18n-aria][title]')];
+
+  const apiJson = async <T>(path: string, body?: unknown): Promise<T> => {
+    const transport = host?.fetch ? host.fetch.bind(host) : fetch;
+    const response = await transport(
+      path,
+      body !== undefined
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : { cache: 'no-store' },
+    );
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const errText =
+        payload && typeof payload === 'object' && 'error' in payload && typeof (payload as { error?: unknown }).error === 'string'
+          ? (payload as { error: string }).error
+          : `Request failed (${response.status})`;
+      throw new Error(errText);
+    }
+    return payload as T;
+  };
 
   const preferenceRequest = async (input?: PreferencesUpdateInput): Promise<PreferencesSnapshot> => {
     const transport = host?.fetch ? host.fetch.bind(host) : fetch;
@@ -45,21 +71,15 @@ export function createPanelController(
       if (e.dataset.i18nAria) setAttr(e, 'aria-label', t(e.dataset.i18nAria));
     }
     for (const e of i18nTitleNodes) {
-      if (e.id === 'language-toggle' || !e.dataset.i18nAria) continue;
+      if (!e.dataset.i18nAria) continue;
       const ariaTitle = t(e.dataset.i18nAria);
       if (e.title !== ariaTitle) e.title = ariaTitle;
     }
     const privacyEl = $('timeline-privacy-text');
     if (privacyEl) setAttr(privacyEl, 'title', t('timelinePrivacySummary'));
     renderTimelineStatus(ctx);
-    const toggle = $('language-toggle');
-    if (toggle) {
-      setText(toggle, language.language === 'en' ? 'EN' : '中');
-      const nextTitle = t('switchLanguage') + (ctx.preferences.error ? ` · ${t('languageSaveFailed')}` : '');
-      if (toggle.title !== nextTitle) toggle.title = nextTitle;
-      setAttr(toggle, 'data-save-failed', String(ctx.preferences.error));
-    }
-    ctx.fontPopover?.localize();
+    ctx.settingsPopover?.localize();
+    ctx.settingsPopover?.syncLanguage(language.language, ctx.preferences.error);
   };
 
   const connectPreferences = () =>
@@ -105,7 +125,8 @@ export function createPanelController(
           const themeKey = JSON.stringify(value.theme ?? null);
           if (themeKey !== state.lastThemeKey) {
             state.lastThemeKey = themeKey;
-            ctx.themeController.setHostTheme(value.theme ?? null);
+            ctx.themeController.setHostTheme(value.theme ?? undefined);
+            handlers.onTheme?.(value.theme ?? undefined);
           }
         }
         if (value.preferences) {
@@ -124,10 +145,22 @@ export function createPanelController(
               document.documentElement.style.setProperty('--pulse-sidebar-font-scale', String(scale));
               ctx.localSet('ag-pulse-sidebar-font-scale', String(scale));
             }
-            ctx.fontPopover?.sync(value.preferences);
+            ctx.settingsPopover?.syncPreferences(value.preferences);
           } finally {
             state.syncingFromRefresh = false;
           }
+        }
+        if (value.integration) {
+          ctx.settingsPopover?.syncDebugLaunch({
+            ...(typeof value.integration.debugLaunchEnabled === 'boolean'
+              ? { enabled: value.integration.debugLaunchEnabled }
+              : {}),
+            ...(typeof value.integration.debugLaunchConfigured === 'boolean'
+              ? { configured: value.integration.debugLaunchConfigured }
+              : {}),
+            activePortPresent: Boolean(value.integration.activePortPresent),
+            integrationState: value.integration.state ?? null,
+          });
         }
         if (
           state.timelineNoticeKey === 'timelineCleared' &&
@@ -140,6 +173,7 @@ export function createPanelController(
         state.serverOffset = Date.parse(value.serverTime) - Date.now();
         if (!Number.isFinite(state.serverOffset)) state.serverOffset = 0;
         handlers.render();
+        handlers.onUsage?.(value.usage);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (state.snapshot) {
@@ -280,6 +314,7 @@ export function createPanelController(
 
   return {
     localize,
+    apiJson,
     connectPreferences,
     savePreferences: preferenceRequest,
     refresh,

@@ -60,6 +60,7 @@ module.exports = function createUsageDashboard(...args) {
       "languageGuideDismissed",
       "usageGuideDismissed",
       "modelTimelineEnabled",
+      "debugLaunchEnabled",
       ...FONT_SCALE_KEYS
     ];
 
@@ -73,10 +74,7 @@ module.exports = function createUsageDashboard(...args) {
       { key: "sidebarFontScale", labelZh: "\u4FA7\u8FB9\u680F", labelEn: "Sidebar" },
       { key: "inlineFontScale", labelZh: "\u5E95\u90E8\u72B6\u6001\u5361\u7247", labelEn: "Bottom card" }
     ];
-    var FONT_POPOVER_CSS = `
-  .font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
-  .font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
-  .font-popover:not(:popover-open){display:none}
+    var FONT_CONTROL_CSS = `
   .font-popover-head{font-size:11px;font-weight:700;color:var(--pulse-muted);margin:0 0 8px;display:flex;align-items:center;justify-content:space-between}
   .font-popover-rows{display:grid;gap:7px}
   .font-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -89,6 +87,12 @@ module.exports = function createUsageDashboard(...args) {
   .font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none}
   .font-pct-input:focus{border-color:var(--pulse-focus,var(--pulse-border));background:var(--pulse-background)}
   .font-pct-unit{font:600 11px/1 var(--pulse-mono,ui-monospace,monospace);color:var(--pulse-muted)}
+  `.trim();
+    var FONT_POPOVER_CSS = `
+  .font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
+  .font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
+  .font-popover:not(:popover-open){display:none}
+  ${FONT_CONTROL_CSS}
   `.trim();
     function clampPct(raw) {
       if (!Number.isFinite(raw)) return FONT_POPOVER_DEFAULT_PCT;
@@ -104,28 +108,32 @@ module.exports = function createUsageDashboard(...args) {
     function scaleToPct(scale) {
       return Math.round(resolveFontScale(scale) * 100);
     }
-    function createFontPopover(options) {
-      const { trigger, mountRoot, getLanguage, onChange } = options;
-      const doc = trigger.ownerDocument;
+    function createFontScaleControls(options) {
+      const doc = options.doc ?? document;
+      const { mountRoot, getLanguage, onChange } = options;
       const initial = asFontState(options.initial);
       const values = {
         usageFontScale: resolveFontScale(initial?.usageFontScale),
         sidebarFontScale: resolveFontScale(initial?.sidebarFontScale),
         inlineFontScale: resolveFontScale(initial?.inlineFontScale)
       };
-      const popover = doc.createElement("div");
-      popover.className = "font-popover";
-      popover.setAttribute("popover", "manual");
-      popover.setAttribute("role", "dialog");
       const head = doc.createElement("div");
       head.className = "font-popover-head";
       const titleEl = doc.createElement("span");
       head.append(titleEl);
-      popover.append(head);
       const rowsWrap = doc.createElement("div");
       rowsWrap.className = "font-popover-rows";
-      popover.append(rowsWrap);
       const rowRefs = /* @__PURE__ */ new Map();
+      const syncRowDom = (key, pct) => {
+        const ref = rowRefs.get(key);
+        if (!ref) return;
+        const shadowActive = mountRoot && "activeElement" in mountRoot ? mountRoot.activeElement : null;
+        if (doc.activeElement !== ref.input && shadowActive !== ref.input) {
+          ref.input.value = String(pct);
+        }
+        ref.decBtn.disabled = pct <= FONT_POPOVER_MIN_PCT;
+        ref.incBtn.disabled = pct >= FONT_POPOVER_MAX_PCT;
+      };
       const commitKey = (key, nextPct) => {
         const clampedPct = clampPct(nextPct);
         const nextScale = pctToScale(clampedPct);
@@ -134,15 +142,6 @@ module.exports = function createUsageDashboard(...args) {
         if (nextScale === prev) return;
         values[key] = nextScale;
         void onChange({ [key]: nextScale }, { ...values });
-      };
-      const syncRowDom = (key, pct) => {
-        const ref = rowRefs.get(key);
-        if (!ref) return;
-        if (doc.activeElement !== ref.input && (!("activeElement" in mountRoot) || mountRoot.activeElement !== ref.input)) {
-          ref.input.value = String(pct);
-        }
-        ref.decBtn.disabled = pct <= FONT_POPOVER_MIN_PCT;
-        ref.incBtn.disabled = pct >= FONT_POPOVER_MAX_PCT;
       };
       for (const spec of FONT_POPOVER_ROWS) {
         const row = doc.createElement("div");
@@ -213,6 +212,61 @@ module.exports = function createUsageDashboard(...args) {
         rowsWrap.append(row);
         rowRefs.set(spec.key, { labelEl, decBtn, incBtn, input });
       }
+      const titleText = () => getLanguage() === "zh-CN" ? "\u5B57\u4F53\u5927\u5C0F" : "Font size";
+      const localize = () => {
+        const zh = getLanguage() === "zh-CN";
+        titleEl.textContent = titleText();
+        for (const spec of FONT_POPOVER_ROWS) {
+          const ref = rowRefs.get(spec.key);
+          if (!ref) continue;
+          const name = zh ? spec.labelZh : spec.labelEn;
+          ref.labelEl.textContent = name;
+          ref.decBtn.setAttribute("aria-label", `${zh ? "\u7F29\u5C0F" : "Decrease"} ${name}`);
+          ref.incBtn.setAttribute("aria-label", `${zh ? "\u653E\u5927" : "Increase"} ${name}`);
+          ref.input.setAttribute("aria-label", `${name} ${zh ? "\u767E\u5206\u6BD4" : "percentage"}`);
+        }
+      };
+      const syncInputs = () => {
+        for (const spec of FONT_POPOVER_ROWS) {
+          syncRowDom(spec.key, scaleToPct(values[spec.key]));
+        }
+      };
+      const sync = (prefs) => {
+        const state = asFontState(prefs);
+        if (!state) return;
+        for (const spec of FONT_POPOVER_ROWS) {
+          const next = resolveFontScale(state[spec.key]);
+          values[spec.key] = next;
+          syncRowDom(spec.key, Math.round(next * 100));
+        }
+      };
+      localize();
+      sync(options.initial);
+      return {
+        headElement: head,
+        rowsElement: rowsWrap,
+        sync,
+        localize,
+        syncInputs,
+        values: () => ({ ...values }),
+        titleText
+      };
+    }
+    function createFontPopover(options) {
+      const { trigger, mountRoot, getLanguage, onChange } = options;
+      const doc = trigger.ownerDocument;
+      const popover = doc.createElement("div");
+      popover.className = "font-popover";
+      popover.setAttribute("popover", "manual");
+      popover.setAttribute("role", "dialog");
+      const controls = createFontScaleControls({
+        doc,
+        mountRoot,
+        getLanguage,
+        initial: options.initial,
+        onChange
+      });
+      popover.append(controls.headElement, controls.rowsElement);
       mountRoot.append(popover);
       const isOpen = () => popover.matches(":popover-open");
       const positionPopover = () => {
@@ -236,11 +290,16 @@ module.exports = function createUsageDashboard(...args) {
         }
         trigger.setAttribute("aria-expanded", "false");
       };
+      const localize = () => {
+        controls.localize();
+        const zh = getLanguage() === "zh-CN";
+        popover.setAttribute("aria-label", controls.titleText());
+        trigger.title = zh ? "\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E" : "Font size settings";
+        trigger.setAttribute("aria-label", trigger.title);
+      };
       const open = () => {
         localize();
-        for (const spec of FONT_POPOVER_ROWS) {
-          syncRowDom(spec.key, scaleToPct(values[spec.key]));
-        }
+        controls.syncInputs();
         try {
           popover.showPopover();
         } catch {
@@ -248,32 +307,6 @@ module.exports = function createUsageDashboard(...args) {
         }
         positionPopover();
         trigger.setAttribute("aria-expanded", "true");
-      };
-      const localize = () => {
-        const zh = getLanguage() === "zh-CN";
-        const title = zh ? "\u5B57\u4F53\u5927\u5C0F" : "Font size";
-        titleEl.textContent = title;
-        popover.setAttribute("aria-label", title);
-        trigger.title = zh ? "\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E" : "Font size settings";
-        trigger.setAttribute("aria-label", trigger.title);
-        for (const spec of FONT_POPOVER_ROWS) {
-          const ref = rowRefs.get(spec.key);
-          if (!ref) continue;
-          const name = zh ? spec.labelZh : spec.labelEn;
-          ref.labelEl.textContent = name;
-          ref.decBtn.setAttribute("aria-label", `${zh ? "\u7F29\u5C0F" : "Decrease"} ${name}`);
-          ref.incBtn.setAttribute("aria-label", `${zh ? "\u653E\u5927" : "Increase"} ${name}`);
-          ref.input.setAttribute("aria-label", `${name} ${zh ? "\u767E\u5206\u6BD4" : "percentage"}`);
-        }
-      };
-      const sync = (prefs) => {
-        const state = asFontState(prefs);
-        if (!state) return;
-        for (const spec of FONT_POPOVER_ROWS) {
-          const next = resolveFontScale(state[spec.key]);
-          values[spec.key] = next;
-          syncRowDom(spec.key, Math.round(next * 100));
-        }
       };
       const onTriggerClick = (e) => {
         e.stopPropagation();
@@ -303,13 +336,12 @@ module.exports = function createUsageDashboard(...args) {
       doc.addEventListener("keydown", onDocKeyDown, true);
       window.addEventListener("resize", onViewportChange);
       localize();
-      sync(options.initial);
       return {
         element: popover,
-        sync,
+        sync: controls.sync,
         localize,
         close,
-        values: () => ({ ...values }),
+        values: controls.values,
         dispose: () => {
           close();
           trigger.removeEventListener("click", onTriggerClick);
@@ -436,11 +468,19 @@ module.exports = function createUsageDashboard(...args) {
   #usage-intro-done:hover { background: var(--pulse-selected); }
   #usage-intro-done:active { transform: scale(.98); }
   #usage-intro-done:disabled { opacity: .55; cursor: wait; }
+  @media (max-width: 520px) {
+    .top { flex-direction: column; gap: 12px; }
+    .top-controls { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
+    .tabs-bar { margin: 16px 0; gap: 10px; }
+  }
   `;
 
     // src/ui/usage-modal/dom-shell.ts
-    var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;opacity:1;transition:opacity 150ms cubic-bezier(.22,1,.36,1)}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:auto;transition:opacity 150ms ease}@starting-style{#usage-dashboard:popover-open{opacity:.05}#usage-dashboard:popover-open::backdrop{opacity:0}}@media(prefers-reduced-motion:reduce){#usage-dashboard,#usage-dashboard::backdrop{transition:none}}";
-    var DIALOG_STYLE = "width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;box-sizing:border-box;overflow:hidden;visibility:visible;pointer-events:auto;padding:0;border:1px solid var(--pulse-border);border-radius:18px;background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
+    function resolveUsageBridge(options) {
+      return options?.bridge || window.agPulseBridge || window.agPulseHost;
+    }
+    var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;border-radius:18px;opacity:1;transition:opacity 150ms cubic-bezier(.22,1,.36,1)}@media(max-width:640px){#usage-dashboard{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:12px}}@media(max-width:480px){#usage-dashboard{width:100vw;height:100dvh;border-radius:0;border-width:0}}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:auto;transition:opacity 150ms ease}@starting-style{#usage-dashboard:popover-open{opacity:.05}#usage-dashboard:popover-open::backdrop{opacity:0}}@media(prefers-reduced-motion:reduce){#usage-dashboard,#usage-dashboard::backdrop{transition:none}}";
+    var DIALOG_STYLE = "box-sizing:border-box;overflow:hidden;visibility:visible;pointer-events:auto;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
     var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
     var INTRO_MARKUP = '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
     function createDomNode(tag, className = "", content) {
@@ -763,7 +803,7 @@ module.exports = function createUsageDashboard(...args) {
       const select = ctx.$("account-switcher");
       if (!select) return;
       const { state, options, w } = ctx;
-      const bridge = window.agPulseBridge || window.agPulseHost;
+      const bridge = resolveUsageBridge(options);
       let list = null;
       if (state.value?.accounts && Array.isArray(state.value.accounts)) {
         list = state.value.accounts;
@@ -807,7 +847,7 @@ module.exports = function createUsageDashboard(...args) {
       select?.addEventListener("change", async (event) => {
         const newAccount = event.target.value;
         if (!newAccount || newAccount === (ctx.state.value?.viewScope || ctx.state.value?.accountKey)) return;
-        const bridge = window.agPulseBridge || window.agPulseHost;
+        const bridge = resolveUsageBridge(ctx.options);
         try {
           await bridge?.switchAccount?.({ account: newAccount });
         } catch {
@@ -1567,7 +1607,7 @@ module.exports = function createUsageDashboard(...args) {
         initial: options.initialPreferences ?? null,
         onChange: async (update, next) => {
           applyUsageFontScale(next.usageFontScale);
-          const bridge = window.agPulseBridge || window.agPulseHost;
+          const bridge = resolveUsageBridge(options);
           try {
             if (typeof bridge?.setPreferences === "function") {
               const saved = await bridge.setPreferences(update);
@@ -1586,7 +1626,7 @@ module.exports = function createUsageDashboard(...args) {
         fontPopover?.localize();
         if (prefsLoaded) return;
         prefsLoaded = true;
-        const bridge = window.agPulseBridge || window.agPulseHost;
+        const bridge = resolveUsageBridge(options);
         if (typeof bridge?.getPreferences !== "function") return;
         void bridge.getPreferences().then((prefs) => {
           if (state.disposed || !prefs || typeof prefs !== "object" || "error" in prefs) return;
@@ -2195,7 +2235,7 @@ module.exports = function createUsageDashboard(...args) {
         delBtn.type = "button";
         delBtn.addEventListener("click", async () => {
           delBtn.disabled = true;
-          const bridge = window.agPulseBridge || window.agPulseHost;
+          const bridge = resolveUsageBridge(options);
           try {
             if (bridge?.deleteManualUsage) {
               await bridge.deleteManualUsage({ scope: state.value?.accountKey, id: entry.id });
@@ -2291,7 +2331,7 @@ module.exports = function createUsageDashboard(...args) {
           cacheTokens,
           note
         };
-        const bridge = window.agPulseBridge || window.agPulseHost;
+        const bridge = resolveUsageBridge(options);
         try {
           if (bridge?.addManualUsage) await bridge.addManualUsage(payload);
           closeManualModal();
@@ -3679,7 +3719,7 @@ module.exports = function createUsageDashboard(...args) {
         const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
         const reqKey = `${scope || ""}|${projectKey}|${from}|${to}`;
         if (state.projectDetailKey === reqKey && (state.projectDetail || state.projectDetailLoading)) return;
-        const bridge = window.agPulseBridge || window.agPulseHost;
+        const bridge = resolveUsageBridge(options);
         if (typeof bridge?.getProjectDetail !== "function") return;
         const myEpoch = ++projectDetailEpoch;
         state.projectDetailKey = reqKey;
@@ -3710,7 +3750,7 @@ module.exports = function createUsageDashboard(...args) {
         const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
         const reqKey = `${scope || ""}|${from}|${to}`;
         if (state.projectOverviewKey === reqKey) return;
-        const bridge = window.agPulseBridge || window.agPulseHost;
+        const bridge = resolveUsageBridge(options);
         if (typeof bridge?.getProjectUsage !== "function") return;
         const myEpoch = ++projectReqEpoch;
         state.projectOverviewKey = reqKey;

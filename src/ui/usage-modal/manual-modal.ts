@@ -1,6 +1,6 @@
-import { createDomNode } from './dom-shell.ts';
+import { createDomNode, resolveUsageBridge } from './dom-shell.ts';
 import { formatModelName } from './palette.ts';
-import type { UsageDomContext, UsageWindow } from './types.ts';
+import type { UsageDomContext } from './types.ts';
 
 export function renderManualEntries(ctx: UsageDomContext): void {
   const { state, options, $, text, w, zh, compactNum } = ctx;
@@ -57,7 +57,7 @@ export function renderManualEntries(ctx: UsageDomContext): void {
     delBtn.type = 'button';
     delBtn.addEventListener('click', async () => {
       delBtn.disabled = true;
-      const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+      const bridge = resolveUsageBridge(options);
       try {
         if (bridge?.deleteManualUsage) {
           await bridge.deleteManualUsage({ scope: state.value?.accountKey, id: entry.id });
@@ -163,7 +163,7 @@ export function bindManualModal(ctx: UsageDomContext): { closeManualModal: (rest
       cacheTokens,
       note,
     };
-    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    const bridge = resolveUsageBridge(options);
     try {
       if (bridge?.addManualUsage) await bridge.addManualUsage(payload);
       closeManualModal();

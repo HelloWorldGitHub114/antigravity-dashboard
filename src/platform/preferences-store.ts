@@ -67,6 +67,7 @@ export class PreferencesStore {
         languageGuideDismissed: value.languageGuideDismissed === true,
         usageGuideDismissed: value.usageGuideDismissed === true,
         modelTimelineEnabled: value.modelTimelineEnabled === true,
+        debugLaunchEnabled: value.debugLaunchEnabled === true,
         usageFontScale: resolveFontScale(value.usageFontScale),
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
@@ -84,6 +85,7 @@ export class PreferencesStore {
           languageGuideDismissed: false,
           usageGuideDismissed: false,
           modelTimelineEnabled: false,
+          debugLaunchEnabled: false,
           usageFontScale: 1,
           sidebarFontScale: 1,
           inlineFontScale: 1,
@@ -121,6 +123,12 @@ export class PreferencesStore {
     ) {
       throw new Error('Invalid timeline preference');
     }
+    if (
+      Object.hasOwn(input, 'debugLaunchEnabled') &&
+      typeof input.debugLaunchEnabled !== 'boolean'
+    ) {
+      throw new Error('Invalid debug launch preference');
+    }
     validateFontScaleInput(input as Record<string, unknown>);
 
     const operation = this.queue.then(async (): Promise<PreferencesState> => {
@@ -142,6 +150,7 @@ export class PreferencesStore {
         languageGuideDismissed: validRecord?.languageGuideDismissed === true,
         usageGuideDismissed: validRecord?.usageGuideDismissed === true,
         modelTimelineEnabled: validRecord?.modelTimelineEnabled === true,
+        debugLaunchEnabled: validRecord?.debugLaunchEnabled === true,
         usageFontScale: resolveFontScale(validRecord?.usageFontScale),
         sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
         inlineFontScale: resolveFontScale(validRecord?.inlineFontScale),
@@ -157,6 +166,9 @@ export class PreferencesStore {
       const modelTimelineEnabled = Object.hasOwn(input, 'modelTimelineEnabled')
         ? (input.modelTimelineEnabled as boolean)
         : previous.modelTimelineEnabled;
+      const debugLaunchEnabled = Object.hasOwn(input, 'debugLaunchEnabled')
+        ? (input.debugLaunchEnabled as boolean)
+        : previous.debugLaunchEnabled;
       const scales = Object.fromEntries(
         FONT_SCALE_KEYS.map((key) => [
           key,
@@ -171,6 +183,7 @@ export class PreferencesStore {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        debugLaunchEnabled,
         ...scales,
         revision,
       };
@@ -181,6 +194,7 @@ export class PreferencesStore {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        debugLaunchEnabled,
         ...scales,
         revision,
       };

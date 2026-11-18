@@ -25,13 +25,13 @@ test('guide dismissal survives a fresh backend without selecting a language; old
 });
 
 test('Chinese and English survive a new backend and a renderer with empty origin storage',async t=>{
-  const {file,store}=await fixture(t);assert.deepEqual(await store.get(),{language:null,languageGuideDismissed:false,usageGuideDismissed:false,modelTimelineEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1,revision:0});
+  const {file,store}=await fixture(t);assert.deepEqual(await store.get(),{language:null,languageGuideDismissed:false,usageGuideDismissed:false,modelTimelineEnabled:false,debugLaunchEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1,revision:0});
   const first=create(null),controller=connect(first,store);await controller.ready;await controller.toggle();
   assert.equal(first.language,'zh-CN');controller.dispose();
   const afterRestart=create(null),restored=connect(afterRestart,new PreferencesStore({file}));await restored.ready;
   assert.equal(afterRestart.language,'zh-CN');await restored.toggle();restored.dispose();
   const again=create(null);await connect(again,new PreferencesStore({file})).ready;assert.equal(again.language,'en');
-  const json=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(Object.keys(json).sort(),['inlineFontScale','language','languageGuideDismissed','modelTimelineEnabled','revision','schema','sidebarFontScale','usageFontScale','usageGuideDismissed']);
+  const json=JSON.parse(await readFile(file,'utf8'));assert.deepEqual(Object.keys(json).sort(),['debugLaunchEnabled','inlineFontScale','language','languageGuideDismissed','modelTimelineEnabled','revision','schema','sidebarFontScale','usageFontScale','usageGuideDismissed']);
 });
 
 test('usage onboarding completion persists independently of language and language onboarding',async t=>{
@@ -136,4 +136,19 @@ test('independent font scale preferences default to 1, round cleanly, persist ac
   assert.equal(unchanged.usageFontScale,1.15);
   assert.equal(unchanged.sidebarFontScale,1.2);
   assert.equal(unchanged.inlineFontScale,0.9);
+});
+
+test('debugLaunchEnabled defaults false, toggles cleanly, and rejects non-boolean inputs',async t=>{
+  const {file,store}=await fixture(t);
+  await writeFile(file,JSON.stringify({schema:1,language:'en',revision:1}));
+  assert.equal((await store.get()).debugLaunchEnabled,false);
+  const on=await store.set({debugLaunchEnabled:true});
+  assert.equal(on.debugLaunchEnabled,true);
+  assert.equal((await new PreferencesStore({file}).get()).debugLaunchEnabled,true);
+  const off=await store.set({debugLaunchEnabled:false});
+  assert.equal(off.debugLaunchEnabled,false);
+  for(const bad of ['true',1,0,null,{}]) {
+    await assert.rejects(store.set({debugLaunchEnabled:bad}),{message:'Invalid debug launch preference'});
+  }
+  assert.equal((await store.get()).debugLaunchEnabled,false);
 });

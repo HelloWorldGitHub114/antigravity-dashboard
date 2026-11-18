@@ -54,6 +54,7 @@ module.exports = function installAgPulseIpc(...args) {
       "languageGuideDismissed",
       "usageGuideDismissed",
       "modelTimelineEnabled",
+      "debugLaunchEnabled",
       ...FONT_SCALE_KEYS
     ];
 

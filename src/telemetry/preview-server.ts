@@ -1,10 +1,27 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import type { IntegrationHealth, MetricsRequestInput, MetricsSnapshot, PreferencesUpdateInput } from '../contracts/index.ts';
+import type {
+  DeleteManualUsageRequest,
+  IntegrationHealth,
+  ManualUsageInput,
+  MetricsRequestInput,
+  MetricsSnapshot,
+  PreferencesUpdateInput,
+  SwitchAccountRequest,
+} from '../contracts/index.ts';
 import type { RuntimePreferencesBridge } from '../ui/runtime-ui/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
 import type { MetricsStore } from './store/index.ts';
+
+export interface PreviewUsageBridge {
+  addManualUsage: (input?: { scope?: string; data?: ManualUsageInput } & Partial<ManualUsageInput>) => Promise<unknown>;
+  deleteManualUsage: (input?: DeleteManualUsageRequest) => Promise<unknown>;
+  getAccounts: () => Promise<unknown>;
+  switchAccount: (input?: SwitchAccountRequest) => Promise<unknown>;
+  getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
+  getProjectDetail: (input: { projectKey: string; scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
+}
 
 export interface PreviewServerOptions {
   here: string;
@@ -15,6 +32,7 @@ export interface PreviewServerOptions {
   store: MetricsStore;
   metrics: (input?: MetricsRequestInput) => Promise<MetricsSnapshot>;
   getHealth: () => IntegrationHealth;
+  usageBridge?: PreviewUsageBridge;
   i18nModule: () => string;
   themeModule: () => string;
   themeCss: () => string;
@@ -24,7 +42,9 @@ export interface PreviewServerOptions {
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const prefError = (error: unknown): string => {
   const msg = errorMessage(error);
-  return msg === 'Invalid timeline preference' || msg === 'Invalid font scale preference'
+  return msg === 'Invalid timeline preference' ||
+    msg === 'Invalid font scale preference' ||
+    msg === 'Invalid debug launch preference'
     ? msg
     : 'Language preference could not be saved';
 };
@@ -52,7 +72,7 @@ async function readJsonBody(
 export function startPreviewServer(options: PreviewServerOptions): void {
   const {
     here, port, guidPattern, staticFiles, livePreferences, store,
-    metrics, getHealth, i18nModule, themeModule, themeCss, inlineSource,
+    metrics, getHealth, usageBridge, i18nModule, themeModule, themeCss, inlineSource,
   } = options;
   const server = createServer(async (req, res) => {
     const rawHost = req.headers.host;
@@ -60,7 +80,13 @@ export function startPreviewServer(options: PreviewServerOptions): void {
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) { res.writeHead(403); res.end(); return; }
     const url = new URL(req.url || '/', `http://${host}`);
     const sameOrigin = req.headers.origin === `http://${host}`;
-    if (url.pathname === '/api/preferences' || url.pathname === '/api/timeline/clear') {
+    if (
+      url.pathname === '/api/preferences' ||
+      url.pathname === '/api/timeline/clear' ||
+      url.pathname === '/api/debug-launch' ||
+      url.pathname === '/api/usage/open' ||
+      url.pathname.startsWith('/api/usage/')
+    ) {
       if (req.headers.origin && !sameOrigin) { res.writeHead(403); res.end(); return; }
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -68,24 +94,48 @@ export function startPreviewServer(options: PreviewServerOptions): void {
         res.end(JSON.stringify(await livePreferences.snapshot()));
         return;
       }
+      if (url.pathname === '/api/debug-launch' && req.method === 'GET') {
+        const snap = await livePreferences.snapshot();
+        const enabled = !('error' in snap) && snap.debugLaunchEnabled === true;
+        res.end(JSON.stringify({ enabled, configured: enabled, activePortPresent: false, platform: process.platform }));
+        return;
+      }
       if (req.method === 'POST' && sameOrigin) {
         const isJson = String(req.headers['content-type']).startsWith('application/json');
         if (url.pathname === '/api/preferences' && !isJson) { res.writeHead(405); res.end(); return; }
         try {
-          const body = await readJsonBody(req, 1024, url.pathname === '/api/preferences' ? 'Preference payload too large' : 'Payload too large');
+          const body = await readJsonBody(req, 4096, url.pathname === '/api/preferences' ? 'Preference payload too large' : 'Payload too large');
           if (url.pathname === '/api/preferences') {
             res.end(JSON.stringify(await livePreferences.set(JSON.parse(body) as PreferencesUpdateInput)));
-          } else {
+          } else if (url.pathname === '/api/debug-launch') {
+            const parsed = JSON.parse(body || '{}') as { enabled?: unknown };
+            if (typeof parsed.enabled !== 'boolean') throw new Error('Invalid debug launch preference');
+            const saved = await livePreferences.set({ debugLaunchEnabled: parsed.enabled });
+            res.end(JSON.stringify({ enabled: parsed.enabled, configured: parsed.enabled, activePortPresent: false, platform: process.platform, preferences: saved }));
+          } else if (url.pathname === '/api/usage/open') {
+            res.end(JSON.stringify({ openedInHost: false }));
+          } else if (url.pathname.startsWith('/api/usage/') && usageBridge) {
+            const parsed = body.trim() ? JSON.parse(body) : {};
+            if (url.pathname === '/api/usage/accounts') res.end(JSON.stringify(await usageBridge.getAccounts()));
+            else if (url.pathname === '/api/usage/switch-account') res.end(JSON.stringify(await usageBridge.switchAccount(parsed)));
+            else if (url.pathname === '/api/usage/manual/add') res.end(JSON.stringify(await usageBridge.addManualUsage(parsed)));
+            else if (url.pathname === '/api/usage/manual/delete') res.end(JSON.stringify(await usageBridge.deleteManualUsage(parsed)));
+            else if (url.pathname === '/api/usage/project-overview') res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
+            else if (url.pathname === '/api/usage/project-detail') res.end(JSON.stringify(await usageBridge.getProjectDetail(parsed)));
+            else { res.writeHead(404); res.end(); }
+          } else if (url.pathname === '/api/timeline/clear') {
             let parsed: unknown = {};
             if (body.trim()) {
               if (!isJson) throw new Error('Invalid content type');
               parsed = JSON.parse(body);
             }
             res.end(JSON.stringify(await store.clearTimeline(parseClearConversationId(parsed, guidPattern))));
+          } else {
+            res.writeHead(404); res.end();
           }
         } catch (error) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: url.pathname === '/api/preferences' ? prefError(error) : (errorMessage(error) || 'Timeline cache could not be cleared') }));
+          res.end(JSON.stringify({ error: url.pathname === '/api/preferences' ? prefError(error) : (errorMessage(error) || 'Request failed') }));
         }
         return;
       }

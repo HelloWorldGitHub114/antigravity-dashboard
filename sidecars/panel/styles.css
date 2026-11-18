@@ -30,13 +30,14 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
+html:has(> body:not(.standalone)) { overflow: hidden; }
 body { margin: 0; background: var(--pulse-background, var(--pulse-page, transparent)); color: var(--pulse-foreground); }
 body:not(.standalone) {
+  height: 100%;
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--pulse-background, var(--pulse-page, transparent)) !important;
   color: var(--pulse-foreground) !important;
 }
@@ -73,6 +74,12 @@ button:focus-visible, select:focus-visible, .detail-card:focus-visible, .subagen
   scrollbar-width: thin;
   scrollbar-color: var(--pulse-border) transparent;
   box-shadow: 0 6px 24px var(--pulse-shadow);
+}
+body:not(.standalone) > .widget {
+  height: calc(100% - 20px);
+  max-height: calc(100% - 20px);
+  min-height: 0;
+  flex: 1 1 0%;
 }
 .standalone .widget {
   width: min(520px, calc(100vw - 24px));
@@ -342,10 +349,8 @@ button:focus-visible, select:focus-visible, .detail-card:focus-visible, .subagen
   font-size: calc(11.5px * var(--pulse-sidebar-font-scale, 1));
   transition: transform 140ms cubic-bezier(.23, 1, .32, 1), background-color 140ms ease, color 140ms ease;
 }
-.icon-button:hover { background: var(--pulse-hover); color: var(--pulse-hover-text); }
+.icon-button:hover, #settings-button[aria-expanded="true"] { background: var(--pulse-hover); color: var(--pulse-hover-text); }
 .icon-button:active { transform: scale(.95); }
-.icon-button.font-trigger { width: auto; min-width: 26px; padding: 0 5px; font-weight: 700; }
-#language-toggle[data-save-failed="true"] { color: var(--pulse-warning); text-decoration: underline dotted; }
 #refresh-button[aria-busy="true"] { color: var(--pulse-emphasis); cursor: wait; }
 #refresh-button[aria-busy="true"] .icon { animation: pulse-refresh-spin 1s linear infinite; transform-origin: center; }
 @keyframes pulse-refresh-spin { to { transform: rotate(360deg); } }
@@ -353,22 +358,125 @@ button:focus-visible, select:focus-visible, .detail-card:focus-visible, .subagen
 .sampled-model {
   flex: none;
   display: flex;
-  gap: 9px;
+  gap: 8px;
   align-items: center;
-  min-height: calc(30px * var(--pulse-sidebar-font-scale, 1));
+  min-height: calc(32px * var(--pulse-sidebar-font-scale, 1));
   margin: 0;
-  padding: 0 13px;
+  padding: 2px 11px;
   font-size: calc(11.5px * var(--pulse-sidebar-font-scale, 1));
   color: var(--pulse-muted);
 }
 .sampled-model > span:first-child { flex: none; }
-.sampled-model > span:last-child {
+#strip-model {
+  flex: 1;
   color: var(--pulse-label);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.usage-open-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(22px * var(--pulse-sidebar-font-scale, 1));
+  padding: 0 8px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 7px;
+  background: var(--pulse-control);
+  color: var(--pulse-foreground);
+  font-size: calc(11px * var(--pulse-sidebar-font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 120ms cubic-bezier(.23, 1, .32, 1);
+}
+.usage-open-btn:hover { background: var(--pulse-hover); border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); }
+.usage-open-btn:active { transform: scale(.97); }
+.usage-open-btn:disabled { opacity: .55; cursor: wait; }
+.usage-open-btn .icon { width: 12px; height: 12px; color: var(--pulse-accent); }
+
+.settings-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 12px 13px;
+  width: min(312px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  border: 1px solid var(--pulse-border);
+  border-radius: 12px;
+  background: var(--pulse-popover, var(--pulse-background));
+  color: var(--pulse-foreground);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--pulse-shadow) 85%, #0004);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  z-index: 25;
+}
+.settings-popover:not(:popover-open) { display: none; }
+.settings-section { display: grid; gap: 6px; }
+.settings-divider { height: 1px; background: var(--pulse-separator); margin: 10px 0; }
+.settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.settings-lang-row { align-items: center; }
+.settings-copy { display: grid; gap: 3px; min-width: 0; }
+.settings-row-title { font-size: 12px; font-weight: 600; color: var(--pulse-foreground); }
+.settings-row-desc { font-size: 11px; line-height: 1.4; color: var(--pulse-muted); }
+.settings-switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 19px;
+  padding: 2px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 999px;
+  background: var(--pulse-control);
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.settings-switch:hover:not(:disabled) { border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }
+.settings-switch:disabled { opacity: .55; cursor: wait; }
+.settings-switch[aria-checked="true"] { background: var(--pulse-accent); border-color: var(--pulse-accent); }
+.settings-switch-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--pulse-muted);
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+.settings-switch[aria-checked="true"] .settings-switch-thumb { transform: translateX(15px); background: #fff; }
+.settings-debug-status { margin: 0; font-size: 11px; line-height: 1.4; color: var(--pulse-muted); }
+.settings-debug-status[data-tone="ready"] { color: var(--pulse-success); }
+.settings-debug-status[data-tone="restart"] { color: var(--pulse-warning); }
+.settings-debug-status[data-tone="error"] { color: var(--pulse-danger, var(--pulse-warning)); }
+.lang-seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 8px;
+  background: var(--pulse-control);
+  flex: none;
+}
+.lang-pill {
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--pulse-muted);
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.lang-pill:hover { color: var(--pulse-foreground); }
+.lang-pill.is-active {
+  background: var(--pulse-card, var(--pulse-background));
+  color: var(--pulse-foreground);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--pulse-shadow) 60%, transparent);
+}
+.settings-lang-error { margin: 0; font-size: 11px; color: var(--pulse-warning); }
+.panel-usage-host { position: relative; z-index: 30; }
 /* 第一部分：三合一按钮 */
 .status-strip {
   flex: none;
@@ -766,7 +874,8 @@ dd {
   .quota-ring-item, .quota-ring-svg { width: 20px; height: 20px; }
   .quota-ring-letter { font-size: 8.5px; }
   .icon-button { width: 20px; height: 22px; }
-  .icon-button.font-trigger { min-width: 22px; padding: 0 3px; }
+  .sampled-model { padding: 2px 8px; gap: 6px; }
+  .usage-open-btn { padding: 0 6px; }
 }
 @container sidebar (max-width: 260px) {
   .chip-primary strong { font-size: calc(18px * var(--pulse-sidebar-font-scale, 1)); }
@@ -777,12 +886,12 @@ dd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .icon-button, .metric-chip, .metric-chip::after, .metric-label .icon, .quota-rings-pill, .quota-ring-arc, .quota-popover-card, .quota-pop-fill, .quota-track i, .context-chip-fill, .subagents-header, .subagents-chevron, .tree-toggle-btn, .tree-toggle-btn .icon, .subagent-status-dot, .subagent-context-fill, .detail-toggle-btn, .subagent-item, .subagent-summary, .connection-dot, .mix-pill, .timeline-pill, .model-mix-segment, .model-mix-row, .timeline-seg, .timeline-toggle-btn .icon { transition: none; }
-  .metric-chip:active, .icon-button:active, .detail-toggle-btn:active { transform: none; }
+  .icon-button, .usage-open-btn, .settings-switch, .settings-switch-thumb, .lang-pill, .metric-chip, .metric-chip::after, .metric-label .icon, .quota-rings-pill, .quota-ring-arc, .quota-popover-card, .quota-pop-fill, .quota-track i, .context-chip-fill, .subagents-header, .subagents-chevron, .tree-toggle-btn, .tree-toggle-btn .icon, .subagent-status-dot, .subagent-context-fill, .detail-toggle-btn, .subagent-item, .subagent-summary, .connection-dot, .mix-pill, .timeline-pill, .model-mix-segment, .model-mix-row, .timeline-seg, .timeline-toggle-btn .icon { transition: none; }
+  .metric-chip:active, .icon-button:active, .usage-open-btn:active, .detail-toggle-btn:active { transform: none; }
   .connection-dot.live::after, .subagent-item.is-running .subagent-status-dot::after, .subagent-status-dot[data-status="running"]::after { animation: none; display: none; }
   #refresh-button[aria-busy="true"] .icon { animation: none; opacity: .65; }
 }
-.motion-reduced .icon-button, .motion-reduced .metric-chip, .motion-reduced .metric-chip::after, .motion-reduced .metric-label .icon, .motion-reduced .quota-rings-pill, .motion-reduced .quota-ring-arc, .motion-reduced .quota-popover-card, .motion-reduced .quota-pop-fill, .motion-reduced .quota-track i, .motion-reduced .context-chip-fill, .motion-reduced .subagents-header, .motion-reduced .subagents-chevron, .motion-reduced .tree-toggle-btn, .motion-reduced .tree-toggle-btn .icon, .motion-reduced .subagent-status-dot, .motion-reduced .subagent-context-fill, .motion-reduced .detail-toggle-btn, .motion-reduced .subagent-item, .motion-reduced .subagent-summary, .motion-reduced .connection-dot, .motion-reduced .mix-pill, .motion-reduced .timeline-pill, .motion-reduced .model-mix-segment, .motion-reduced .model-mix-row, .motion-reduced .timeline-seg, .motion-reduced .timeline-toggle-btn .icon { transition: none !important; }
-.motion-reduced .metric-chip:active, .motion-reduced .icon-button:active, .motion-reduced .detail-toggle-btn:active { transform: none !important; }
+.motion-reduced .icon-button, .motion-reduced .usage-open-btn, .motion-reduced .settings-switch, .motion-reduced .settings-switch-thumb, .motion-reduced .lang-pill, .motion-reduced .metric-chip, .motion-reduced .metric-chip::after, .motion-reduced .metric-label .icon, .motion-reduced .quota-rings-pill, .motion-reduced .quota-ring-arc, .motion-reduced .quota-popover-card, .motion-reduced .quota-pop-fill, .motion-reduced .quota-track i, .motion-reduced .context-chip-fill, .motion-reduced .subagents-header, .motion-reduced .subagents-chevron, .motion-reduced .tree-toggle-btn, .motion-reduced .tree-toggle-btn .icon, .motion-reduced .subagent-status-dot, .motion-reduced .subagent-context-fill, .motion-reduced .detail-toggle-btn, .motion-reduced .subagent-item, .motion-reduced .subagent-summary, .motion-reduced .connection-dot, .motion-reduced .mix-pill, .motion-reduced .timeline-pill, .motion-reduced .model-mix-segment, .motion-reduced .model-mix-row, .motion-reduced .timeline-seg, .motion-reduced .timeline-toggle-btn .icon { transition: none !important; }
+.motion-reduced .metric-chip:active, .motion-reduced .icon-button:active, .motion-reduced .usage-open-btn:active, .motion-reduced .detail-toggle-btn:active { transform: none !important; }
 .motion-reduced .connection-dot.live::after, .motion-reduced .subagent-item.is-running .subagent-status-dot::after, .motion-reduced .subagent-status-dot[data-status="running"]::after { animation: none !important; display: none; }
 .motion-reduced #refresh-button[aria-busy="true"] .icon { animation: none !important; opacity: .65; }

@@ -201,6 +201,21 @@ export const EN_DICTIONARY = {
   fontDecrease: 'Decrease',
   fontIncrease: 'Increase',
   fontPercent: 'Font percentage',
+  settingsButton: 'Settings',
+  languageSection: 'Language',
+  languageZhLabel: '简体中文',
+  languageEnLabel: 'English',
+  debugLaunchTitle: 'Auto-enable bottom bar debug',
+  debugLaunchDesc: 'Inject local debug flags into Antigravity shortcuts for the inline bottom bar on next launch (off by default).',
+  debugLaunchStatusOff: 'Off (shortcut injection disabled; manual launch flags still work)',
+  debugLaunchStatusExternal: 'Active via external launch flags (shortcut toggle off)',
+  debugLaunchStatusRestart: 'Shortcut updated — restart Antigravity to show the bottom bar',
+  debugLaunchStatusRestartMac: 'Created Desktop launcher script — launch from it to show the bottom bar',
+  debugLaunchStatusReady: 'Active — bottom bar connected',
+  debugLaunchSaving: 'Saving…',
+  debugLaunchFailed: 'Could not update debug launch setting',
+  integrationRestartHint: 'Debug launch enabled — restart Antigravity to show the inline bottom bar; statistics remain available in this panel.',
+  openUsageStats: 'Usage stats',
 } as const;
 
 export type I18nKey = keyof typeof EN_DICTIONARY;

@@ -13,11 +13,19 @@ import {
   type RuntimePreferencesBridge,
 } from '../ui/runtime-ui/index.ts';
 import type {
+  DeleteManualUsageRequest,
   IntegrationHealth,
+  ManualUsageInput,
   MetricsRequestInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  SwitchAccountRequest,
 } from '../contracts/index.ts';
+import {
+  applyDebugLaunch,
+  getDebugLaunchStatus,
+  resolveHostAppVersion,
+} from '../lifecycle/debug-launch.ts';
 import { platformPaths } from '../platform/paths.ts';
 import { discoverDevToolsTargets } from '../platform/devtools.ts';
 import { PreferencesStore } from '../platform/preferences-store.ts';
@@ -114,16 +122,27 @@ store.onTrajectory = (scope, id, raw) => usage.ingest(scope, id, raw);
 store.onAccount = (scope, meta) => usage.ledger.registerAccount(scope, meta);
 const updater = new AppUpdater({ pluginDir: join(HERE, '..', '..'), dataDir: paths.data });
 
+const hostVersion = resolveHostAppVersion(paths.appAsar);
 const createMetrics = (
   targetStore: MetricsStore,
   targetUsage: DesktopUsage,
   getHealth: () => IntegrationHealth,
+  targetProfile: string,
 ) => async (input?: MetricsRequestInput): Promise<MetricsSnapshot> => {
   const [prefs, theme] = await Promise.all([livePreferences.snapshot(), readHostTheme()]);
   targetStore.setModelTimelineEnabled(Boolean(prefs && 'modelTimelineEnabled' in prefs && prefs.modelTimelineEnabled === true));
   const base = await targetStore.snapshot(input);
   if (input?.force) void targetUsage.sync(true);
-  return { ...base, usage: await targetUsage.snapshot(), preferences: prefs, theme, integration: getHealth() };
+  const debugStatus = getDebugLaunchStatus();
+  const integration: IntegrationHealth = {
+    ...getHealth(),
+    hostVersion,
+    activePortPresent: existsSync(join(targetProfile, 'DevToolsActivePort')),
+    debugLaunchEnabled:
+      prefs && !('error' in prefs) ? prefs.debugLaunchEnabled === true : debugStatus.enabled,
+    debugLaunchConfigured: debugStatus.configured,
+  };
+  return { ...base, usage: await targetUsage.snapshot(), preferences: prefs, theme, integration };
 };
 
 const staticFiles: Record<string, [string, string]> = {
@@ -153,25 +172,18 @@ const sharedInline = readCompat('inline-widget.cjs', compatCache);
 const sharedTheme = readCompat('theme.cjs', compatCache);
 const sharedExtras = buildExtras(compatCache);
 
-const metrics = createMetrics(store, usage, () => integration.health);
-const integration = new RuntimeUi({
-  snapshot: (input) => metrics(input),
-  preferences: livePreferences,
-  updater,
-  owner: ownership?.token,
-  owns: () => (ownership ? ownership.running && ownership.isOwner() : true),
-  source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, ownership?.token, ownership?.startedAt, sharedExtras),
-  dataDir: paths.data,
-  enabled: isEnabled,
-  addManualUsage: (input) => usage.addManualUsage(input?.scope || '', input?.data || input),
-  deleteManualUsage: (input) =>
+const metrics = createMetrics(store, usage, () => integration.health, paths.profile);
+const proUsageBridge = {
+  addManualUsage: (input?: { scope?: string; data?: ManualUsageInput } & Partial<ManualUsageInput>) =>
+    usage.addManualUsage(input?.scope || '', (input?.data || input || {}) as ManualUsageInput),
+  deleteManualUsage: (input?: DeleteManualUsageRequest) =>
     usage.deleteManualUsage(
       typeof input === 'object' && input !== null ? input.scope || '' : '',
       typeof input === 'string' ? input : input?.id || '',
     ),
   getAccounts: () => usage.getAccounts(),
-  switchAccount: (input) => usage.switchAccount(input),
-  getProjectUsage: (input) =>
+  switchAccount: (input?: SwitchAccountRequest) => usage.switchAccount(input || { account: '' }),
+  getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) =>
     queryProjectUsageOverview({
       ledger: usage.ledger,
       store,
@@ -180,7 +192,7 @@ const integration = new RuntimeUi({
       from: input?.from,
       to: input?.to,
     }),
-  getProjectDetail: (input) =>
+  getProjectDetail: (input: { projectKey: string; scope?: string | null; from?: string; to?: string }) =>
     queryProjectConversationDetail({
       ledger: usage.ledger,
       store,
@@ -190,6 +202,22 @@ const integration = new RuntimeUi({
       from: input?.from,
       to: input?.to,
     }),
+};
+const integration = new RuntimeUi({
+  snapshot: (input) => metrics(input),
+  preferences: livePreferences,
+  updater,
+  owner: ownership?.token,
+  owns: () => (ownership ? ownership.running && ownership.isOwner() : true),
+  source: makeRendererSource(sharedI18n, sharedInline, sharedTheme, ownership?.token, ownership?.startedAt, sharedExtras),
+  dataDir: paths.data,
+  enabled: isEnabled,
+  addManualUsage: proUsageBridge.addManualUsage,
+  deleteManualUsage: proUsageBridge.deleteManualUsage,
+  getAccounts: proUsageBridge.getAccounts,
+  switchAccount: proUsageBridge.switchAccount,
+  getProjectUsage: proUsageBridge.getProjectUsage,
+  getProjectDetail: proUsageBridge.getProjectDetail,
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
 });
 
@@ -222,7 +250,7 @@ const createVertexInstance = () => {
   vStore.onAccount = (scope, meta) => vertexUsage.ledger.registerAccount(scope, meta);
   const vToken = ownership?.token ? `${ownership.token}-vertex` : null;
   let vertexIntegration!: RuntimeUi;
-  const vMetrics = createMetrics(vStore, vertexUsage, () => vertexIntegration.health);
+  const vMetrics = createMetrics(vStore, vertexUsage, () => vertexIntegration.health, vertexProfile);
   vertexIntegration = new RuntimeUi({
     profile: vertexProfile,
     snapshot: (input) => {
@@ -305,13 +333,15 @@ vertexController = new LazyVertexController({
 const runVertexMetrics = async (input?: MetricsRequestInput): Promise<MetricsSnapshot | null> => {
   const instance = await vertexController?.ensureStarted('http-metrics');
   if (!instance) return null;
-  return createMetrics(instance.store, instance.usage, () => instance.integration.health)(input);
+  return createMetrics(instance.store, instance.usage, () => instance.integration.health, vertexProfile)(input);
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const prefError = (error: unknown): string => {
   const msg = errorMessage(error);
-  return msg === 'Invalid timeline preference' || msg === 'Invalid font scale preference'
+  return msg === 'Invalid timeline preference' ||
+    msg === 'Invalid font scale preference' ||
+    msg === 'Invalid debug launch preference'
     ? msg
     : 'Language preference could not be saved';
 };
@@ -348,7 +378,46 @@ if (isSidecar) {
     const instance = await vertexController?.ensureStarted('http-integration');
     return instance ? instance.integration.health : { state: 'disabled', mode: 'runtime', message: 'Vertex profile unavailable', windows: 0 };
   }, 'GET');
-  app.api('/api/integration', () => integration.health, 'GET');
+  app.api('/api/integration', () => ({
+    ...integration.health,
+    hostVersion,
+    activePortPresent: existsSync(join(paths.profile, 'DevToolsActivePort')),
+    debugLaunchConfigured: getDebugLaunchStatus().configured,
+  }), 'GET');
+  app.api('/api/debug-launch', () => ({
+    ...getDebugLaunchStatus(),
+    hostVersion,
+    activePortPresent: existsSync(join(paths.profile, 'DevToolsActivePort')),
+  }), 'GET');
+  app.api('/api/debug-launch', async (data) => {
+    try {
+      const enabled = (data as { enabled?: unknown } | null)?.enabled;
+      if (typeof enabled !== 'boolean') throw new Error('Invalid debug launch preference');
+      const outcome = applyDebugLaunch(enabled);
+      const saved = await livePreferences.set({ debugLaunchEnabled: enabled });
+      return {
+        ...outcome,
+        hostVersion,
+        activePortPresent: existsSync(join(paths.profile, 'DevToolsActivePort')),
+        preferences: saved,
+      };
+    } catch (error) {
+      return new Response(JSON.stringify({ error: errorMessage(error) || 'Failed to update debug launch setting' }), {
+        status: 400,
+        contentType: 'application/json',
+      });
+    }
+  }, 'POST');
+  app.api('/api/usage/open', async () => {
+    const openedInHost = await integration.openUsageModal();
+    return { openedInHost };
+  }, 'POST');
+  app.api('/api/usage/accounts', () => proUsageBridge.getAccounts(), 'POST');
+  app.api('/api/usage/switch-account', (data) => proUsageBridge.switchAccount(data as SwitchAccountRequest), 'POST');
+  app.api('/api/usage/manual/add', (data) => proUsageBridge.addManualUsage(data as { scope?: string; data?: ManualUsageInput }), 'POST');
+  app.api('/api/usage/manual/delete', (data) => proUsageBridge.deleteManualUsage(data as DeleteManualUsageRequest), 'POST');
+  app.api('/api/usage/project-overview', (data) => proUsageBridge.getProjectUsage(data as { scope?: string | null; from?: string; to?: string }), 'POST');
+  app.api('/api/usage/project-detail', (data) => proUsageBridge.getProjectDetail(data as { projectKey: string; scope?: string | null; from?: string; to?: string }), 'POST');
   app.api('/api/preferences', () => livePreferences.snapshot(), 'GET');
   app.api('/api/preferences', async (data) => {
     try { return await livePreferences.set(data as PreferencesUpdateInput); }
@@ -392,6 +461,7 @@ if (isSidecar) {
   startPreviewServer({
     here: HERE, port: Number(process.env.AG_PULSE_PORT || 17891), guidPattern: GUID, staticFiles,
     livePreferences, store, metrics, getHealth: () => integration.health,
+    usageBridge: proUsageBridge,
     i18nModule: () => i18nModule(), themeModule: () => themeModule(), themeCss, inlineSource: () => inlineSource(),
   });
 }

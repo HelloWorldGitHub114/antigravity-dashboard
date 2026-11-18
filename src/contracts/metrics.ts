@@ -312,6 +312,10 @@ export interface IntegrationHealth {
   message: string;
   windows: number;
   checkedAt?: string;
+  hostVersion?: string | null;
+  activePortPresent?: boolean;
+  debugLaunchEnabled?: boolean;
+  debugLaunchConfigured?: boolean;
 }
 
 /**

@@ -93,6 +93,12 @@ export async function dispatchBindingCall(
     ) {
       throw new Error('Invalid timeline preference');
     }
+    if (
+      Object.hasOwn(value, 'debugLaunchEnabled') &&
+      typeof value.debugLaunchEnabled !== 'boolean'
+    ) {
+      throw new Error('Invalid debug launch preference');
+    }
     validateFontScaleInput(value);
     result = Object.keys(value).length
       ? await host.preferences.set(value as PreferencesUpdateInput)

@@ -77,10 +77,12 @@ function probeReduxDependencies(startFiber: ReactFiberNode): {
   store: ReduxStoreLike | null;
   ext: ExtensibilityLike | null;
   router: RouterLike | null;
+  useSidePanelV2: boolean | null;
 } {
   let store: ReduxStoreLike | null = null;
   let ext: ExtensibilityLike | null = null;
   let router: RouterLike | null = null;
+  let useSidePanelV2: boolean | null = null;
 
   walkReactFibers(startFiber, (fiber) => {
     const props = fiber.memoizedProps;
@@ -96,17 +98,30 @@ function probeReduxDependencies(startFiber: ReactFiberNode): {
       }
     }
 
-    if (!ext && valueProp && typeof valueProp.get === 'function') {
-      try {
-        const svc = (valueProp.get as (name: string) => unknown)('extensibility') as
-          | Partial<ExtensibilityLike>
-          | null
-          | undefined;
-        if (svc && typeof svc.resolveSidecarUrl === 'function' && svc.provider?.getState) {
-          ext = svc as ExtensibilityLike;
+    if (valueProp && typeof valueProp.get === 'function') {
+      const getService = valueProp.get as (name: string) => unknown;
+      if (!ext) {
+        try {
+          const svc = getService('extensibility') as Partial<ExtensibilityLike> | null | undefined;
+          if (svc && typeof svc.resolveSidecarUrl === 'function' && svc.provider?.getState) {
+            ext = svc as ExtensibilityLike;
+          }
+        } catch {
+          // Ignore unavailable DI service lookups.
         }
-      } catch {
-        // Ignore unavailable DI service lookups.
+      }
+      if (useSidePanelV2 === null) {
+        try {
+          const auxPane = getService('auxPaneComponent') as
+            | { redesignEnabled?: unknown }
+            | null
+            | undefined;
+          if (typeof auxPane?.redesignEnabled === 'boolean') {
+            useSidePanelV2 = auxPane.redesignEnabled;
+          }
+        } catch {
+          // Ignore unavailable DI service lookups.
+        }
       }
     }
 
@@ -122,7 +137,7 @@ function probeReduxDependencies(startFiber: ReactFiberNode): {
     return Boolean(store && ext && router);
   });
 
-  return { store, ext, router };
+  return { store, ext, router, useSidePanelV2 };
 }
 
 function dispatchSidecarOpen(
@@ -133,6 +148,7 @@ function dispatchSidecarOpen(
     sidecarId: string;
     displayName: string;
     conversationId: string | null;
+    useSidePanelV2: boolean | null;
   },
 ): boolean {
   const { sidecarId, displayName, conversationId } = options;
@@ -162,7 +178,7 @@ function dispatchSidecarOpen(
   if (!url) return false;
 
   const projectId = new URLSearchParams(location.search).get('project');
-  const treeId = conversationId
+  const scope = conversationId
     ? { kind: 'cascadeId', cascadeId: conversationId }
     : projectId
       ? { kind: 'newConversation', projectId }
@@ -175,12 +191,15 @@ function dispatchSidecarOpen(
   };
   const tabId = `sidecar__${resolvedId}__${path}`;
   const state = store.getState();
+  const useSidePanelV2 = options.useSidePanelV2 ?? Boolean(state?.sidePanelV2);
 
-  if (state?.sidePanelV2) {
+  // Antigravity 2.33.0 renamed the scope payload key from `treeId` to `panelScope`; send both for host compatibility.
+  if (useSidePanelV2 && state?.sidePanelV2) {
     store.dispatch({
       type: 'sidePanelV2/setContent',
       payload: {
-        treeId,
+        panelScope: scope,
+        treeId: scope,
         content,
         tabId,
         keepOpen: false,
@@ -191,13 +210,20 @@ function dispatchSidecarOpen(
   } else if (state?.sidePanel) {
     store.dispatch({
       type: 'sidePanel/setContent',
-      payload: { treeId, content, tabId, keepOpen: false, background: false },
+      payload: {
+        panelScope: scope,
+        treeId: scope,
+        content,
+        tabId,
+        keepOpen: false,
+        background: false,
+      },
     });
   }
   if (state?.sidePanel) {
     store.dispatch({
       type: 'sidePanel/setSidePanelOpen',
-      payload: { treeId, isOpen: true },
+      payload: { panelScope: scope, treeId: scope, isOpen: true },
     });
   }
 
@@ -274,7 +300,7 @@ export function openSidebarPanel(options: OpenSidebarPanelOptions = {}): Sidebar
     }
 
     if (startFiber) {
-      const { store, ext, router } = probeReduxDependencies(startFiber);
+      const { store, ext, router, useSidePanelV2 } = probeReduxDependencies(startFiber);
       if (store) {
         const conversationId =
           options.conversationId !== undefined
@@ -285,6 +311,7 @@ export function openSidebarPanel(options: OpenSidebarPanelOptions = {}): Sidebar
             sidecarId,
             displayName,
             conversationId,
+            useSidePanelV2,
           })
         ) {
           return 'redux';

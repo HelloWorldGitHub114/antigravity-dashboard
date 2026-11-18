@@ -3,7 +3,7 @@ import { resolveFontScale } from '../../contracts/preferences.ts';
 import { createFontPopover } from '../shared/font-popover.ts';
 import type { UsageDayIndex } from './aggregator.ts';
 import { addDays, shiftMonth } from './aggregator.ts';
-import { renderOnboardingGuide } from './dom-shell.ts';
+import { renderOnboardingGuide, resolveUsageBridge } from './dom-shell.ts';
 import type { HeatmapController } from './heatmap.ts';
 import { renderHourlySpline } from './hourly-spline.ts';
 import type { UsagePalette } from './palette.ts';
@@ -67,7 +67,7 @@ export function bindUsageModalEvents(
         initial: options.initialPreferences ?? null,
         onChange: async (update, next) => {
           applyUsageFontScale(next.usageFontScale);
-          const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+          const bridge = resolveUsageBridge(options);
           try {
             if (typeof bridge?.setPreferences === 'function') {
               const saved = await bridge.setPreferences(update);
@@ -89,7 +89,7 @@ export function bindUsageModalEvents(
     fontPopover?.localize();
     if (prefsLoaded) return;
     prefsLoaded = true;
-    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    const bridge = resolveUsageBridge(options);
     if (typeof bridge?.getPreferences !== 'function') return;
     void bridge
       .getPreferences()

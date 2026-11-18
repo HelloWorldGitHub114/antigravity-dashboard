@@ -44,6 +44,7 @@ export const PREFERENCE_KEYS = [
   'languageGuideDismissed',
   'usageGuideDismissed',
   'modelTimelineEnabled',
+  'debugLaunchEnabled',
   ...FONT_SCALE_KEYS,
 ] as const;
 
@@ -57,6 +58,7 @@ export interface PreferencesState {
   languageGuideDismissed: boolean;
   usageGuideDismissed: boolean;
   modelTimelineEnabled: boolean;
+  debugLaunchEnabled: boolean;
   usageFontScale?: number;
   sidebarFontScale?: number;
   inlineFontScale?: number;
@@ -71,6 +73,7 @@ export interface PreferencesUpdateInput {
   languageGuideDismissed?: true;
   usageGuideDismissed?: true;
   modelTimelineEnabled?: boolean;
+  debugLaunchEnabled?: boolean;
   usageFontScale?: number;
   sidebarFontScale?: number;
   inlineFontScale?: number;

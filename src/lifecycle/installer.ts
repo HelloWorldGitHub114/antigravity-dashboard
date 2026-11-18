@@ -20,6 +20,10 @@ import { instancePaths, type InstancePaths } from '../platform/paths.ts';
 import { withFileLockSync } from '../shared/file-lock.ts';
 import { restoreVerifiedLegacyAdapter } from './asar-recovery.ts';
 import {
+  applyDebugLaunch,
+  getDebugLaunchStatus,
+} from './debug-launch.ts';
+import {
   copyTreeFilteredSync,
   isReparseOrSymlink,
   readJsonObjectSync,
@@ -39,6 +43,7 @@ export interface LifecycleEnvOptions {
 export interface InstallDesktopOptions extends LifecycleEnvOptions {
   panelOnly?: boolean;
   instance?: LifecycleInstanceTarget;
+  enableDebugLaunch?: boolean;
 }
 
 export interface IdeManageOptions {
@@ -343,6 +348,22 @@ export function installDesktop(options: InstallDesktopOptions): void {
       }
       console.log(`Installed to Vertex instance: ${vertex.pluginDir}`);
     }
+
+    const prefsFile = join(dirname(pro.settings), 'preferences.json');
+    const savedPrefs = existsSync(prefsFile)
+      ? readJsonObjectSync<{ debugLaunchEnabled?: unknown }>(prefsFile)
+      : {};
+    const shouldConfigureDebugLaunch =
+      options.enableDebugLaunch === true || savedPrefs.debugLaunchEnabled === true;
+    if (shouldConfigureDebugLaunch && !panelOnly) {
+      const outcome = applyDebugLaunch(true, {
+        home: options.home,
+        env: options.env,
+        platform: options.platform,
+        appPath: options.appPath,
+      });
+      console.log(outcome.message);
+    }
   });
 
   console.log('Fully quit and reopen Antigravity to start the plugin runtime. App updates no longer overwrite the inline adapter.');
@@ -412,6 +433,19 @@ export function uninstallDesktop(
         writeJsonObjectSync(vertex.instanceSettings, { enabled: false });
       }
     }
+
+    if (instance === 'all' || instance === 'pro') {
+      try {
+        applyDebugLaunch(false, {
+          home: options.home,
+          env: options.env,
+          platform: options.platform,
+          appPath: options.appPath,
+        });
+      } catch {
+        // Best-effort cleanup of debug launch shortcuts on uninstall.
+      }
+    }
   });
 
   console.log('Antigrative Dashboard removed. Backups and diagnostic logs are retained for recovery.');
@@ -449,6 +483,12 @@ export function statusDesktop(
     pluginDirectory: pro.pluginDir,
     integrationMode: readJsonObjectSync<DesktopSettingsFile>(pro.instanceSettings).mode ?? 'legacy',
     inlineIntegration: proHealth,
+    debugLaunch: getDebugLaunchStatus({
+      home: options.home,
+      env: options.env,
+      platform: options.platform,
+      appPath: options.appPath,
+    }),
     toolbarAdapterRecoverable: recoverable,
   };
 

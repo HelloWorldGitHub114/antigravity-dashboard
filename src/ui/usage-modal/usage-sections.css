@@ -109,3 +109,8 @@ select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 
 #usage-intro-done:hover { background: var(--pulse-selected); }
 #usage-intro-done:active { transform: scale(.98); }
 #usage-intro-done:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 520px) {
+  .top { flex-direction: column; gap: 12px; }
+  .top-controls { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
+  .tabs-bar { margin: 16px 0; gap: 10px; }
+}

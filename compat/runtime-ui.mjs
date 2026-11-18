@@ -381,6 +381,7 @@ var PREFERENCE_KEYS = [
   "languageGuideDismissed",
   "usageGuideDismissed",
   "modelTimelineEnabled",
+  "debugLaunchEnabled",
   ...FONT_SCALE_KEYS
 ];
 
@@ -424,6 +425,9 @@ async function dispatchBindingCall(host, connection, input) {
     }
     if (Object.hasOwn(value, "modelTimelineEnabled") && typeof value.modelTimelineEnabled !== "boolean") {
       throw new Error("Invalid timeline preference");
+    }
+    if (Object.hasOwn(value, "debugLaunchEnabled") && typeof value.debugLaunchEnabled !== "boolean") {
+      throw new Error("Invalid debug launch preference");
     }
     validateFontScaleInput(value);
     result = Object.keys(value).length ? await host.preferences.set(value) : await host.preferences.get();
@@ -938,6 +942,21 @@ var RuntimeUi = class {
     } finally {
       this.busy = false;
     }
+  }
+  async openUsageModal() {
+    if (this.stopping || !await this.owns() || !await this.enabled()) return false;
+    for (const connection of this.sessions.values()) {
+      if (connection.closed || !connection.mounted) continue;
+      try {
+        const res = await connection.command("Runtime.evaluate", {
+          returnByValue: true,
+          expression: this.rendererGuard("Boolean(window.__agPulseOpenUsage?.())")
+        });
+        if (!res.exceptionDetails && res.result?.value === true) return true;
+      } catch {
+      }
+    }
+    return false;
   }
   async detachAll() {
     const ctx = this.lifecycleContext();

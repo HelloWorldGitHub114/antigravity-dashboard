@@ -45,6 +45,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       "languageGuideDismissed",
       "usageGuideDismissed",
       "modelTimelineEnabled",
+      "debugLaunchEnabled",
       ...FONT_SCALE_KEYS
     ];
 
@@ -612,7 +613,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       }
       try {
         const params = new URLSearchParams(location.search);
-        const fromSearch = params.get("conversationId") || params.get("c");
+        const fromSearch = params.get("cascadeId") || params.get("conversationId") || params.get("c");
         if (isValidGuid(fromSearch)) return fromSearch;
       } catch {
       }
@@ -671,6 +672,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       let store = null;
       let ext = null;
       let router = null;
+      let useSidePanelV2 = null;
       walkReactFibers(startFiber, (fiber) => {
         const props = fiber.memoizedProps;
         if (!props || typeof props !== "object") return false;
@@ -683,13 +685,25 @@ module.exports = function installAgPulseInlineWidget(...args) {
             }
           }
         }
-        if (!ext && valueProp && typeof valueProp.get === "function") {
-          try {
-            const svc = valueProp.get("extensibility");
-            if (svc && typeof svc.resolveSidecarUrl === "function" && svc.provider?.getState) {
-              ext = svc;
+        if (valueProp && typeof valueProp.get === "function") {
+          const getService = valueProp.get;
+          if (!ext) {
+            try {
+              const svc = getService("extensibility");
+              if (svc && typeof svc.resolveSidecarUrl === "function" && svc.provider?.getState) {
+                ext = svc;
+              }
+            } catch {
             }
-          } catch {
+          }
+          if (useSidePanelV2 === null) {
+            try {
+              const auxPane = getService("auxPaneComponent");
+              if (typeof auxPane?.redesignEnabled === "boolean") {
+                useSidePanelV2 = auxPane.redesignEnabled;
+              }
+            } catch {
+            }
           }
         }
         if (!router) {
@@ -702,7 +716,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         }
         return Boolean(store && ext && router);
       });
-      return { store, ext, router };
+      return { store, ext, router, useSidePanelV2 };
     }
     function dispatchSidecarOpen(store, ext, router, options) {
       const { sidecarId, displayName, conversationId } = options;
@@ -718,7 +732,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       const url = (sidecar?.baseUrl && ext?.resolveSidecarUrl ? ext.resolveSidecarUrl(sidecar.baseUrl, path) : null) || document.querySelector(`[data-sidecar-id="${sidecarId}"][data-sidecar-url]`)?.getAttribute("data-sidecar-url");
       if (!url) return false;
       const projectId = new URLSearchParams(location.search).get("project");
-      const treeId = conversationId ? { kind: "cascadeId", cascadeId: conversationId } : projectId ? { kind: "newConversation", projectId } : { kind: "home" };
+      const scope = conversationId ? { kind: "cascadeId", cascadeId: conversationId } : projectId ? { kind: "newConversation", projectId } : { kind: "home" };
       const resolvedId = sidecar?.sidecarId || sidecarId;
       const title = view.title || sidecar?.config?.uiConfig?.displayName || displayName;
       const content = {
@@ -727,11 +741,13 @@ module.exports = function installAgPulseInlineWidget(...args) {
       };
       const tabId = `sidecar__${resolvedId}__${path}`;
       const state = store.getState();
-      if (state?.sidePanelV2) {
+      const useSidePanelV2 = options.useSidePanelV2 ?? Boolean(state?.sidePanelV2);
+      if (useSidePanelV2 && state?.sidePanelV2) {
         store.dispatch({
           type: "sidePanelV2/setContent",
           payload: {
-            treeId,
+            panelScope: scope,
+            treeId: scope,
             content,
             tabId,
             keepOpen: false,
@@ -742,13 +758,20 @@ module.exports = function installAgPulseInlineWidget(...args) {
       } else if (state?.sidePanel) {
         store.dispatch({
           type: "sidePanel/setContent",
-          payload: { treeId, content, tabId, keepOpen: false, background: false }
+          payload: {
+            panelScope: scope,
+            treeId: scope,
+            content,
+            tabId,
+            keepOpen: false,
+            background: false
+          }
         });
       }
       if (state?.sidePanel) {
         store.dispatch({
           type: "sidePanel/setSidePanelOpen",
-          payload: { treeId, isOpen: true }
+          payload: { panelScope: scope, treeId: scope, isOpen: true }
         });
       }
       if (router?.navigate) {
@@ -816,13 +839,14 @@ module.exports = function installAgPulseInlineWidget(...args) {
           if (startFiber) break;
         }
         if (startFiber) {
-          const { store, ext, router } = probeReduxDependencies(startFiber);
+          const { store, ext, router, useSidePanelV2 } = probeReduxDependencies(startFiber);
           if (store) {
             const conversationId = options.conversationId !== void 0 ? options.conversationId : readDesktopConversationId(options.composer);
             if (dispatchSidecarOpen(store, ext, router, {
               sidecarId,
               displayName,
-              conversationId
+              conversationId,
+              useSidePanelV2
             })) {
               return "redux";
             }
@@ -3728,6 +3752,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
         cards.position();
         polling.pollIfDue();
       }, 1e3);
+      win.__agPulseOpenUsage = () => {
+        if (!usageDashboard || !polling.data?.usage) return false;
+        cards.hide();
+        usageDashboard.open(polling.data.usage, null);
+        return true;
+      };
       win.__agPulseDispose = () => {
         polling.dispose();
         density.dispose(node);
@@ -3747,6 +3777,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         root = null;
         composer = null;
         win.__agPulseInlineInstalled = false;
+        delete win.__agPulseOpenUsage;
         delete win.__agPulseDispose;
       };
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });

@@ -260,7 +260,22 @@ module.exports = function createDashboardI18n(...args) {
       fontRowInline: "Bottom card",
       fontDecrease: "Decrease",
       fontIncrease: "Increase",
-      fontPercent: "Font percentage"
+      fontPercent: "Font percentage",
+      settingsButton: "Settings",
+      languageSection: "Language",
+      languageZhLabel: "\u7B80\u4F53\u4E2D\u6587",
+      languageEnLabel: "English",
+      debugLaunchTitle: "Auto-enable bottom bar debug",
+      debugLaunchDesc: "Inject local debug flags into Antigravity shortcuts for the inline bottom bar on next launch (off by default).",
+      debugLaunchStatusOff: "Off (shortcut injection disabled; manual launch flags still work)",
+      debugLaunchStatusExternal: "Active via external launch flags (shortcut toggle off)",
+      debugLaunchStatusRestart: "Shortcut updated \u2014 restart Antigravity to show the bottom bar",
+      debugLaunchStatusRestartMac: "Created Desktop launcher script \u2014 launch from it to show the bottom bar",
+      debugLaunchStatusReady: "Active \u2014 bottom bar connected",
+      debugLaunchSaving: "Saving\u2026",
+      debugLaunchFailed: "Could not update debug launch setting",
+      integrationRestartHint: "Debug launch enabled \u2014 restart Antigravity to show the inline bottom bar; statistics remain available in this panel.",
+      openUsageStats: "Usage stats"
     };
 
     // src/ui/i18n/dictionary-zh.ts
@@ -458,7 +473,22 @@ module.exports = function createDashboardI18n(...args) {
       fontIncrease: "\u653E\u5927",
       fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4",
       quotaNo5hTag: "\u4EC5\u5468\u989D\u5EA6",
-      quotaRingsLabel: "\u67E5\u770B\u6A21\u578B\u989D\u5EA6\u8BE6\u60C5"
+      quotaRingsLabel: "\u67E5\u770B\u6A21\u578B\u989D\u5EA6\u8BE6\u60C5",
+      settingsButton: "\u8BBE\u7F6E",
+      languageSection: "\u754C\u9762\u8BED\u8A00",
+      languageZhLabel: "\u7B80\u4F53\u4E2D\u6587",
+      languageEnLabel: "English",
+      debugLaunchTitle: "\u81EA\u52A8\u5F00\u542F\u5E95\u90E8\u8C03\u8BD5\u680F",
+      debugLaunchDesc: "\u5F00\u542F\u540E\u5C06\u4E3A Antigravity \u5FEB\u6377\u65B9\u5F0F\u6CE8\u5165\u672C\u5730\u8C03\u8BD5\u53C2\u6570\uFF0C\u4EE5\u4FBF\u4E0B\u6B21\u542F\u52A8\u65F6\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF09\u3002",
+      debugLaunchStatusOff: "\u5DF2\u5173\u95ED\uFF08\u4EC5\u5173\u95ED\u5FEB\u6377\u65B9\u5F0F\u6CE8\u5165\uFF1B\u5DF2\u6709\u5916\u90E8\u8C03\u8BD5\u53C2\u6570\u4ECD\u53EF\u751F\u6548\uFF09",
+      debugLaunchStatusExternal: "\u5DF2\u901A\u8FC7\u5916\u90E8\u542F\u52A8\u53C2\u6570\u751F\u6548\uFF08\u672C\u5F00\u5173\u5F53\u524D\u5173\u95ED\uFF09",
+      debugLaunchStatusRestart: "\u5DF2\u66F4\u65B0\u5FEB\u6377\u65B9\u5F0F\uFF0C\u91CD\u542F Antigravity \u540E\u5373\u53EF\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F",
+      debugLaunchStatusRestartMac: "\u5DF2\u5728\u684C\u9762\u751F\u6210\u542F\u52A8\u811A\u672C\uFF0C\u901A\u8FC7\u8BE5\u811A\u672C\u542F\u52A8\u540E\u5373\u53EF\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F",
+      debugLaunchStatusReady: "\u5DF2\u542F\u7528\uFF0C\u5E95\u90E8\u8F93\u5165\u680F\u8C03\u8BD5\u8FDE\u63A5\u6B63\u5E38",
+      debugLaunchSaving: "\u6B63\u5728\u4FDD\u5B58\u2026",
+      debugLaunchFailed: "\u66F4\u65B0\u8C03\u8BD5\u542F\u52A8\u8BBE\u7F6E\u5931\u8D25",
+      integrationRestartHint: "\u5DF2\u5F00\u542F\u8C03\u8BD5\u542F\u52A8\uFF0C\u91CD\u542F Antigravity \u540E\u5373\u53EF\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F\uFF1B\u5F53\u524D\u9762\u677F\u7EDF\u8BA1\u4ECD\u53EF\u6B63\u5E38\u4F7F\u7528\u3002",
+      openUsageStats: "\u7528\u91CF\u7EDF\u8BA1"
     };
 
     // src/ui/i18n/index.ts

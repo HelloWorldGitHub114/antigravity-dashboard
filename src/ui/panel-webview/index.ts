@@ -1,12 +1,15 @@
+import type { PreferencesSnapshot, RuntimeBridgeApi } from '../../contracts/index.ts';
 import { resolveFontScale } from '../../contracts/preferences.ts';
-import { setAttr, setHidden, setText } from '../../shared/dom.ts';
+import { setAttr, setHidden, setMarkup, setText } from '../../shared/dom.ts';
 import createDashboardI18n from '../i18n/index.ts';
-import { createFontPopover, FONT_POPOVER_CSS } from '../shared/font-popover.ts';
+import { FONT_CONTROL_CSS } from '../shared/font-popover.ts';
 import createAgPulseTheme from '../theme/index.ts';
+import createUsageDashboard, { type UsageDashboardHandle } from '../usage-modal/index.ts';
 import { createCardSwitcher, createDomLookup, syncPinBottom } from './dom-motion.ts';
 import { bindModelMixEvents, renderModelMix } from './model-mix.ts';
 import { createPanelController } from './polling.ts';
 import { renderQuotaAndSpeedSections, updateCountdowns } from './quota-section.ts';
+import { createSettingsPopover } from './settings-popover.ts';
 import { bindSubagentEvents, renderSubagentsSection } from './subagent-tree.ts';
 import { focusTimelineNodeByStep, renderTimeline, showSwimlaneTip } from './swimlane-timeline.ts';
 import type { PanelDomContext, PanelState, PanelWindow } from './types.ts';
@@ -46,7 +49,7 @@ function initPanel(): void {
   if (!document.getElementById('ag-pulse-font-popover-style')) {
     const styleEl = document.createElement('style');
     styleEl.id = 'ag-pulse-font-popover-style';
-    styleEl.textContent = FONT_POPOVER_CSS;
+    styleEl.textContent = FONT_CONTROL_CSS;
     document.head.append(styleEl);
   }
 
@@ -90,6 +93,8 @@ function initPanel(): void {
 
   let ctx!: PanelDomContext;
   let controller!: ReturnType<typeof createPanelController>;
+  let localUsage: UsageDashboardHandle | null = null;
+  let usageThemeController: ReturnType<typeof theme.attach> | null = null;
 
   const render = (): void => {
     const snapshot = state.snapshot;
@@ -134,15 +139,24 @@ function initPanel(): void {
     healthNote?.classList.toggle('warning', snapshot.connection !== 'live' || Boolean(snapshot.sessionError));
 
     const integration = snapshot.integration;
-    setText(
-      ctx.$('integration-note'),
-      integration && !['mounted', 'disabled'].includes(integration.state)
-        ? language.language === 'zh-CN'
-          ? '内嵌栏正在自动重连；此面板仍可查看统计。'
-          : 'Inline widget is reconnecting automatically; statistics remain available in this panel.'
-        : '',
-    );
+    const activePortPresent = Boolean(integration?.activePortPresent);
+    const debugEnabled =
+      integration?.debugLaunchEnabled ??
+      (snapshot.preferences && !('error' in snapshot.preferences) ? snapshot.preferences.debugLaunchEnabled : false);
+    let integrationMsg = '';
+    if (integration && !['mounted', 'disabled'].includes(integration.state)) {
+      if (activePortPresent) {
+        integrationMsg =
+          language.language === 'zh-CN'
+            ? '内嵌栏正在自动重连；此面板仍可查看统计。'
+            : 'Inline widget is reconnecting automatically; statistics remain available in this panel.';
+      } else if (debugEnabled) {
+        integrationMsg = t('integrationRestartHint');
+      }
+    }
+    setText(ctx.$('integration-note'), integrationMsg);
     handleUpdateCountdowns();
+    if (localUsage?.isOpen) localUsage.update(snapshot.usage);
   };
 
   const handleUpdateCountdowns = (): void => {
@@ -167,7 +181,16 @@ function initPanel(): void {
     localSet,
   };
 
-  controller = createPanelController(ctx, { render, updateCountdowns: handleUpdateCountdowns });
+  controller = createPanelController(ctx, {
+    render,
+    updateCountdowns: handleUpdateCountdowns,
+    onTheme: (hostTheme) => {
+      usageThemeController?.setHostTheme(hostTheme ?? null);
+    },
+    onUsage: (usage) => {
+      if (localUsage?.isOpen) localUsage.update(usage);
+    },
+  });
   ctx.preferences = controller.connectPreferences();
 
   const showCard = createCardSwitcher(ctx);
@@ -297,21 +320,21 @@ function initPanel(): void {
   });
 
   ctx.$('refresh-button')?.addEventListener('click', controller.refreshManually);
-  ctx.$('language-toggle')?.addEventListener('click', () => { void ctx.preferences.toggle(); });
-  const fontTrigger = ctx.$<HTMLButtonElement>('font-settings');
-  if (fontTrigger) {
-    ctx.fontPopover = createFontPopover({
-      trigger: fontTrigger,
+  const settingsTrigger = ctx.$<HTMLButtonElement>('settings-button');
+  if (settingsTrigger) {
+    ctx.settingsPopover = createSettingsPopover({
+      trigger: settingsTrigger,
       mountRoot: document.body,
-      getLanguage: () => language.language,
-      initial: { sidebarFontScale: resolveFontScale(localGet('ag-pulse-sidebar-font-scale')) },
-      onChange: async (update, next) => {
+      language,
+      initialPreferences: { sidebarFontScale: resolveFontScale(localGet('ag-pulse-sidebar-font-scale')) },
+      onFontChange: async (update, next) => {
         applySidebarFontScale(next.sidebarFontScale);
         localSet('ag-pulse-sidebar-font-scale', String(next.sidebarFontScale));
         try {
           const saved = await controller.savePreferences(update);
           if (saved && !('error' in saved)) {
-            ctx.fontPopover?.sync(saved);
+            ctx.settingsPopover?.syncPreferences(saved);
+            localUsage?.syncPreferences?.(saved);
             applySidebarFontScale(saved.sidebarFontScale);
             localSet('ag-pulse-sidebar-font-scale', String(resolveFontScale(saved.sidebarFontScale)));
           }
@@ -319,8 +342,142 @@ function initPanel(): void {
           // Keep optimistic preview if offline/standalone.
         }
       },
+      onSelectLanguage: async (lang) => {
+        await ctx.preferences.choose(lang);
+        ctx.settingsPopover?.syncLanguage(language.language, ctx.preferences.error);
+        ctx.settingsPopover?.localize();
+      },
+      onToggleDebugLaunch: async (nextEnabled) => {
+        ctx.settingsPopover?.syncDebugLaunch({ busy: true, error: null });
+        try {
+          const result = await controller.apiJson<{
+            enabled?: boolean;
+            configured?: boolean;
+            activePortPresent?: boolean;
+            platform?: string | null;
+            preferences?: PreferencesSnapshot;
+          }>('/api/debug-launch', { enabled: nextEnabled });
+          if (result.preferences && !('error' in result.preferences)) {
+            ctx.preferences.sync(result.preferences);
+            ctx.settingsPopover?.syncPreferences(result.preferences);
+          }
+          ctx.settingsPopover?.syncDebugLaunch({
+            enabled: result.enabled ?? nextEnabled,
+            configured: Boolean(result.configured),
+            activePortPresent: Boolean(result.activePortPresent),
+            platform: result.platform ?? null,
+            busy: false,
+            error: null,
+          });
+          await controller.refresh(true);
+        } catch (err) {
+          ctx.settingsPopover?.syncDebugLaunch({
+            busy: false,
+            error: err instanceof Error ? err.message : t('debugLaunchFailed'),
+          });
+        }
+      },
+      onRefreshDebugLaunch: async () => {
+        try {
+          const status = await controller.apiJson<{
+            enabled?: boolean;
+            configured?: boolean;
+            activePortPresent?: boolean;
+            platform?: string | null;
+          }>('/api/debug-launch');
+          ctx.settingsPopover?.syncDebugLaunch({
+            ...(typeof status.enabled === 'boolean' ? { enabled: status.enabled } : {}),
+            ...(typeof status.configured === 'boolean' ? { configured: status.configured } : {}),
+            ...(typeof status.activePortPresent === 'boolean' ? { activePortPresent: status.activePortPresent } : {}),
+            platform: status.platform ?? null,
+            error: null,
+          });
+        } catch {
+          // Non-fatal in standalone/offline mode.
+        }
+      },
     });
   }
+
+  const ensureLocalUsage = (): UsageDashboardHandle => {
+    if (localUsage) return localUsage;
+    const usageHost = ctx.$('panel-usage-host') || document.body;
+    const shadow = usageHost.shadowRoot || usageHost.attachShadow({ mode: 'open' });
+    usageThemeController = theme.attach(usageHost);
+    usageThemeController.setHostTheme(state.snapshot?.theme ?? null);
+    const usageBridge: Partial<RuntimeBridgeApi> = {
+      getPreferences: () => controller.apiJson('/api/preferences'),
+      setPreferences: (input) => controller.apiJson('/api/preferences', input),
+      getAccounts: () => controller.apiJson('/api/usage/accounts', {}),
+      switchAccount: (input) => controller.apiJson('/api/usage/switch-account', input),
+      addManualUsage: (input) => controller.apiJson('/api/usage/manual/add', input),
+      deleteManualUsage: (input) => controller.apiJson('/api/usage/manual/delete', input),
+      getProjectUsage: (input) => controller.apiJson('/api/usage/project-overview', input),
+      getProjectDetail: (input) => controller.apiJson('/api/usage/project-detail', input),
+    };
+    const currentPrefs =
+      state.snapshot?.preferences && !('error' in state.snapshot.preferences)
+        ? state.snapshot.preferences
+        : undefined;
+    localUsage = createUsageDashboard({
+      root: shadow,
+      language,
+      setMarkup,
+      hostLabel: 'Antigravity',
+      bridge: usageBridge,
+      initialPreferences: currentPrefs,
+      guideDismissed: Boolean(currentPrefs?.usageGuideDismissed),
+      onDismissGuide: async () => {
+        const saved = await controller.savePreferences({ usageGuideDismissed: true });
+        if (saved && !('error' in saved)) {
+          ctx.preferences.sync(saved);
+          localUsage?.syncGuideDismissed();
+        }
+      },
+      onLanguage: async (next) => {
+        await ctx.preferences.choose(next);
+        if (state.snapshot?.usage) localUsage?.update(state.snapshot.usage);
+      },
+      onRefresh: async () => {
+        await controller.refresh(true);
+        if (state.snapshot?.usage) localUsage?.update(state.snapshot.usage);
+      },
+      onPreferencesSaved: (saved) => {
+        ctx.preferences.sync(saved);
+        ctx.settingsPopover?.syncPreferences(saved);
+        if ('sidebarFontScale' in saved) {
+          const scale = resolveFontScale(saved.sidebarFontScale);
+          applySidebarFontScale(scale);
+          localSet('ag-pulse-sidebar-font-scale', String(scale));
+        }
+      },
+    });
+    return localUsage;
+  };
+
+  const openUsageBtn = ctx.$<HTMLButtonElement>('open-usage-button');
+  openUsageBtn?.addEventListener('click', () => {
+    if (openUsageBtn.disabled) return;
+    openUsageBtn.disabled = true;
+    void (async () => {
+      try {
+        try {
+          const res = await controller.apiJson<{ openedInHost?: boolean }>('/api/usage/open', {});
+          if (res?.openedInHost) return;
+        } catch {
+          // Fall back to embedded local usage modal when host CDP modal is unavailable.
+        }
+        if (!state.snapshot?.usage) {
+          await controller.refresh(true);
+        }
+        if (!state.snapshot?.usage) return;
+        const dashboard = ensureLocalUsage();
+        dashboard.open(state.snapshot.usage, openUsageBtn);
+      } finally {
+        openUsageBtn.disabled = false;
+      }
+    })();
+  });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) void controller.refresh();
   });
@@ -329,7 +486,11 @@ function initPanel(): void {
     document.removeEventListener('pointerdown', onDocQuotaPointerDown, true);
     document.removeEventListener('keydown', onDocQuotaKeyDown, true);
     window.removeEventListener('resize', onQuotaResize);
-    ctx.fontPopover?.dispose();
+    ctx.settingsPopover?.dispose();
+    localUsage?.dispose();
+    localUsage = null;
+    usageThemeController?.dispose();
+    usageThemeController = null;
     ctx.themeController.dispose();
     ctx.preferences.dispose();
   });

@@ -28,6 +28,7 @@ export interface UsageDashboardOptions {
   hostLabel?: string;
   guideDismissed?: boolean;
   initialPreferences?: Partial<PreferencesSnapshot> | null;
+  bridge?: Partial<RuntimeBridgeApi> | null;
   onDismissGuide: () => Promise<void>;
   onLanguage: (next: LanguageCode) => Promise<void>;
   onRefresh: () => Promise<void>;

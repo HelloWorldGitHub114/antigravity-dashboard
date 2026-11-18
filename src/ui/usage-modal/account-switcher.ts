@@ -1,6 +1,7 @@
 import type { UsageAccountInfo } from '../../contracts/index.ts';
+import { resolveUsageBridge } from './dom-shell.ts';
 import { renderSubtitle } from './localize-modal.ts';
-import type { UsageDomContext, UsageWindow } from './types.ts';
+import type { UsageDomContext } from './types.ts';
 
 type AccountEntry = UsageAccountInfo | { id?: string; account?: string; accountKey?: string; name?: string; email?: string | null } | string;
 
@@ -8,7 +9,7 @@ export async function syncAccountSwitcher(ctx: UsageDomContext): Promise<void> {
   const select = ctx.$<HTMLSelectElement>('account-switcher');
   if (!select) return;
   const { state, options, w } = ctx;
-  const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+  const bridge = resolveUsageBridge(options);
   let list: AccountEntry[] | null = null;
 
   if (state.value?.accounts && Array.isArray(state.value.accounts)) {
@@ -66,7 +67,7 @@ export function bindAccountSwitcher(ctx: UsageDomContext): void {
   select?.addEventListener('change', async (event) => {
     const newAccount = (event.target as HTMLSelectElement).value;
     if (!newAccount || newAccount === (ctx.state.value?.viewScope || ctx.state.value?.accountKey)) return;
-    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    const bridge = resolveUsageBridge(ctx.options);
     try {
       await bridge?.switchAccount?.({ account: newAccount });
     } catch {}

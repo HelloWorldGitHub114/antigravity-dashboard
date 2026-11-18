@@ -136,6 +136,7 @@ export type WidgetMetricsSnapshot = MetricsSnapshot & {
 export interface WidgetWindow extends Window {
   agPulseHost?: RuntimeBridgeApi;
   __agPulseInlineInstalled?: boolean;
+  __agPulseOpenUsage?: () => boolean;
   __agPulseDispose?: () => void;
   __agPulseI18nFactory?: (initialLanguage: string | null) => WidgetLanguage;
   __agPulseThemeFactory?: () => WidgetThemeFactory;

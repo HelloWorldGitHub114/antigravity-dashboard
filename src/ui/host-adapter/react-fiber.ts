@@ -80,7 +80,7 @@ export function readDesktopConversationId(composer?: ComposerTarget | null): str
 
   try {
     const params = new URLSearchParams(location.search);
-    const fromSearch = params.get('conversationId') || params.get('c');
+    const fromSearch = params.get('cascadeId') || params.get('conversationId') || params.get('c');
     if (isValidGuid(fromSearch)) return fromSearch;
   } catch {
     // Ignore invalid location search access.

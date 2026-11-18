@@ -7,9 +7,9 @@
 Token throughput, cache hits and context usage in the model selector row. Hover over context for five-hour and weekly quotas too.<br>
 Keep the summary visible. Hover for the details.
 
-[![Version 0.12.3](https://img.shields.io/badge/version-0.12.3-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.4](https://img.shields.io/badge/version-0.12.4-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
-[![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
+[![Antigravity 2.21.1 - 2.33.0](https://img.shields.io/badge/Antigravity-2.21.1%20--%202.33.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
 
 [Preview](#preview) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-status-line) · [Install](#install) · [Enable or remove](#plug-and-unplug) · [Compatibility](#compatibility) · [FAQ](#faq) · [中文](README.zh-CN.md)
@@ -21,6 +21,8 @@ Keep the summary visible. Hover for the details.
 
 > [!IMPORTANT]
 > **Rust Native Engine in `v0.12.0` (`pulse-accel`) & Fallback Guidance:** `v0.12.0` introduces an optional Rust N-API native engine (`pulse-accel`) that dramatically speeds up UI responsiveness, SQLite conversation backfills, ledger queries, transcript scanning, and SVG rendering while substantially reducing V8 heap memory usage. As this is a major new native engine, if you run into any unexpected glitches or regressions, please [open an issue](https://github.com/ShZbz/antigravity-dashboard/issues) promptly with reproduction details. You can immediately fall back to the pure TypeScript runtime by setting `PULSE_DISABLE_NATIVE_ACCEL=1` in the environment, or roll back to release **`v0.11.0`** if the issue prevents normal use.
+
+**v0.12.4:** Add full Antigravity `2.33.0` compatibility (`panelScope` / `auxPaneComponent` Redux sidebar dispatch + `?cascadeId=` resolution so the inline **Open sidebar** button works again; bounded sidecar `.widget` height so overflowing panels scroll cleanly with the mouse wheel), redesign the sidebar header gear settings popover (combining an opt-in OS shortcut debug-launch switch — off by default — with `简体中文`/`English` language switching and 3-row `Aa` font scaling), and add a dedicated sidebar **Usage stats** (`#open-usage-button`) entry with an embedded Token Usage modal fallback when the inline bottom bar is offline.
 
 **v0.12.3:** Refactor the sidebar panel (concentric header quota rings with interactive hover/click popover, two-column Speed/Cache chips and inline Context progress track, click-to-collapse card stage, anti-jump bottom pinning, and `@container sidebar` breakpoints), polish the Usage modal header/tabs/account-switcher layout, accelerate project statistics (`readLedgerProjectSummariesJson`, binary `project-ledger-v1.bin` + `project-meta-v1.json`, stat-validated DB/WAL caching, and table-driven `timezone.ts`), and fix multi-account isolation in project statistics (`viewScope` forwarding + `ownership-v1.json` deduplication).
 
@@ -92,7 +94,7 @@ Keep the summary visible. Hover for the details.
 ## Antigravity IDE
 
 **v0.7.0+** includes a separate VSIX for Google's standalone Antigravity IDE. Download
-`antigrative-dashboard-ide-0.12.3.vsix` from the release and choose **Install from VSIX…**
+`antigrative-dashboard-ide-0.12.4.vsix` from the release and choose **Install from VSIX…**
 in the IDE's Extensions view. No desktop App installation is required.
 
 Fully quit the IDE, then start it with
@@ -117,7 +119,7 @@ Available in **v0.6.0+**: an independent adapter for the official Antigravity CL
 
 The commands below install the **desktop App adapter**. IDE users should use the [separate VSIX instructions above](#antigravity-ide).
 
-Supported: **Windows, Linux and macOS; Antigravity desktop App 2.21.1 / 2.22.0; Node.js 20+ (or bundled Electron runtime via `install.ps1` / `install.sh`) or Python 3.10+**. The same release ZIP works on all three systems with zero runtime npm or pip dependencies. See [COMPATIBILITY.md](COMPATIBILITY.md) for the per-platform verification scope.
+Supported: **Windows, Linux and macOS; Antigravity desktop App 2.21.1 / 2.22.0 / 2.33.0; Node.js 20+ (or bundled Electron runtime via `install.ps1` / `install.sh`) or Python 3.10+**. The same release ZIP works on all three systems with zero runtime npm or pip dependencies. See [COMPATIBILITY.md](COMPATIBILITY.md) for the per-platform verification scope.
 
 > The inline model-row position has no public plugin mounting API. A standard Antigravity sidecar attaches the widget through the existing local renderer debugging endpoint. Default installation never modifies `resources/app.asar`. This is unofficial; future changes to the host DOM, debugging channel, SDK or metrics API may require an adapter update. The native side panel remains a persistent companion and fallback.
 

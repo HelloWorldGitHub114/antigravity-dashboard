@@ -2,7 +2,7 @@
 import type { UsageSummarySnapshot } from '../../contracts/index.ts';
 import { bindAccountSwitcher, syncAccountSwitcher } from './account-switcher.ts';
 import { UsageDayIndex, type AggregationQuery } from './aggregator.ts';
-import { mountUsageDomShell, renderKpiCards, renderOnboardingGuide } from './dom-shell.ts';
+import { mountUsageDomShell, renderKpiCards, renderOnboardingGuide, resolveUsageBridge } from './dom-shell.ts';
 import { bindUsageModalEvents, type UsageEventsCleanup } from './events.ts';
 import { createFocusTrap } from './focus-trap.ts';
 import { createHeatmapController } from './heatmap.ts';
@@ -100,7 +100,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
     const reqKey = `${scope || ''}|${projectKey}|${from}|${to}`;
     if (state.projectDetailKey === reqKey && (state.projectDetail || state.projectDetailLoading)) return;
-    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    const bridge = resolveUsageBridge(options);
     if (typeof bridge?.getProjectDetail !== 'function') return;
 
     const myEpoch = ++projectDetailEpoch;
@@ -133,7 +133,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
     const reqKey = `${scope || ''}|${from}|${to}`;
     if (state.projectOverviewKey === reqKey) return;
-    const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
+    const bridge = resolveUsageBridge(options);
     if (typeof bridge?.getProjectUsage !== 'function') return;
 
     const myEpoch = ++projectReqEpoch;

@@ -31,6 +31,7 @@ var PREFERENCE_KEYS = [
   "languageGuideDismissed",
   "usageGuideDismissed",
   "modelTimelineEnabled",
+  "debugLaunchEnabled",
   ...FONT_SCALE_KEYS
 ];
 
@@ -317,6 +318,7 @@ var PreferencesStore = class {
         languageGuideDismissed: value.languageGuideDismissed === true,
         usageGuideDismissed: value.usageGuideDismissed === true,
         modelTimelineEnabled: value.modelTimelineEnabled === true,
+        debugLaunchEnabled: value.debugLaunchEnabled === true,
         usageFontScale: resolveFontScale(value.usageFontScale),
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
@@ -329,6 +331,7 @@ var PreferencesStore = class {
           languageGuideDismissed: false,
           usageGuideDismissed: false,
           modelTimelineEnabled: false,
+          debugLaunchEnabled: false,
           usageFontScale: 1,
           sidebarFontScale: 1,
           inlineFontScale: 1,
@@ -362,6 +365,9 @@ var PreferencesStore = class {
     if (Object.hasOwn(input, "modelTimelineEnabled") && typeof input.modelTimelineEnabled !== "boolean") {
       throw new Error("Invalid timeline preference");
     }
+    if (Object.hasOwn(input, "debugLaunchEnabled") && typeof input.debugLaunchEnabled !== "boolean") {
+      throw new Error("Invalid debug launch preference");
+    }
     validateFontScaleInput(input);
     const operation = this.queue.then(async () => {
       const existing = await readJsonSafe(this.file);
@@ -373,6 +379,7 @@ var PreferencesStore = class {
         languageGuideDismissed: validRecord?.languageGuideDismissed === true,
         usageGuideDismissed: validRecord?.usageGuideDismissed === true,
         modelTimelineEnabled: validRecord?.modelTimelineEnabled === true,
+        debugLaunchEnabled: validRecord?.debugLaunchEnabled === true,
         usageFontScale: resolveFontScale(validRecord?.usageFontScale),
         sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
         inlineFontScale: resolveFontScale(validRecord?.inlineFontScale)
@@ -381,6 +388,7 @@ var PreferencesStore = class {
       const languageGuideDismissed = previous.languageGuideDismissed || hasLanguage || input.languageGuideDismissed === true;
       const usageGuideDismissed = previous.usageGuideDismissed || input.usageGuideDismissed === true;
       const modelTimelineEnabled = Object.hasOwn(input, "modelTimelineEnabled") ? input.modelTimelineEnabled : previous.modelTimelineEnabled;
+      const debugLaunchEnabled = Object.hasOwn(input, "debugLaunchEnabled") ? input.debugLaunchEnabled : previous.debugLaunchEnabled;
       const scales = Object.fromEntries(
         FONT_SCALE_KEYS.map((key) => [
           key,
@@ -394,6 +402,7 @@ var PreferencesStore = class {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        debugLaunchEnabled,
         ...scales,
         revision
       };
@@ -403,6 +412,7 @@ var PreferencesStore = class {
         languageGuideDismissed,
         usageGuideDismissed,
         modelTimelineEnabled,
+        debugLaunchEnabled,
         ...scales,
         revision
       };

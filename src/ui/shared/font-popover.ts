@@ -25,10 +25,7 @@ export const FONT_POPOVER_ROWS: readonly FontPopoverRowSpec[] = [
   { key: 'inlineFontScale', labelZh: '底部状态卡片', labelEn: 'Bottom card' },
 ] as const;
 
-export const FONT_POPOVER_CSS = `
-.font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
-.font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
-.font-popover:not(:popover-open){display:none}
+export const FONT_CONTROL_CSS = `
 .font-popover-head{font-size:11px;font-weight:700;color:var(--pulse-muted);margin:0 0 8px;display:flex;align-items:center;justify-content:space-between}
 .font-popover-rows{display:grid;gap:7px}
 .font-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -43,10 +40,35 @@ export const FONT_POPOVER_CSS = `
 .font-pct-unit{font:600 11px/1 var(--pulse-mono,ui-monospace,monospace);color:var(--pulse-muted)}
 `.trim();
 
+export const FONT_POPOVER_CSS = `
+.font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
+.font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
+.font-popover:not(:popover-open){display:none}
+${FONT_CONTROL_CSS}
+`.trim();
+
 export interface FontScaleValues {
   usageFontScale: number;
   sidebarFontScale: number;
   inlineFontScale: number;
+}
+
+export interface FontScaleControlsOptions {
+  doc?: Document;
+  mountRoot?: HTMLElement | ShadowRoot | null;
+  getLanguage: () => string;
+  initial?: Partial<PreferencesSnapshot> | null;
+  onChange: (update: PreferencesUpdateInput, nextState: FontScaleValues) => void | Promise<void>;
+}
+
+export interface FontScaleControlsHandle {
+  headElement: HTMLDivElement;
+  rowsElement: HTMLDivElement;
+  sync: (prefs?: Partial<PreferencesSnapshot> | null) => void;
+  localize: () => void;
+  syncInputs: () => void;
+  values: () => FontScaleValues;
+  titleText: () => string;
 }
 
 export interface FontPopoverOptions {
@@ -85,13 +107,12 @@ function scaleToPct(scale: unknown): number {
 }
 
 /**
- * Attaches an `Aa` font-scale popover anchored cleanly below `trigger`,
- * containing 3 independent rows (usage modal, sidebar, bottom card) with `- / +`
- * 5% steppers and direct editable percentage inputs (`80%`–`150%`).
+ * Builds reusable 3-row font-scale controls (usage modal, sidebar, bottom card)
+ * with 5% steppers and editable percentage inputs (`80%`–`150%`).
  */
-export function createFontPopover(options: FontPopoverOptions): FontPopoverHandle {
-  const { trigger, mountRoot, getLanguage, onChange } = options;
-  const doc = trigger.ownerDocument;
+export function createFontScaleControls(options: FontScaleControlsOptions): FontScaleControlsHandle {
+  const doc = options.doc ?? document;
+  const { mountRoot, getLanguage, onChange } = options;
   const initial = asFontState(options.initial);
   const values: FontScaleValues = {
     usageFontScale: resolveFontScale(initial?.usageFontScale),
@@ -99,20 +120,13 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     inlineFontScale: resolveFontScale(initial?.inlineFontScale),
   };
 
-  const popover = doc.createElement('div');
-  popover.className = 'font-popover';
-  popover.setAttribute('popover', 'manual');
-  popover.setAttribute('role', 'dialog');
-
   const head = doc.createElement('div');
   head.className = 'font-popover-head';
   const titleEl = doc.createElement('span');
   head.append(titleEl);
-  popover.append(head);
 
   const rowsWrap = doc.createElement('div');
   rowsWrap.className = 'font-popover-rows';
-  popover.append(rowsWrap);
 
   const rowRefs = new Map<
     FontScaleKey,
@@ -124,6 +138,17 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     }
   >();
 
+  const syncRowDom = (key: FontScaleKey, pct: number): void => {
+    const ref = rowRefs.get(key);
+    if (!ref) return;
+    const shadowActive = mountRoot && 'activeElement' in mountRoot ? (mountRoot as ShadowRoot).activeElement : null;
+    if (doc.activeElement !== ref.input && shadowActive !== ref.input) {
+      ref.input.value = String(pct);
+    }
+    ref.decBtn.disabled = pct <= FONT_POPOVER_MIN_PCT;
+    ref.incBtn.disabled = pct >= FONT_POPOVER_MAX_PCT;
+  };
+
   const commitKey = (key: FontScaleKey, nextPct: number): void => {
     const clampedPct = clampPct(nextPct);
     const nextScale = pctToScale(clampedPct);
@@ -132,16 +157,6 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     if (nextScale === prev) return;
     values[key] = nextScale;
     void onChange({ [key]: nextScale } as PreferencesUpdateInput, { ...values });
-  };
-
-  const syncRowDom = (key: FontScaleKey, pct: number): void => {
-    const ref = rowRefs.get(key);
-    if (!ref) return;
-    if (doc.activeElement !== ref.input && (!('activeElement' in mountRoot) || (mountRoot as ShadowRoot).activeElement !== ref.input)) {
-      ref.input.value = String(pct);
-    }
-    ref.decBtn.disabled = pct <= FONT_POPOVER_MIN_PCT;
-    ref.incBtn.disabled = pct >= FONT_POPOVER_MAX_PCT;
   };
 
   for (const spec of FONT_POPOVER_ROWS) {
@@ -222,6 +237,73 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     rowRefs.set(spec.key, { labelEl, decBtn, incBtn, input });
   }
 
+  const titleText = (): string => (getLanguage() === 'zh-CN' ? '字体大小' : 'Font size');
+
+  const localize = (): void => {
+    const zh = getLanguage() === 'zh-CN';
+    titleEl.textContent = titleText();
+    for (const spec of FONT_POPOVER_ROWS) {
+      const ref = rowRefs.get(spec.key);
+      if (!ref) continue;
+      const name = zh ? spec.labelZh : spec.labelEn;
+      ref.labelEl.textContent = name;
+      ref.decBtn.setAttribute('aria-label', `${zh ? '缩小' : 'Decrease'} ${name}`);
+      ref.incBtn.setAttribute('aria-label', `${zh ? '放大' : 'Increase'} ${name}`);
+      ref.input.setAttribute('aria-label', `${name} ${zh ? '百分比' : 'percentage'}`);
+    }
+  };
+
+  const syncInputs = (): void => {
+    for (const spec of FONT_POPOVER_ROWS) {
+      syncRowDom(spec.key, scaleToPct(values[spec.key]));
+    }
+  };
+
+  const sync = (prefs?: Partial<PreferencesSnapshot> | null): void => {
+    const state = asFontState(prefs);
+    if (!state) return;
+    for (const spec of FONT_POPOVER_ROWS) {
+      const next = resolveFontScale(state[spec.key]);
+      values[spec.key] = next;
+      syncRowDom(spec.key, Math.round(next * 100));
+    }
+  };
+
+  localize();
+  sync(options.initial);
+
+  return {
+    headElement: head,
+    rowsElement: rowsWrap,
+    sync,
+    localize,
+    syncInputs,
+    values: () => ({ ...values }),
+    titleText,
+  };
+}
+
+/**
+ * Attaches an `Aa` font-scale popover anchored cleanly below `trigger`,
+ * containing 3 independent rows (usage modal, sidebar, bottom card) with `- / +`
+ * 5% steppers and direct editable percentage inputs (`80%`–`150%`).
+ */
+export function createFontPopover(options: FontPopoverOptions): FontPopoverHandle {
+  const { trigger, mountRoot, getLanguage, onChange } = options;
+  const doc = trigger.ownerDocument;
+  const popover = doc.createElement('div');
+  popover.className = 'font-popover';
+  popover.setAttribute('popover', 'manual');
+  popover.setAttribute('role', 'dialog');
+
+  const controls = createFontScaleControls({
+    doc,
+    mountRoot,
+    getLanguage,
+    initial: options.initial,
+    onChange,
+  });
+  popover.append(controls.headElement, controls.rowsElement);
   mountRoot.append(popover);
 
   const isOpen = (): boolean => popover.matches(':popover-open');
@@ -249,11 +331,17 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     trigger.setAttribute('aria-expanded', 'false');
   };
 
+  const localize = (): void => {
+    controls.localize();
+    const zh = getLanguage() === 'zh-CN';
+    popover.setAttribute('aria-label', controls.titleText());
+    trigger.title = zh ? '字体大小设置' : 'Font size settings';
+    trigger.setAttribute('aria-label', trigger.title);
+  };
+
   const open = (): void => {
     localize();
-    for (const spec of FONT_POPOVER_ROWS) {
-      syncRowDom(spec.key, scaleToPct(values[spec.key]));
-    }
+    controls.syncInputs();
     try {
       popover.showPopover();
     } catch {
@@ -261,34 +349,6 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
     }
     positionPopover();
     trigger.setAttribute('aria-expanded', 'true');
-  };
-
-  const localize = (): void => {
-    const zh = getLanguage() === 'zh-CN';
-    const title = zh ? '字体大小' : 'Font size';
-    titleEl.textContent = title;
-    popover.setAttribute('aria-label', title);
-    trigger.title = zh ? '字体大小设置' : 'Font size settings';
-    trigger.setAttribute('aria-label', trigger.title);
-    for (const spec of FONT_POPOVER_ROWS) {
-      const ref = rowRefs.get(spec.key);
-      if (!ref) continue;
-      const name = zh ? spec.labelZh : spec.labelEn;
-      ref.labelEl.textContent = name;
-      ref.decBtn.setAttribute('aria-label', `${zh ? '缩小' : 'Decrease'} ${name}`);
-      ref.incBtn.setAttribute('aria-label', `${zh ? '放大' : 'Increase'} ${name}`);
-      ref.input.setAttribute('aria-label', `${name} ${zh ? '百分比' : 'percentage'}`);
-    }
-  };
-
-  const sync = (prefs?: Partial<PreferencesSnapshot> | null): void => {
-    const state = asFontState(prefs);
-    if (!state) return;
-    for (const spec of FONT_POPOVER_ROWS) {
-      const next = resolveFontScale(state[spec.key]);
-      values[spec.key] = next;
-      syncRowDom(spec.key, Math.round(next * 100));
-    }
   };
 
   const onTriggerClick = (e: Event): void => {
@@ -324,14 +384,13 @@ export function createFontPopover(options: FontPopoverOptions): FontPopoverHandl
   window.addEventListener('resize', onViewportChange);
 
   localize();
-  sync(options.initial);
 
   return {
     element: popover,
-    sync,
+    sync: controls.sync,
     localize,
     close,
-    values: () => ({ ...values }),
+    values: controls.values,
     dispose: () => {
       close();
       trigger.removeEventListener('click', onTriggerClick);

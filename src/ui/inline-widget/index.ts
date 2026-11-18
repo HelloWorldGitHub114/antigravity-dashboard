@@ -264,6 +264,13 @@ export default function installAgPulseInlineWidget(): void {
     polling.pollIfDue();
   }, 1000);
 
+  win.__agPulseOpenUsage = () => {
+    if (!usageDashboard || !polling.data?.usage) return false;
+    cards.hide();
+    usageDashboard.open(polling.data.usage, null);
+    return true;
+  };
+
   win.__agPulseDispose = () => {
     polling.dispose();
     density.dispose(node);
@@ -283,6 +290,7 @@ export default function installAgPulseInlineWidget(): void {
     root = null;
     composer = null;
     win.__agPulseInlineInstalled = false;
+    delete win.__agPulseOpenUsage;
     delete win.__agPulseDispose;
   };
 

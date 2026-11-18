@@ -232,6 +232,23 @@ export class RuntimeUi {
     }
   }
 
+  async openUsageModal(): Promise<boolean> {
+    if (this.stopping || !(await this.owns()) || !(await this.enabled())) return false;
+    for (const connection of this.sessions.values()) {
+      if (connection.closed || !connection.mounted) continue;
+      try {
+        const res = (await connection.command('Runtime.evaluate', {
+          returnByValue: true,
+          expression: this.rendererGuard('Boolean(window.__agPulseOpenUsage?.())'),
+        })) as { exceptionDetails?: unknown; result?: { value?: unknown } };
+        if (!res.exceptionDetails && res.result?.value === true) return true;
+      } catch {
+        // Try next mounted window.
+      }
+    }
+    return false;
+  }
+
   async detachAll(): Promise<void> {
     const ctx = this.lifecycleContext();
     for (const connection of this.sessions.values()) {

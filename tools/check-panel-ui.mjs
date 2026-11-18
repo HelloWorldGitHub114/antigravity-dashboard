@@ -16,7 +16,17 @@ const preview=args.includes('--preview');
 const html=panelPageSource();
 const code=panelAppSource(),requests=[],errors=[],results=[];
 const id='11111111-1111-1111-1111-111111111111';
-let prefs={language:'en',revision:1,modelTimelineEnabled:false},metricsCalls=0,failMetrics=false,rate=38.7,scenario='default',timelineCleared=false,clearTimelineCalls=0;
+let prefs={language:'en',revision:1,modelTimelineEnabled:false,debugLaunchEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1},debugLaunchState={enabled:false,configured:false,activePortPresent:false,platform:'linux'},metricsCalls=0,failMetrics=false,rate=38.7,scenario='default',timelineCleared=false,clearTimelineCalls=0;
+const todayIso=new Date().toISOString().slice(0,10);
+const usageSample=()=>({
+ accountKey:'default',viewScope:'default',timeZone:'UTC',today:todayIso,
+ todayHours:[0,0,0,0,0,0,0,0,1200,2400,1500,0,0,0,0,0,0,0,0,0,0,0,0,0],
+ days:[{date:todayIso,models:{'Gemini 3.8 Flash':{uncached:1200,cacheRead:3000,cacheWrite:0,output:900,total:5100,requests:4}},users:{default:{name:'Local User',userKey:'default',isLegacy:false,uncached:1200,cacheRead:3000,cacheWrite:0,output:900,total:5100,requests:4}},hours:[0,0,0,0,0,0,0,0,1200,2400,1500,0,0,0,0,0,0,0,0,0,0,0,0,0],legacyTokens:0}],
+ models:['Gemini 3.8 Flash'],users:['default'],
+ userMeta:{default:{name:'Local User',email:'local@example.com',isLegacy:false}},
+ usersSummary:{default:{name:'Local User',userKey:'default',isLegacy:false,uncached:1200,cacheRead:3000,cacheWrite:0,output:900,total:5100,requests:4}},
+ legacyTokens:0,todayTokens:5100,weekTokens:5100,monthTokens:5100,totalTokens:5100,unknownTokens:0,unknownRequests:0,partialRequests:0,unreadableFiles:0,manualEntries:[],requests:4,firstDate:todayIso
+});
 const transcriptSample={version:1,status:'ready',complete:true,userTokens:100,assistantTokens:200,toolTokens:50,systemTokens:10,totalTokens:360,matchedSteps:4,compactionMarkers:1,imageSteps:0};
 const orchestratorTimeline=()=>timelineCleared?{enabled:true,cascadeId:id,planModel:'Orchestrator (Argon)',activeModel:'Gemini Flash',startedAt:new Date(Date.now()-8000).toISOString(),endedAt:new Date().toISOString(),durationMs:8000,swimlanes:[],nodes:[],truncated:false,savedAt:null}:{
  enabled:true,cascadeId:id,planModel:'Orchestrator (Argon)',activeModel:'Gemini Flash',
@@ -59,10 +69,10 @@ const orchestratorSample=()=>{
   modelTimeline:prefs.modelTimelineEnabled===true?orchestratorTimeline():null
  };
 };
-const sample=()=>({connection:'live',serverTime:new Date().toISOString(),quotaUpdatedAt:new Date().toISOString(),preferences:prefs,groups:[{id:'gemini',name:'Gemini',windows:{'5h':{available:true,remaining:.8,resetAt:new Date(Date.now()+3600000).toISOString()},weekly:{available:true,remaining:.75,resetAt:new Date(Date.now()+86400000).toISOString()}}}],speed:scenario==='orchestrator'?orchestratorSample():{transcriptStats:transcriptSample,...trajectoryMetrics({trajectory:{cascadeId:id,steps:[{type:'USER_INPUT'}],generatorMetadata:Array.from({length:23},(_,i)=>({chatModel:{modelDisplayName:'Gemini 3.8 Flash',streamingDuration:(100/rate)+'s',timeToFirstToken:'1.2s',usage:{messageId:'fixture-'+i,inputTokens:100,cacheReadTokens:300,outputTokens:100,responseOutputTokens:100,cacheWriteTokens:0,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:20000,maxContextTokens:100000}}}}))}}),modelTimeline:null}});
+const sample=()=>({connection:'live',serverTime:new Date().toISOString(),quotaUpdatedAt:new Date().toISOString(),preferences:prefs,integration:{state:'disconnected',activePortPresent:debugLaunchState.activePortPresent,debugLaunchEnabled:debugLaunchState.enabled,debugLaunchConfigured:debugLaunchState.configured},usage:usageSample(),groups:[{id:'gemini',name:'Gemini',windows:{'5h':{available:true,remaining:.8,resetAt:new Date(Date.now()+3600000).toISOString()},weekly:{available:true,remaining:.75,resetAt:new Date(Date.now()+86400000).toISOString()}}}],speed:scenario==='orchestrator'?orchestratorSample():{transcriptStats:transcriptSample,...trajectoryMetrics({trajectory:{cascadeId:id,steps:[{type:'USER_INPUT'}],generatorMetadata:Array.from({length:23},(_,i)=>({chatModel:{modelDisplayName:'Gemini 3.8 Flash',streamingDuration:(100/rate)+'s',timeToFirstToken:'1.2s',usage:{messageId:'fixture-'+i,inputTokens:100,cacheReadTokens:300,outputTokens:100,responseOutputTokens:100,cacheWriteTokens:0,apiProvider:'API_PROVIDER_GOOGLE_GEMINI'},chatStartMetadata:{contextWindowMetadata:{estimatedTokensUsed:20000,maxContextTokens:100000}}}}))}}),modelTimeline:null}});
 const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost'),path=url.pathname;requests.push(path);
- if(path==='/api/metrics'||path==='/api/preferences'||path==='/api/timeline/clear'){
+ if(path==='/api/metrics'||path==='/api/preferences'||path==='/api/timeline/clear'||path==='/api/debug-launch'||path==='/api/usage/open'||path.startsWith('/api/usage/')){
   res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
   if(req.method==='OPTIONS'){res.end();return;}
   res.setHeader('Content-Type','application/json');
@@ -72,6 +82,18 @@ const server=createServer(async(req,res)=>{
    for await(const _ of req){}
    clearTimelineCalls++;timelineCleared=true;res.end(JSON.stringify({cleared:true}));return;
   }
+  if(path==='/api/debug-launch'){
+   if(req.method==='POST'){
+    let text='';for await(const chunk of req)text+=chunk;
+    const body=JSON.parse(text||'{}');
+    debugLaunchState={...debugLaunchState,enabled:Boolean(body.enabled),configured:Boolean(body.enabled)};
+    prefs={...prefs,debugLaunchEnabled:Boolean(body.enabled),revision:prefs.revision+1};
+   }
+   res.end(JSON.stringify({...debugLaunchState,preferences:prefs}));return;
+  }
+  if(path==='/api/usage/open'){for await(const _ of req){}res.end(JSON.stringify({openedInHost:false}));return;}
+  if(path==='/api/usage/accounts'){for await(const _ of req){}res.end(JSON.stringify({accounts:[{id:'default',name:'Local User',email:'local@example.com',active:true}],active:'default'}));return;}
+  if(path.startsWith('/api/usage/')){for await(const _ of req){}res.end(JSON.stringify({ok:true,projects:[],totals:{},months:[],availableMonths:[]}));return;}
   if(req.method==='POST'){let text='';for await(const chunk of req)text+=chunk;prefs={...prefs,...JSON.parse(text),revision:prefs.revision+1};}
   res.end(JSON.stringify(prefs));return;
  }
@@ -97,7 +119,7 @@ if(preview){console.log('Side panel preview: '+base);await new Promise(()=>{});}
 const browser=await launchTestBrowser();
 try{
  for(const mode of ['deferred','early-classic','opaque-iframe']){
-  scenario='default';prefs={language:'en',revision:1,modelTimelineEnabled:false};rate=38.7;
+  scenario='default';prefs={language:'en',revision:1,modelTimelineEnabled:false,debugLaunchEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1};debugLaunchState={enabled:false,configured:false,activePortPresent:false,platform:'linux'};rate=38.7;
   const page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base+(mode==='opaque-iframe'?'/frame':mode==='early-classic'?'/?sync':''));
   const view=mode==='opaque-iframe'?page.frameLocator('iframe'):page;
@@ -146,7 +168,29 @@ try{
    assert.equal(await view.locator('html').evaluate(()=>self.origin),'null');
    assert.equal(await view.locator('body').evaluate(e=>getComputedStyle(e).backgroundColor===getComputedStyle(document.querySelector('.widget')).backgroundColor),true,'SDK inline body background follows the dashboard theme');
   }
-  await view.locator('#language-toggle').click();await view.locator('#language-toggle').filter({hasText:'中'}).waitFor();
+  assert.equal(await view.locator('#integration-note').isVisible(),false,'Default OFF debug launch hides bottom-bar reconnecting notice');
+  await view.locator('#settings-button').click();
+  await view.locator('#settings-popover').waitFor({state:'visible'});
+  assert.equal(await view.locator('#debug-launch-toggle').getAttribute('aria-checked'),'false');
+  await view.locator('#debug-launch-toggle').click();
+  await view.locator('#debug-launch-toggle[aria-checked="true"]').waitFor();
+  assert.equal(debugLaunchState.enabled,true);
+  await view.locator('#debug-launch-toggle').click();
+  await view.locator('#debug-launch-toggle[aria-checked="false"]').waitFor();
+  assert.equal(debugLaunchState.enabled,false);
+  await view.locator('#lang-opt-zh').click();
+  await view.locator('html[lang="zh-CN"]').waitFor();
+  assert.deepEqual(await view.locator('#settings-popover .font-row-label').allTextContents(),['统计页','侧边栏','底部状态卡片']);
+  await view.locator('#settings-popover .font-row[data-font-key="sidebarFontScale"] .font-step-btn[data-font-step="5"]').click();
+  await page.waitForTimeout(80);
+  const pctInput=view.locator('#settings-popover .font-row[data-font-key="sidebarFontScale"] input.font-pct-input');
+  await pctInput.fill('115');await pctInput.press('Enter');
+  await page.waitForTimeout(80);
+  assert.equal(await view.locator('html').evaluate(h=>h.style.getPropertyValue('--pulse-sidebar-font-scale')),'1.15');
+  assert.equal(await view.locator('.widget').evaluate(e=>e.scrollWidth>e.clientWidth),false,'Font scaling keeps sidebar free of horizontal overflow');
+  await pctInput.fill('100');await pctInput.press('Enter');
+  await view.locator('#settings-button').click();
+  await view.locator('#settings-popover').waitFor({state:'hidden'});
   assert.equal(await view.locator('#context-tokens').textContent(),'20K / 100K tok');
   assert.equal(await view.locator('#strip-context-size').textContent(),'20K / 100K');
   assert.deepEqual(await view.locator('.metric-label span').allTextContents(),['速度','缓存','上下文']);
@@ -154,27 +198,27 @@ try{
   await mkdir(join(repo,'.data/sidebar-design'),{recursive:true});
   for(const name of ['speed','cache','context']){await view.locator(`[data-card=${name}]`).click();await view.locator(`#${name}-card`).evaluate(e=>e.scrollTop=0);await page.waitForTimeout(180);await page.screenshot({path:join(repo,`.data/sidebar-design/${mode}-${name}-zh.png`)});}
   rate=51.2;await view.locator('#refresh-button').click();await view.locator('#strip-tps').filter({hasText:'51.2'}).waitFor();
-  await view.locator('#font-settings').click();
-  await view.locator('.font-popover').waitFor({state:'visible'});
-  assert.deepEqual(await view.locator('.font-popover .font-row-label').allTextContents(),['统计页','侧边栏','底部状态卡片']);
-  await view.locator('.font-row[data-font-key="sidebarFontScale"] .font-step-btn[data-font-step="5"]').click();
-  await page.waitForTimeout(80);
-  const pctInput=view.locator('.font-row[data-font-key="sidebarFontScale"] input.font-pct-input');
-  await pctInput.fill('115');await pctInput.press('Enter');
-  await page.waitForTimeout(80);
-  assert.equal(await view.locator('html').evaluate(h=>h.style.getPropertyValue('--pulse-sidebar-font-scale')),'1.15');
-  assert.equal(await view.locator('.widget').evaluate(e=>e.scrollWidth>e.clientWidth),false,'Font scaling keeps sidebar free of horizontal overflow');
-  await pctInput.fill('100');await pctInput.press('Enter');
-  await view.locator('#font-settings').click();
+  await view.locator('#open-usage-button').click();
+  await view.locator('#panel-usage-host #usage-dashboard:popover-open').waitFor({state:'visible'});
+  assert.ok((await view.locator('#panel-usage-host #usage-dashboard #title').textContent()).length>0);
+  await view.locator('#panel-usage-host #usage-dashboard #close').click();
+  await view.locator('#panel-usage-host #usage-dashboard').waitFor({state:'hidden'});
   const installed=await view.locator('html').evaluate(()=>window.__agPulsePanelInstalled);assert.equal(installed,true);
-  results.push({mode,tokens:true,context:true,language:true,manualRefresh:true,fontPopover:true});await page.close();
+  results.push({mode,tokens:true,context:true,language:true,manualRefresh:true,settingsPopover:true,usageButton:true});await page.close();
  }
  for(const width of [280,360,440]){
-  scenario='default';const page=await browser.newPage({viewport:{width,height:800}});page.on('pageerror',e=>errors.push(e.message));prefs={language:'en',revision:1,modelTimelineEnabled:false};
+  scenario='default';const page=await browser.newPage({viewport:{width,height:800}});page.on('pageerror',e=>errors.push(e.message));prefs={language:'en',revision:1,modelTimelineEnabled:false,debugLaunchEnabled:false};
   await page.goto(base);await viewOrPageWait(page);
   async function viewOrPageWait(p){await p.locator('#strip-tps').filter({hasText:'51.2'}).waitFor();}
   const size=()=>page.locator('.widget').evaluate(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,overflow:e.scrollWidth>e.clientWidth}));const initial=await size();assert.equal(initial.overflow,false);
   for(const name of ['cache','context','speed']){await page.locator(`[data-card=${name}]`).click();assert.deepEqual(await size(),initial);}
+  if(width===360){
+   await page.locator('#open-usage-button').click();
+   await page.locator('#panel-usage-host #usage-dashboard:popover-open').waitFor({state:'visible'});
+   const dlgBox=await page.locator('#panel-usage-host #usage-dashboard').boundingBox();
+   assert.ok(dlgBox&&dlgBox.width<=360,'Narrow sidebar usage modal fits viewport width');
+   await page.locator('#panel-usage-host #usage-dashboard #close').click();
+  }
   await page.screenshot({path:join(repo,`.data/sidebar-design/width-${width}.png`)});await page.close();
  }
  {
@@ -226,11 +270,13 @@ try{
   await turnToggle.click();
   assert.equal(await turnToggle.getAttribute('aria-expanded'),'true');
   assert.equal((await orchSize()).overflow,false);
-  await page.locator('#language-toggle').click();
-  await page.locator('#language-toggle').filter({hasText:'中'}).waitFor();
+  await page.locator('#settings-button').click();
+  await page.locator('#lang-opt-zh').click();
+  await page.locator('html[lang="zh-CN"]').waitFor();
   assert.ok((await page.locator('#timeline-swimlanes').textContent()).includes('规划'));
-  await page.locator('#language-toggle').click();
-  await page.locator('#language-toggle').filter({hasText:'EN'}).waitFor();
+  await page.locator('#lang-opt-en').click();
+  await page.locator('html[lang="en"]').waitFor();
+  await page.locator('#settings-button').click();
   await page.locator('#timeline-clear-btn').click();
   await page.locator('#timeline-empty').waitFor({state:'visible'});
   assert.equal(clearTimelineCalls,1);
@@ -241,6 +287,27 @@ try{
   assert.equal(await page.locator('#timeline-panel').isVisible(),false);
   assert.equal(await page.locator('#timeline-tree .timeline-node, #timeline-swimlanes .timeline-seg').count(),0);
   results.push({mode:'orchestrator',hybridStrip:true,donutMetricsAndScope:true,timelineOptInClearDisable:true});
+  await page.close();
+ }
+ {
+  scenario='orchestrator';prefs={language:'en',revision:1,modelTimelineEnabled:true,debugLaunchEnabled:false,usageFontScale:1,sidebarFontScale:1,inlineFontScale:1};timelineCleared=false;clearTimelineCalls=0;
+  const page=await browser.newPage({viewport:{width:900,height:800}});page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(base+'/frame');
+  const view=page.frameLocator('iframe');
+  await view.locator('#timeline-panel').waitFor({state:'visible'});
+  const before=await view.locator('.widget').evaluate(e=>({rectH:Math.round(e.getBoundingClientRect().height),ch:e.clientHeight,sh:e.scrollHeight,st:e.scrollTop}));
+  assert.ok(before.rectH<=622,`Expected bounded sidecar .widget height inside 640px iframe, got ${before.rectH}`);
+  assert.ok(before.sh>before.ch,`Expected .widget vertical overflow inside 640px iframe, got ch=${before.ch} sh=${before.sh}`);
+  const iframeBox=await page.locator('iframe').boundingBox();
+  assert.ok(iframeBox);
+  await page.mouse.move(iframeBox.x+iframeBox.width/2,iframeBox.y+iframeBox.height/2);
+  await page.mouse.wheel(0,300);
+  await page.waitForTimeout(120);
+  const after=await view.locator('.widget').evaluate(e=>({st:e.scrollTop,bodySt:document.body.scrollTop,deSt:document.documentElement.scrollTop}));
+  assert.ok(after.st>0,`Expected mouse wheel to scroll .widget inside opaque iframe, got scrollTop=${after.st}`);
+  assert.equal(after.bodySt,0,'Outer body must not capture wheel scroll');
+  assert.equal(after.deSt,0,'Document root must not capture wheel scroll');
+  results.push({mode:'opaque-iframe-wheel',bounded:true,scrolledTop:after.st});
   await page.close();
  }
  scenario='default';

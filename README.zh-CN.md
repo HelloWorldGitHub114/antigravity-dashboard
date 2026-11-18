@@ -7,9 +7,9 @@
 模型选择旁常驻显示生成速率、缓存命中与上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
 缩略信息常驻；鼠标悬停或打开侧边栏，展开完整多维监控。
 
-[![Version 0.12.3](https://img.shields.io/badge/version-0.12.3-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.4](https://img.shields.io/badge/version-0.12.4-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
-[![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
+[![Antigravity 2.21.1 - 2.33.0](https://img.shields.io/badge/Antigravity-2.21.1%20--%202.33.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
 
 [看看效果](#看看效果) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-状态栏) · [开始安装](#安装) · [启用与停用](#可插拔) · [兼容性](#兼容性) · [常见问题](#常见问题) · [English](README.md)
@@ -21,6 +21,8 @@
 
 > [!IMPORTANT]
 > **`v0.12.0` Rust 原生引擎提示与回退说明：** `v0.12.0` 正式引入 **Rust 原生加速引擎（`pulse-accel`）**，通过 SQLite 本地直读旁路、二进制用量索引、堆外结构化 Diff 与文本脱敏等底层加速大幅提升界面响应速度，并显著缓解早期版本长时间运行或大账本场景下内存占用过高的问题。由于新引擎刚全量上线，如您在使用过程中遇到任何异常、数据偏差或兼容性问题，欢迎及时前往 [GitHub Issues](https://github.com/ShZbz/antigravity-dashboard/issues) 反馈；如需临时关闭原生加速，可设置环境变量 `PULSE_DISABLE_NATIVE_ACCEL=1` 无缝切换回纯 TypeScript 模式，若问题暂时无法容忍亦可先回退至 **`v0.11.0`** 版本。
+
+**v0.12.4 更新：** 全面适配 **Antigravity `2.33.0`**（兼容 `panelScope` 与 `auxPaneComponent` Redux 侧栏派发及 `?cascadeId=` 会话解析，修复底栏「打开侧边栏」按钮；约束非独立预览模式下侧边栏 `.widget` 卡片高度以恢复鼠标滚轮上下滚动）；将侧边栏右上角设置升级为统一齿轮弹窗（整合**可选默认关闭**的快捷方式调试启动开关、`简体中文`/`English` 语言切换以及三端 `Aa` 字体缩放），并在采样模型行新增**「用量统计」**按钮（当底栏调试未启用时可在侧边栏内嵌打开完整 Token 用量大盘）。
 
 **v0.12.3 更新：** 重构侧边栏面板（标题栏同心圆环多模型额度胶囊与悬停/点击倒计时弹出卡、双列 Speed/Cache 指标卡与内嵌上下文进度条、可点击折叠的详情卡区域、防跳动吸底布局及 `@container sidebar` 容器响应式断点）；优化 Token 用量弹窗标签栏账号切换器与细节布局；引入 Rust `readLedgerProjectSummariesJson` + `project-ledger-v1.bin` + `project-meta-v1.json` 与查表/二分高速时区计算以大幅提升项目统计速度；修复项目统计切换账号无法按 `viewScope` / `ownership-v1.json` 正确隔离与去重的 Bug。
 
@@ -89,7 +91,7 @@
 ## Antigravity IDE
 
 **v0.7.0+** 提供反重力独立 IDE 的专用 VSIX 适配。从发布页下载
-`antigrative-dashboard-ide-0.12.3.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
+`antigrative-dashboard-ide-0.12.4.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
 
 完全退出 IDE 后，使用带
 `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1`
@@ -109,7 +111,7 @@ Windows IDE **2.5.5** 已验证真实对话；Linux/macOS IDE 具备三平台 CI
 
 以下命令安装**桌面 App 适配器**；IDE 用户请使用[上方专用 VSIX 安装流程](#antigravity-ide)。
 
-适用于 **Windows / Linux / macOS 的 Antigravity 桌面 App 2.21.1 / 2.22.0 + Node.js 20+（或通过安装脚本直接调用宿主自带 Electron 运行时）或 Python 3.10+**。三系统共用同一个 release ZIP，零第三方 npm / pip 运行时依赖。完整验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+适用于 **Windows / Linux / macOS 的 Antigravity 桌面 App 2.21.1 / 2.22.0 / 2.33.0 + Node.js 20+（或通过安装脚本直接调用宿主自带 Electron 运行时）或 Python 3.10+**。三系统共用同一个 release ZIP，零第三方 npm / pip 运行时依赖。完整验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 > 模型选择旁的内嵌位置通过标准 sidecar 与本地渲染调试端口挂载控件，默认安装绝不修改 `resources/app.asar`。原生侧面板同时作为常驻多维监控面板与备用入口。
 
