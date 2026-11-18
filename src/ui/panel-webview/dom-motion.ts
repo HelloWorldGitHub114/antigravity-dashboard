@@ -66,14 +66,15 @@ export function setExpandedState(el: HTMLElement | null, expanded: boolean, anim
       { maxHeight: `${startHeight}px`, opacity: startOpacity },
       { maxHeight: `${endHeight}px`, opacity: endOpacity },
     ],
-    { duration: expanded ? 220 : 180, easing: 'cubic-bezier(.22,1,.36,1)' },
+    { duration: expanded ? 220 : 180, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' },
   );
   panelMotion.set(el, { anim, expanding: expanded });
   const settle = (cancelled: boolean) => {
     if (panelMotion.get(el)?.anim !== anim) return;
-    clearMotionProps(el);
     panelMotion.delete(el);
     if (!cancelled && !expanded) el.hidden = true;
+    clearMotionProps(el);
+    if (!cancelled) anim.cancel();
   };
   anim.onfinish = () => settle(false);
   anim.oncancel = () => settle(true);

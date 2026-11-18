@@ -5131,14 +5131,15 @@ ${FONT_POPOVER_CSS}`;
         { maxHeight: `${startHeight}px`, opacity: startOpacity },
         { maxHeight: `${endHeight}px`, opacity: endOpacity }
       ],
-      { duration: expanded ? 220 : 180, easing: "cubic-bezier(.22,1,.36,1)" }
+      { duration: expanded ? 220 : 180, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards" }
     );
     panelMotion.set(el2, { anim, expanding: expanded });
     const settle = (cancelled) => {
       if (panelMotion.get(el2)?.anim !== anim) return;
-      clearMotionProps(el2);
       panelMotion.delete(el2);
       if (!cancelled && !expanded) el2.hidden = true;
+      clearMotionProps(el2);
+      if (!cancelled) anim.cancel();
     };
     anim.onfinish = () => settle(false);
     anim.oncancel = () => settle(true);
