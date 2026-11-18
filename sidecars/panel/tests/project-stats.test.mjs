@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  DesktopUsage,
   UsageLedger,
   queryProjectUsageOverview,
   queryProjectConversationDetail,
+  dateTimeParts,
 } from '../usage.mjs';
 
 const scope = (s) => createHash('sha256').update(s).digest('hex');
@@ -294,5 +296,600 @@ test('conversation_summaries datetime text timestamps parse to positive epoch ms
     }
   } catch {
     // Skip native assertion when local binary is absent.
+  }
+});
+
+function intlDateTimeParts(time, zone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(time);
+  const get = (k) => parts.find((p) => p.type === k)?.value;
+  const h = Number.parseInt(get('hour') ?? '', 10);
+  return {
+    date: `${get('year') ?? ''}-${get('month') ?? ''}-${get('day') ?? ''}`,
+    hour: Number.isInteger(h) && h >= 0 && h <= 23 ? h : 0,
+  };
+}
+
+test('dateTimeParts matches Intl.DateTimeFormat across fixed offsets, DST America/New_York, and epoch 0', () => {
+  const zones = ['UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'America/New_York', 'Europe/London'];
+  const samples = [
+    0,
+    -1,
+    Date.parse('1969-12-31T23:59:59Z'),
+    Date.parse('1988-06-15T12:00:00Z'), // Pre-1992 China DST
+    Date.parse('2026-01-15T04:30:00Z'),
+    Date.parse('2026-03-08T06:59:59Z'), // NY before spring forward
+    Date.parse('2026-03-08T07:00:00Z'), // NY exact spring forward
+    Date.parse('2026-03-08T07:30:00Z'),
+    Date.parse('2026-06-15T03:59:59Z'),
+    Date.parse('2026-10-11T16:00:00Z'),
+    Date.parse('2026-11-01T04:59:59Z'),
+    Date.parse('2026-11-01T05:00:00Z'), // NY fall-back first 01:00
+    Date.parse('2026-11-01T05:59:59Z'),
+    Date.parse('2026-11-01T06:00:00Z'), // NY fall-back second 01:00
+    Date.parse('2026-12-31T23:59:59Z'),
+  ];
+  for (const zone of zones) {
+    for (const ts of samples) {
+      assert.deepEqual(dateTimeParts(ts, zone), intlDateTimeParts(ts, zone), `mismatch for ${zone} at ${ts}`);
+      assert.deepEqual(dateTimeParts(new Date(ts), zone), intlDateTimeParts(new Date(ts), zone));
+    }
+  }
+});
+
+test('queryProjectConversationDetail("conversations") does not read files belonging to other workspace projects', async (t) => {
+  const { ledger, profileDir } = await setupFixture(t);
+  const readPaths = [];
+  const spyLedger = new UsageLedger(ledger.directory, {
+    fs: {
+      readFile: async (p, ...args) => {
+        readPaths.push(p);
+        return await readFile(p, ...args);
+      },
+    },
+  });
+
+  const detail = await queryProjectConversationDetail({
+    ledger: spyLedger,
+    profileDir,
+    scope: acctA,
+    projectKey: 'conversations',
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'Asia/Shanghai',
+  });
+  assert.equal(detail.conversations.length, 2);
+  assert.equal(detail.totalTokens, 300);
+
+  const excludedCids = [
+    CID_MAIN,
+    CID_WORKTREE,
+    CID_SUBAGENT,
+    CID_CLI,
+    'remote-box/99999999-aaaa-bbbb-cccc-dddddddddddd',
+  ];
+  for (const cid of excludedCids) {
+    const h = scope(cid.toLowerCase());
+    assert.equal(
+      readPaths.some((p) => p.includes(h)),
+      false,
+      `Did not expect conversations detail query to read ${cid} (${h})`,
+    );
+  }
+  assert.ok(readPaths.some((p) => p.includes(scope(CID_GENERAL.toLowerCase()))));
+  assert.ok(readPaths.some((p) => p.includes(scope(CID_FALLBACK.toLowerCase()))));
+
+  const countAfterFirst = readPaths.length;
+  const detail2 = await queryProjectConversationDetail({
+    ledger: spyLedger,
+    profileDir,
+    scope: acctA,
+    projectKey: 'conversations',
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'Asia/Shanghai',
+  });
+  assert.equal(detail2.totalTokens, 300);
+  assert.equal(readPaths.length, countAfterFirst, 'Repeat detail query should reuse stat-validated cache');
+});
+
+test('incremental cache invalidates on same-size file rewrite (projectDirtyRelPaths) and SQLite DB/WAL updates', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ag-proj-inval-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const ledgerDir = join(root, 'ledger');
+  const profileDir = join(root, 'profile');
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(profileDir, { recursive: true });
+
+  const dbPath = join(profileDir, 'conversation_summaries.db');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE conversation_summaries (
+      conversation_id TEXT PRIMARY KEY,
+      title TEXT,
+      preview TEXT,
+      last_modified_time datetime,
+      workspace_uris TEXT,
+      project_id TEXT,
+      parent_conversation_id TEXT,
+      source TEXT,
+      agent_name TEXT
+    );
+  `);
+  db.prepare(
+    `INSERT INTO conversation_summaries
+      (conversation_id, title, preview, last_modified_time, workspace_uris, project_id, parent_conversation_id, source, agent_name)
+     VALUES (?, ?, '', ?, ?, ?, '', '', '')`,
+  ).run(CID_MAIN, 'Main task', '2026-10-11T04:00:00Z', JSON.stringify(['file:///C:/repo/proj-one']), 'proj-one');
+  db.close();
+
+  const ledger = new UsageLedger(ledgerDir, { timeZone: 'UTC' });
+  await ledger.ingest(
+    acctA,
+    CID_MAIN,
+    rawUsage({ at: '2026-10-11T04:00:00Z', responseId: 'r-same-1', input: 100, cacheRead: 0, output: 50 }),
+  );
+
+  let overview = await queryProjectUsageOverview({
+    ledger,
+    profileDir,
+    scope: acctA,
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'UTC',
+  });
+  assert.equal(overview.totalTokens, 150);
+  assert.equal(overview.projects[0].projectKey, 'project:c:/repo/proj-one');
+
+  // Same-size rewrite via ingest; run summary() first to clear dirtyRelPaths and ensure projectDirtyRelPaths survives
+  await ledger.ingest(
+    acctA,
+    CID_MAIN,
+    rawUsage({ at: '2026-10-11T04:00:00Z', responseId: 'r-same-1', input: 250, cacheRead: 0, output: 50 }),
+  );
+  assert.ok(ledger.projectDirtyRelPaths.size > 0);
+  await ledger.summary(acctA, Date.parse('2026-10-11T12:00:00Z'));
+  assert.ok(ledger.projectDirtyRelPaths.size > 0, 'summary() must not clear projectDirtyRelPaths');
+
+  overview = await queryProjectUsageOverview({
+    ledger,
+    profileDir,
+    scope: acctA,
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'UTC',
+  });
+  assert.equal(overview.totalTokens, 300);
+  assert.equal(ledger.projectDirtyRelPaths.size, 0);
+
+  // Update SQLite in WAL mode without checkpointing (updates .db-wal)
+  const db2 = new DatabaseSync(dbPath);
+  db2
+    .prepare('UPDATE conversation_summaries SET workspace_uris = ?, project_id = ? WHERE conversation_id = ?')
+    .run(JSON.stringify(['file:///C:/repo/proj-two']), 'proj-two', CID_MAIN);
+  db2.close();
+
+  overview = await queryProjectUsageOverview({
+    ledger,
+    profileDir,
+    scope: acctA,
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'UTC',
+  });
+  assert.equal(overview.projects[0].projectKey, 'project:c:/repo/proj-two');
+  assert.equal(overview.projects[0].name, 'proj-two');
+});
+
+test('native and JS fallback produce identical results across all project kinds and at:null', async (t) => {
+  const { ledger, profileDir } = await setupFixture(t);
+  await ledger.addManualUsage(acctA, {
+    id: 'man-gpu-1',
+    projectName: 'gpu-cluster',
+    note: 'Distributed run',
+    timestamp: Date.parse('2026-10-11T12:00:00Z'),
+    tokens: { prompt: 700, candidates: 300, total: 1000 },
+  });
+
+  // Add a file containing an at: null record
+  const nullCid = '88888888-8888-8888-8888-888888888888';
+  const nullHash = scope(nullCid);
+  await writeFile(
+    join(ledger.directory, acctA, `${nullHash}.json`),
+    JSON.stringify({
+      schema: 1,
+      account: acctA,
+      id: nullCid,
+      records: [
+        {
+          id: scope('null-at-req-1'),
+          at: null,
+          model: 'Gemini 3.8 Flash',
+          uncached: 40,
+          cacheRead: 10,
+          cacheWrite: 0,
+          output: 10,
+          partial: false,
+          timeBasis: 'estimated',
+        },
+      ],
+    }),
+  );
+
+  const stripUpdatedAt = (obj) => {
+    const copy = structuredClone(obj);
+    delete copy.updatedAt;
+    return copy;
+  };
+
+  const prevDisable = process.env.PULSE_DISABLE_NATIVE_ACCEL;
+  t.after(() => {
+    if (prevDisable === undefined) delete process.env.PULSE_DISABLE_NATIVE_ACCEL;
+    else process.env.PULSE_DISABLE_NATIVE_ACCEL = prevDisable;
+  });
+
+  for (const timeZone of ['Asia/Shanghai', 'America/New_York']) {
+    delete process.env.PULSE_DISABLE_NATIVE_ACCEL;
+    const nativeLedger = new UsageLedger(ledger.directory, { timeZone });
+    const nativeFull = await queryProjectUsageOverview({ ledger: nativeLedger, profileDir, scope: acctA, timeZone });
+    const nativeDay = await queryProjectUsageOverview({
+      ledger: nativeLedger,
+      profileDir,
+      scope: acctA,
+      from: '2026-10-11',
+      to: '2026-10-11',
+      timeZone,
+    });
+
+    process.env.PULSE_DISABLE_NATIVE_ACCEL = '1';
+    const jsLedger = new UsageLedger(ledger.directory, { timeZone });
+    const jsFull = await queryProjectUsageOverview({ ledger: jsLedger, profileDir, scope: acctA, timeZone });
+    const jsDay = await queryProjectUsageOverview({
+      ledger: jsLedger,
+      profileDir,
+      scope: acctA,
+      from: '2026-10-11',
+      to: '2026-10-11',
+      timeZone,
+    });
+
+    assert.deepEqual(stripUpdatedAt(nativeFull), stripUpdatedAt(jsFull));
+    assert.deepEqual(stripUpdatedAt(nativeDay), stripUpdatedAt(jsDay));
+    assert.equal(nativeFull.totalTokens, 3160);
+    assert.equal(nativeDay.totalTokens, 3100);
+
+    for (const p of nativeFull.projects) {
+      delete process.env.PULSE_DISABLE_NATIVE_ACCEL;
+      const nDet = await queryProjectConversationDetail({
+        ledger: nativeLedger,
+        profileDir,
+        scope: acctA,
+        projectKey: p.projectKey,
+        timeZone,
+      });
+      process.env.PULSE_DISABLE_NATIVE_ACCEL = '1';
+      const jDet = await queryProjectConversationDetail({
+        ledger: jsLedger,
+        profileDir,
+        scope: acctA,
+        projectKey: p.projectKey,
+        timeZone,
+      });
+      assert.deepEqual(stripUpdatedAt(nDet), stripUpdatedAt(jDet), `Detail mismatch for ${p.projectKey} (${timeZone})`);
+    }
+  }
+});
+
+test('scope acctB isolation and scope "all" parity with UsageLedger.summary across ownership-v1.json and overlapping records', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ag-proj-multi-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const ledgerDir = join(root, 'ledger');
+  const profileDir = join(root, 'profile');
+  await mkdir(profileDir, { recursive: true });
+
+  const ledger = new UsageLedger(ledgerDir, {
+    timeZone: 'Asia/Shanghai',
+    knownAccounts: {
+      [acctA]: { email: 'a@example.test', name: 'Account A', primary: true },
+      [acctB]: { email: 'b@example.test', name: 'Account B', primary: false },
+    },
+  });
+  await ledger.registerAccount(acctA, { email: 'a@example.test', name: 'Account A', primary: true });
+  await ledger.registerAccount(acctB, { email: 'b@example.test', name: 'Account B', primary: false });
+
+  const CID_SHARED_OWNED_B = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const CID_SHARED_LEGACY = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const CID_SPLIT = 'cccccccc-3333-4333-8333-333333333333';
+
+  // Unique to acctA (400)
+  await ledger.ingest(acctA, CID_MAIN, rawUsage({ at: '2026-10-11T04:00:00Z', responseId: 'm-a-1', input: 100, cacheRead: 200, output: 100 }));
+  // Unique to acctB (5500)
+  await ledger.ingest(acctB, CID_FOREIGN, rawUsage({ at: '2026-10-11T05:00:00Z', responseId: 'm-b-1', input: 5000, cacheRead: 0, output: 500 }));
+
+  // Shared file in both acctA and acctB, explicitly owned by acctB via 36-char convId in ownership-v1.json (700)
+  await ledger.ingest(acctA, CID_SHARED_OWNED_B, rawUsage({ at: '2026-10-11T06:00:00Z', responseId: 'm-owned-b', input: 500, cacheRead: 0, output: 200 }));
+  await ledger.ingest(acctB, CID_SHARED_OWNED_B, rawUsage({ at: '2026-10-11T06:00:00Z', responseId: 'm-owned-b', input: 500, cacheRead: 0, output: 200 }));
+  await ledger.registerOwnership(CID_SHARED_OWNED_B, acctB, { overwrite: true });
+
+  // Shared legacy file with NO ownership entry, overlapping r.id with higher token sum in acctB (300 vs 350)
+  await ledger.ingest(acctA, CID_SHARED_LEGACY, rawUsage({ at: '2026-10-11T07:00:00Z', responseId: 'm-legacy', input: 200, cacheRead: 0, output: 100 }));
+  await ledger.ingest(acctB, CID_SHARED_LEGACY, rawUsage({ at: '2026-10-11T07:00:00Z', responseId: 'm-legacy', input: 250, cacheRead: 0, output: 100 }));
+
+  // Split cross-account continuation: ownership[CID_SPLIT] = acctA, acctA has r-split-a (250), acctB has unique r-split-b (150)
+  await ledger.ingest(acctA, CID_SPLIT, rawUsage({ at: '2026-10-11T08:00:00Z', responseId: 'm-split-a', input: 200, cacheRead: 0, output: 50 }));
+  await ledger.ingest(acctB, CID_SPLIT, rawUsage({ at: '2026-10-11T08:30:00Z', responseId: 'm-split-b', input: 100, cacheRead: 0, output: 50 }));
+  await ledger.registerOwnership(CID_SPLIT, acctA, { overwrite: true });
+
+  createSummaryDb(join(profileDir, 'conversation_summaries.db'), [
+    {
+      conversationId: CID_MAIN,
+      title: 'Alpha Main',
+      workspaceUris: JSON.stringify(['file:///C:/repo/alpha-proj']),
+      projectId: 'proj-alpha',
+    },
+    {
+      conversationId: CID_FOREIGN,
+      title: 'Beta Secret',
+      workspaceUris: JSON.stringify(['file:///C:/repo/beta-proj']),
+      projectId: 'proj-beta',
+    },
+    {
+      conversationId: CID_SHARED_OWNED_B,
+      title: 'Shared Owned By Beta',
+      workspaceUris: JSON.stringify(['file:///C:/repo/beta-proj']),
+      projectId: 'proj-beta',
+    },
+    {
+      conversationId: CID_SHARED_LEGACY,
+      title: 'Legacy Shared Session',
+      workspaceUris: JSON.stringify(['file:///C:/repo/legacy-proj']),
+      projectId: 'proj-legacy',
+    },
+    {
+      conversationId: CID_SPLIT,
+      title: 'Split Continuation',
+      workspaceUris: JSON.stringify(['file:///C:/repo/split-proj']),
+      projectId: 'proj-split',
+    },
+  ]);
+
+  const prevDisable = process.env.PULSE_DISABLE_NATIVE_ACCEL;
+  t.after(() => {
+    if (prevDisable === undefined) delete process.env.PULSE_DISABLE_NATIVE_ACCEL;
+    else process.env.PULSE_DISABLE_NATIVE_ACCEL = prevDisable;
+  });
+
+  for (const disableNative of [false, true]) {
+    if (disableNative) process.env.PULSE_DISABLE_NATIVE_ACCEL = '1';
+    else delete process.env.PULSE_DISABLE_NATIVE_ACCEL;
+
+    const freshLedger = new UsageLedger(ledgerDir, {
+      timeZone: 'Asia/Shanghai',
+      knownAccounts: ledger.knownAccounts,
+    });
+
+    const sumA = await freshLedger.summary(acctA, Date.parse('2026-10-11T12:00:00Z'));
+    const sumB = await freshLedger.summary(acctB, Date.parse('2026-10-11T12:00:00Z'));
+    const sumAll = await freshLedger.summary('all', Date.parse('2026-10-11T12:00:00Z'));
+
+    // Single acctA: CID_MAIN(400) + CID_SHARED_LEGACY(300, primary) + CID_SPLIT(250) = 950; excludes CID_SHARED_OWNED_B & CID_FOREIGN
+    const ovA = await queryProjectUsageOverview({ ledger: freshLedger, profileDir, scope: acctA, timeZone: 'Asia/Shanghai' });
+    assert.equal(ovA.accountKey, acctA);
+    assert.equal(ovA.totalTokens, sumA.totalTokens);
+    assert.equal(ovA.totalTokens, 950);
+    assert.equal(ovA.requests, sumA.requests);
+    assert.equal(ovA.projects.some((p) => p.projectKey === 'project:c:/repo/beta-proj'), false);
+
+    // Single acctB: CID_FOREIGN(5500) + CID_SHARED_OWNED_B(700) + CID_SPLIT(150) = 6350; excludes CID_MAIN & CID_SHARED_LEGACY
+    const ovB = await queryProjectUsageOverview({ ledger: freshLedger, profileDir, scope: acctB, timeZone: 'Asia/Shanghai' });
+    assert.equal(ovB.accountKey, acctB);
+    assert.equal(ovB.totalTokens, sumB.totalTokens);
+    assert.equal(ovB.totalTokens, 6350);
+    assert.equal(ovB.requests, sumB.requests);
+    assert.equal(ovB.projects.some((p) => p.projectKey === 'project:c:/repo/alpha-proj'), false);
+    assert.equal(ovB.projects.some((p) => p.projectKey === 'project:c:/repo/legacy-proj'), false);
+
+    // All accounts: 400 + 5500 + 700 + 350 (max recordSum) + 250 + 150 = 7350
+    const ovAll = await queryProjectUsageOverview({ ledger: freshLedger, profileDir, scope: 'all', timeZone: 'Asia/Shanghai' });
+    assert.equal(ovAll.accountKey, 'all');
+    assert.equal(ovAll.totalTokens, sumAll.totalTokens);
+    assert.equal(ovAll.totalTokens, 7350);
+    assert.equal(ovAll.requests, sumAll.requests);
+
+    const byKeyAll = new Map(ovAll.projects.map((p) => [p.projectKey, p]));
+    assert.equal(byKeyAll.get('project:c:/repo/beta-proj')?.total, 6200);
+    assert.equal(byKeyAll.get('project:c:/repo/beta-proj')?.conversationCount, 2);
+    assert.equal(byKeyAll.get('project:c:/repo/legacy-proj')?.total, 350);
+    assert.equal(byKeyAll.get('project:c:/repo/legacy-proj')?.conversationCount, 1);
+    assert.equal(byKeyAll.get('project:c:/repo/split-proj')?.total, 400);
+    assert.equal(byKeyAll.get('project:c:/repo/split-proj')?.conversationCount, 1);
+
+    // Detail parity for 'all' and single scopes
+    const detBetaAll = await queryProjectConversationDetail({
+      ledger: freshLedger,
+      profileDir,
+      scope: 'all',
+      projectKey: 'project:c:/repo/beta-proj',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(detBetaAll.accountKey, 'all');
+    assert.equal(detBetaAll.totalTokens, 6200);
+    assert.deepEqual(
+      detBetaAll.conversations.map((c) => [c.id, c.total]),
+      [
+        [CID_FOREIGN, 5500],
+        [CID_SHARED_OWNED_B, 700],
+      ],
+    );
+
+    const detBetaA = await queryProjectConversationDetail({
+      ledger: freshLedger,
+      profileDir,
+      scope: acctA,
+      projectKey: 'project:c:/repo/beta-proj',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(detBetaA.accountKey, acctA);
+    assert.equal(detBetaA.totalTokens, 0);
+    assert.equal(detBetaA.conversations.length, 0);
+
+    const detSplitAll = await queryProjectConversationDetail({
+      ledger: freshLedger,
+      profileDir,
+      scope: 'all',
+      projectKey: 'project:c:/repo/split-proj',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(detSplitAll.accountKey, 'all');
+    assert.equal(detSplitAll.totalTokens, 400);
+    assert.deepEqual(
+      detSplitAll.conversations.map((c) => [c.id, c.total, c.requests]),
+      [[CID_SPLIT, 400, 2]],
+    );
+  }
+});
+
+test('Option B project-meta-v1.json persists SQLite and rawSummaries metadata without clobbering and survives SQLite deletion', async (t) => {
+  const { ledger, profileDir } = await setupFixture(t);
+  const CID_RAW = '99999999-1111-4111-8111-111111111111';
+  await ledger.ingest(acctA, CID_RAW, rawUsage({ at: '2026-10-11T12:00:00Z', responseId: 'r-raw', input: 300, cacheRead: 0, output: 100 })); // 400
+
+  const store = {
+    identity: acctA,
+    epoch: 1,
+    listConversations: async () => [],
+    rawSummaries: {
+      [CID_RAW]: {
+        summary: 'Raw RPC Session',
+        lastModifiedTime: '2026-10-11T12:00:00Z',
+        workspaces: [{ workspaceFolderAbsoluteUri: 'file:///C:/repo/raw-app' }],
+      },
+    },
+  };
+
+  // First query populates project-meta-v1.json from both SQLite and rawSummaries
+  const firstOverview = await queryProjectUsageOverview({
+    ledger,
+    store,
+    profileDir,
+    scope: acctA,
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'Asia/Shanghai',
+  });
+  assert.equal(firstOverview.totalTokens, 2500);
+
+  const metaPath = ledger.projectMetaFile();
+  const savedDoc = JSON.parse(await readFile(metaPath, 'utf8'));
+  assert.equal(savedDoc.schema, 1);
+  assert.equal(savedDoc.entries[CID_MAIN].title, 'Fix dashboard dropdowns');
+  assert.equal(savedDoc.entries[CID_SUBAGENT].parentConversationId, CID_MAIN);
+  assert.equal(savedDoc.entries[CID_SUBAGENT].agentName, 'researcher');
+  assert.equal(savedDoc.entries[CID_RAW].title, 'Raw RPC Session');
+  assert.deepEqual(savedDoc.entries[CID_RAW].workspaceUris, ['file:///C:/repo/raw-app']);
+
+  // Empty incoming fields must NOT clobber existing non-empty fields
+  store.rawSummaries = {
+    [CID_RAW]: {
+      summary: '',
+      lastModifiedTime: '2026-10-11T12:05:00Z',
+      workspaces: [],
+    },
+  };
+  await queryProjectUsageOverview({
+    ledger,
+    store,
+    profileDir,
+    scope: acctA,
+    from: '2026-10-11',
+    to: '2026-10-11',
+    timeZone: 'Asia/Shanghai',
+  });
+  const afterEmptyDoc = JSON.parse(await readFile(metaPath, 'utf8'));
+  assert.equal(afterEmptyDoc.entries[CID_RAW].title, 'Raw RPC Session');
+  assert.deepEqual(afterEmptyDoc.entries[CID_RAW].workspaceUris, ['file:///C:/repo/raw-app']);
+
+  // Newer timestamp with non-empty title updates via DesktopUsage.sync() hook too
+  store.rawSummaries = {
+    [CID_RAW]: {
+      summary: 'Renamed Raw Session',
+      lastModifiedTime: '2026-10-12T00:00:00Z',
+      workspaces: [{ workspaceFolderAbsoluteUri: 'file:///C:/repo/raw-app' }],
+    },
+  };
+  const tracker = new DesktopUsage(store, ledger, {
+    discoverLocal: async () => ({ conversations: [], errors: 0 }),
+  });
+  t.after(() => tracker.dispose());
+  await tracker.sync();
+
+  const afterSyncDoc = JSON.parse(await readFile(metaPath, 'utf8'));
+  assert.equal(afterSyncDoc.entries[CID_RAW].title, 'Renamed Raw Session');
+
+  // Delete SQLite DB and clear rawSummaries completely
+  await rm(join(profileDir, 'conversation_summaries.db'), { force: true });
+  await rm(join(profileDir, 'conversation_summaries.db-wal'), { force: true });
+  await rm(join(profileDir, 'conversation_summaries.db-shm'), { force: true });
+  store.rawSummaries = null;
+
+  // Query with both existing ledger and a brand new UsageLedger instance
+  for (const targetLedger of [ledger, new UsageLedger(ledger.directory)]) {
+    const ov = await queryProjectUsageOverview({
+      ledger: targetLedger,
+      store,
+      profileDir,
+      scope: acctA,
+      from: '2026-10-11',
+      to: '2026-10-11',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(ov.totalTokens, 2500);
+    const byKey = new Map(ov.projects.map((p) => [p.projectKey, p]));
+    assert.equal(byKey.get('project:c:/repo/antigrative-dashboard')?.total, 1200);
+    assert.equal(byKey.get('project:c:/repo/antigrative-dashboard')?.conversationCount, 3);
+    assert.equal(byKey.get('project:c:/repo/raw-app')?.total, 400);
+    assert.equal(byKey.get('cli')?.total, 100);
+
+    const detDash = await queryProjectConversationDetail({
+      ledger: targetLedger,
+      store,
+      profileDir,
+      scope: acctA,
+      projectKey: 'project:c:/repo/antigrative-dashboard',
+      from: '2026-10-11',
+      to: '2026-10-11',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(detDash.totalTokens, 1200);
+    assert.deepEqual(
+      detDash.conversations.map((c) => [c.id, c.title, c.total, c.isSubagent]),
+      [
+        [CID_WORKTREE, 'Worktree feature branch preview text', 600, false],
+        [CID_MAIN, 'Fix dashboard dropdowns', 400, false],
+        [CID_SUBAGENT, 'Fix dashboard dropdowns · researcher', 200, true],
+      ],
+    );
+    const sub = detDash.conversations.find((c) => c.id === CID_SUBAGENT);
+    assert.equal(sub?.rootId, CID_MAIN);
+    assert.equal(sub?.rootTitle, 'Fix dashboard dropdowns');
+
+    const detRaw = await queryProjectConversationDetail({
+      ledger: targetLedger,
+      store,
+      profileDir,
+      scope: acctA,
+      projectKey: 'project:c:/repo/raw-app',
+      from: '2026-10-11',
+      to: '2026-10-11',
+      timeZone: 'Asia/Shanghai',
+    });
+    assert.equal(detRaw.conversations[0]?.title, 'Renamed Raw Session');
   }
 });

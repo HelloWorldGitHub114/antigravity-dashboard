@@ -224,6 +224,8 @@
     autoConnect: "Open the app to connect automatically",
     loadingQuota: "Loading quota\u2026",
     unavailableQuota: "Quota unavailable",
+    quotaNo5hTag: "Weekly only",
+    quotaRingsLabel: "Model quotas",
     live: "Connected to Antigrative Dashboard",
     stale: "Showing last available quota",
     offline: "Antigrative Dashboard is offline",
@@ -535,7 +537,9 @@
     fontRowInline: "\u5E95\u90E8\u72B6\u6001\u5361\u7247",
     fontDecrease: "\u7F29\u5C0F",
     fontIncrease: "\u653E\u5927",
-    fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4"
+    fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4",
+    quotaNo5hTag: "\u4EC5\u5468\u989D\u5EA6",
+    quotaRingsLabel: "\u67E5\u770B\u6A21\u578B\u989D\u5EA6\u8BE6\u60C5"
   };
 
   // src/ui/i18n/index.ts
@@ -1361,6 +1365,7 @@
   }
   function clearMotionProps(el) {
     el.style.maxHeight = "";
+    el.style.height = "";
     el.style.opacity = "";
     el.style.overflow = "";
   }
@@ -1403,7 +1408,7 @@
         { maxHeight: `${startHeight}px`, opacity: startOpacity },
         { maxHeight: `${endHeight}px`, opacity: endOpacity }
       ],
-      { duration: expanded ? 180 : 160, easing: "cubic-bezier(.22,1,.36,1)" }
+      { duration: expanded ? 220 : 180, easing: "cubic-bezier(.22,1,.36,1)" }
     );
     panelMotion.set(el, { anim, expanding: expanded });
     const settle = (cancelled) => {
@@ -1414,6 +1419,17 @@
     };
     anim.onfinish = () => settle(false);
     anim.oncancel = () => settle(true);
+  }
+  function syncPinBottom(ctx) {
+    const widget = document.querySelector(".widget");
+    if (!widget) return;
+    const subSection = ctx.$("subagents-section");
+    const subToggle = ctx.$("subagents-toggle");
+    const subagentsOpen = Boolean(
+      subSection && !subSection.hidden && subToggle?.getAttribute("aria-expanded") === "true"
+    );
+    const shouldPin = Boolean(ctx.state.selectedCard) && !subagentsOpen && !ctx.state.timelineEnabled;
+    widget.dataset.pinBottom = String(shouldPin);
   }
   function createDomLookup() {
     const domCache = /* @__PURE__ */ new Map();
@@ -1430,39 +1446,77 @@
     const chips = [...document.querySelectorAll("[data-card]")];
     const cardScroll = /* @__PURE__ */ new Map();
     let cardMotion = null;
-    const showCard = (name, animate = false) => {
-      if (name !== "speed" && name !== "cache" && name !== "context") return;
+    let stageMorphAnim = null;
+    const showCard = (name, animate = false, allowToggle = false) => {
+      if (name !== null && name !== "speed" && name !== "cache" && name !== "context") return;
       const prev = ctx.state.selectedCard;
-      const changed = prev !== name;
-      if (changed) {
+      const nextName = allowToggle && prev === name ? null : name;
+      const changed = prev !== nextName;
+      if (changed && prev) {
         const prevEl = ctx.$(`${prev}-card`);
         if (prevEl) cardScroll.set(prev, prevEl.scrollTop);
       }
-      ctx.state.selectedCard = name;
+      ctx.state.selectedCard = nextName;
+      syncPinBottom(ctx);
+      const cardStage = ctx.$("card-stage");
+      const prevStageMotion = cardStage ? panelMotion.get(cardStage) : void 0;
+      const wasHidden = !cardStage || cardStage.hidden || Boolean(prevStageMotion && !prevStageMotion.expanding);
+      const startH = !cardStage || wasHidden ? 0 : cardStage.getBoundingClientRect().height;
+      if (cardStage && prevStageMotion) {
+        prevStageMotion.anim.cancel();
+        clearMotionProps(cardStage);
+        panelMotion.delete(cardStage);
+      }
+      stageMorphAnim?.cancel();
+      stageMorphAnim = null;
       cardMotion?.cancel();
       cardMotion = null;
       for (const chip of chips) {
-        const selected = chip.dataset.card === name;
+        const selected = chip.dataset.card === nextName;
         setAttr(chip, "aria-selected", String(selected));
-        chip.tabIndex = selected ? 0 : -1;
+        chip.tabIndex = selected || !nextName && chip.dataset.card === (name ?? "speed") ? 0 : -1;
+      }
+      if (!nextName) {
+        if (cardStage) setExpandedState(cardStage, false, animate);
+        return;
       }
       for (const key of ["speed", "cache", "context"]) {
-        setHidden(ctx.$(`${key}-card`), name !== key);
+        setHidden(ctx.$(`${key}-card`), nextName !== key);
       }
-      const card = ctx.$(`${name}-card`);
-      if (card && changed) card.scrollTop = cardScroll.get(name) ?? 0;
+      const card = ctx.$(`${nextName}-card`);
+      if (card && changed) card.scrollTop = cardScroll.get(nextName) ?? 0;
+      if (cardStage) {
+        if (wasHidden) {
+          setExpandedState(cardStage, true, animate);
+        } else {
+          cardStage.hidden = false;
+          const endH = cardStage.getBoundingClientRect().height;
+          if (animate && !isMotionReduced() && typeof cardStage.animate === "function" && Math.abs(endH - startH) > 1) {
+            cardStage.style.overflow = "hidden";
+            stageMorphAnim = cardStage.animate(
+              [{ height: `${startH}px` }, { height: `${endH}px` }],
+              { duration: 220, easing: "cubic-bezier(.22,1,.36,1)" }
+            );
+            stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
+              cardStage.style.overflow = "";
+              cardStage.style.height = "";
+              stageMorphAnim = null;
+            };
+          }
+        }
+      }
       if (changed && animate && !isMotionReduced() && card?.animate) {
         cardMotion = card.animate(
           [
-            { opacity: 0.55, transform: "translateY(4px)" },
+            { opacity: 0.45, transform: "translateY(5px)" },
             { opacity: 1, transform: "translateY(0)" }
           ],
-          { duration: 160, easing: "cubic-bezier(.22,1,.36,1)" }
+          { duration: 180, easing: "cubic-bezier(.22,1,.36,1)" }
         );
       }
     };
     for (const chip of chips) {
-      chip.addEventListener("click", (event) => showCard(chip.dataset.card, event.detail > 0));
+      chip.addEventListener("click", (event) => showCard(chip.dataset.card, event.detail > 0, true));
       chip.addEventListener("keydown", (event) => {
         const current = chips.indexOf(chip);
         let next;
@@ -1472,7 +1526,7 @@
         else if (event.key === "End") next = chips.length - 1;
         else return;
         event.preventDefault();
-        showCard(chips[next].dataset.card, true);
+        showCard(chips[next].dataset.card, true, false);
         chips[next].focus();
       });
     }
@@ -2007,10 +2061,12 @@
       if (treeEl.children.length) treeEl.textContent = "";
       state.lastTimelineRender = [];
       state.lastTimelineSig = null;
+      syncPinBottom(ctx);
       return;
     }
     setHidden(offBar, true);
     setHidden(panel, false);
+    syncPinBottom(ctx);
     const tl = speed?.modelTimeline || null;
     const nodes = Array.isArray(tl?.nodes) ? tl.nodes : [];
     const swimlanes = Array.isArray(tl?.swimlanes) ? tl.swimlanes : [];
@@ -2381,37 +2437,186 @@
   function groupLabel(value) {
     return formatQuotaGroupLabel(value, value.name);
   }
-  var quotaColor = (remaining) => typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-danger)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-warning)" : "";
+  var quotaToneColor = (remaining) => typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-quota-red)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-quota-yellow)" : typeof remaining === "number" ? "var(--pulse-quota-green)" : "var(--pulse-muted)";
   function applyQuotaFill(fill, remaining) {
     setStyle(
       fill,
       "width",
       typeof remaining === "number" ? `${Math.min(100, Math.max(0, remaining * 100))}%` : "0%"
     );
-    setStyle(fill, "background", quotaColor(remaining));
+    setStyle(fill, "background", quotaToneColor(remaining));
   }
-  function renderQuota(ctx, windowName, prefix) {
+  function readAvailableWindow(bucket) {
+    if (!bucket?.available) return null;
+    const avail = bucket;
+    if (avail.disabled || typeof avail.remaining !== "number" || !Number.isFinite(avail.remaining)) {
+      return null;
+    }
+    return avail;
+  }
+  function resolveQuotaFamily(group) {
+    const hint = `${group.name || ""} ${group.id || ""}`;
+    if (/claude|gpt|3p/i.test(hint)) {
+      return { letter: "C", color: "var(--pulse-claude)" };
+    }
+    if (/gemini/i.test(hint)) {
+      return { letter: "G", color: "var(--pulse-gemini)" };
+    }
+    const ch = (group.name || group.id || "?").trim().charAt(0).toUpperCase();
+    return { letter: ch || "?", color: "var(--pulse-accent)" };
+  }
+  function createSvgCircle(attrs) {
+    const circle = document.createElementNS(SVG_NS, "circle");
+    for (const [k, v] of Object.entries(attrs)) {
+      circle.setAttribute(k, String(v));
+    }
+    return circle;
+  }
+  function renderQuotaRings(ctx, groups) {
     const { $, state, language } = ctx;
     const t = language.t;
-    const bucket = state.group?.windows?.[windowName];
-    const availableBucket = bucket?.available ? bucket : null;
-    const remaining = availableBucket?.remaining ?? null;
-    setText($(`${prefix}-balance`), percent(remaining));
-    const fill = $(`${prefix}-fill`);
-    const track = $(`${prefix}-track`);
-    applyQuotaFill(fill, remaining);
-    if (typeof remaining === "number") {
-      setAttr(track, "aria-valuenow", String(remaining * 100));
-      setAttr(track, "aria-valuemin", "0");
-      setAttr(track, "aria-valuemax", "100");
-    } else {
-      setAttr(track, "aria-valuenow", null);
-    }
-    setText($(`${prefix}-reset`), language.resetDate(availableBucket?.resetAt));
-    setText(
-      $(`${prefix}-note`),
-      !bucket?.available ? t("noQuota") : availableBucket?.disabled ? t("disabledQuota") : remaining === null ? t("noFraction") : `${t("sharedQuota")} ${t("quotaSource")}`
+    const pill = $("quota-rings-pill");
+    const popover = $("quota-popover");
+    if (!pill || !popover) return;
+    const label = t("quotaRingsLabel");
+    setAttr(pill, "aria-label", label);
+    setAttr(pill, "title", label);
+    setAttr(popover, "aria-label", label);
+    const usable = groups.filter(
+      (g) => readAvailableWindow(g.windows?.weekly) || readAvailableWindow(g.windows?.["5h"])
     );
+    const sig = `${language.language}|${usable.map((g) => {
+      const w = readAvailableWindow(g.windows?.weekly);
+      const f = readAvailableWindow(g.windows?.["5h"]);
+      return `${g.id}:${g.name}:${w?.remaining ?? ""}:${w?.resetAt ?? ""}:${f?.remaining ?? ""}:${f?.resetAt ?? ""}`;
+    }).join("|")}`;
+    if (sig === state.lastQuotaSig) return;
+    state.lastQuotaSig = sig;
+    pill.replaceChildren();
+    popover.replaceChildren();
+    if (usable.length === 0) {
+      pill.appendChild(createEl("span", { class: "quota-unavailable-text", text: t("unavailableQuota") }));
+      popover.appendChild(createEl("div", { class: "quota-pop-empty", text: t("unavailableQuota") }));
+      return;
+    }
+    const now = Date.now() + state.serverOffset;
+    for (const g of usable) {
+      const weekAvail = readAvailableWindow(g.windows?.weekly);
+      const fiveAvail = readAvailableWindow(g.windows?.["5h"]);
+      const has5h = Boolean(fiveAvail);
+      const family = resolveQuotaFamily(g);
+      const innerR = has5h ? 8.3 : 10;
+      const innerOuterW = has5h ? 2.5 : 2.6;
+      const innerHoleW = has5h ? 1.2 : 1.25;
+      const wPct = weekAvail ? Math.max(0, Math.min(100, (weekAvail.remaining ?? 0) * 100)) : 0;
+      const weeklyColor = weekAvail ? quotaToneColor(weekAvail.remaining) : "var(--pulse-ring-track)";
+      const wrap = createEl("span", { class: "quota-ring-item" });
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("class", "quota-ring-svg");
+      svg.setAttribute("viewBox", "0 0 28 28");
+      svg.setAttribute("aria-hidden", "true");
+      svg.appendChild(
+        createSvgCircle({
+          cx: 14,
+          cy: 14,
+          r: (innerR - innerOuterW / 2 - 0.7).toFixed(2),
+          fill: `color-mix(in srgb, ${family.color} 10%, transparent)`
+        })
+      );
+      svg.appendChild(
+        createSvgCircle({
+          cx: 14,
+          cy: 14,
+          r: innerR,
+          fill: "none",
+          stroke: weeklyColor,
+          "stroke-opacity": weekAvail ? "0.75" : "0.45",
+          "stroke-width": innerOuterW
+        })
+      );
+      svg.appendChild(
+        createSvgCircle({
+          cx: 14,
+          cy: 14,
+          r: innerR,
+          fill: "none",
+          stroke: "var(--pill-bg)",
+          "stroke-width": innerHoleW
+        })
+      );
+      if (wPct > 0) {
+        const innerArcAttrs = {
+          class: "quota-ring-arc",
+          cx: 14,
+          cy: 14,
+          r: innerR,
+          fill: "none",
+          stroke: weeklyColor,
+          "stroke-width": innerOuterW
+        };
+        if (wPct < 99) {
+          innerArcAttrs.pathLength = 100;
+          innerArcAttrs["stroke-linecap"] = "round";
+          innerArcAttrs["stroke-dasharray"] = `${wPct} ${100 - wPct}`;
+          innerArcAttrs.transform = "rotate(-90 14 14)";
+        }
+        svg.appendChild(createSvgCircle(innerArcAttrs));
+      }
+      if (fiveAvail && (fiveAvail.remaining ?? 0) > 0) {
+        const fPct = Math.max(0, Math.min(100, (fiveAvail.remaining ?? 0) * 100));
+        const outerArcAttrs = {
+          class: "quota-ring-arc",
+          cx: 14,
+          cy: 14,
+          r: 12.1,
+          fill: "none",
+          stroke: quotaToneColor(fiveAvail.remaining),
+          "stroke-width": 1.35
+        };
+        if (fPct < 99) {
+          outerArcAttrs.pathLength = 100;
+          outerArcAttrs["stroke-linecap"] = "round";
+          outerArcAttrs["stroke-dasharray"] = `${fPct} ${100 - fPct}`;
+          outerArcAttrs.transform = "rotate(-90 14 14)";
+        }
+        svg.appendChild(createSvgCircle(outerArcAttrs));
+      }
+      const letterEl = createEl("span", { class: "quota-ring-letter", text: family.letter });
+      letterEl.style.color = family.color;
+      wrap.append(svg, letterEl);
+      pill.appendChild(wrap);
+      const block = createEl("div", { class: "quota-pop-group" });
+      const title = createEl("div", { class: "quota-pop-title" });
+      title.appendChild(createEl("span", { text: g.name || groupLabel(g) }));
+      if (!has5h) {
+        title.appendChild(createEl("span", { class: "quota-pop-badge", text: t("quotaNo5hTag") }));
+      }
+      block.appendChild(title);
+      const rows = [];
+      if (weekAvail) rows.push({ label: t("week"), bucket: weekAvail });
+      if (fiveAvail) rows.push({ label: t("five"), bucket: fiveAvail });
+      for (const r of rows) {
+        const row = createEl("div", { class: "quota-pop-row" });
+        const meta = createEl("div", { class: "quota-pop-meta" });
+        meta.appendChild(createEl("span", { text: r.label }));
+        const pctText = percent(r.bucket.remaining);
+        const resetText = r.bucket.resetAt ? language.countdown(r.bucket.resetAt, now, true) : "";
+        const nums = createEl("span", {
+          class: "quota-pop-nums",
+          text: resetText ? `${pctText} \xB7 ${resetText}` : pctText
+        });
+        nums.dataset.pct = pctText;
+        if (r.bucket.resetAt) nums.dataset.resetAt = r.bucket.resetAt;
+        meta.appendChild(nums);
+        const track = createEl("div", { class: "quota-pop-track" });
+        const fill = createEl("i", { class: "quota-pop-fill" });
+        applyQuotaFill(fill, r.bucket.remaining);
+        track.appendChild(fill);
+        row.append(meta, track);
+        block.appendChild(row);
+      }
+      popover.appendChild(block);
+    }
   }
   function renderQuotaAndSpeedSections(ctx, value) {
     const { $, state, language } = ctx;
@@ -2419,21 +2624,7 @@
     const groups = value.groups || [];
     const speed = value.speed;
     state.group = chooseGroup(ctx, groups, speed);
-    const optionsKey = `${language.language}:${groups.map((g) => g.id).join("|")}`;
-    const select = $("quota-group");
-    if (select && select.dataset.options !== optionsKey) {
-      select.replaceChildren(
-        ...groups.length ? groups.map((g) => new Option(groupLabel(g), g.id)) : [new Option(t("unavailableQuota"), "")]
-      );
-      select.dataset.options = optionsKey;
-    }
-    if (select && state.group && select.value !== state.group.id) {
-      select.value = state.group.id;
-    }
-    const groupText = state.group ? groupLabel(state.group) : "\u2014";
-    for (const element of ctx.groupNameNodes) setText(element, groupText);
-    renderQuota(ctx, "5h", "five");
-    renderQuota(ctx, "weekly", "week");
+    renderQuotaRings(ctx, groups);
     setText($("strip-tps"), rate(speed?.tps));
     setAttr($("speed-tab"), "title", `${rate(speed?.tps)} tok/s`);
     setText($("session-tps"), speed?.latestRateStatus === "legacy" ? t("ratePending") : `${rate(speed?.tps)} tok/s`);
@@ -2472,7 +2663,6 @@
     const planModel = speed?.planModel || null;
     const activeModel = speed?.activeModel || null;
     const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
-    setText($("strip-context"), hasCapacity && context.usedFraction != null ? `${Math.round(context.usedFraction * 100)}%` : "\u2014");
     setText(
       $("strip-context-size"),
       context ? `${compact(context.usedTokens)} / ${context.maxTokens === null ? "\u2014" : compact(context.maxTokens)}` : "\u2014"
@@ -2508,18 +2698,21 @@
       setText($("context-orchestrator"), planModel || t("modelMixModelsCount", { count: sessionModelCount }));
       setText($("context-orchestrator-note"), t(isHybrid ? "contextQuotaSplit" : "contextMultiModelHint"));
     }
+    const pctStr = hasCapacity && context.usedFraction != null ? `${Math.min(1, Math.max(0, context.usedFraction)) * 100}%` : "0%";
+    const ctxColor = hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? "var(--pulse-danger)" : hasCapacity && (context.usedFraction ?? 0) >= 0.8 ? "var(--pulse-warning)" : "";
+    const stripFill = $("strip-context-fill");
+    const stripTrack = $("strip-context-track");
+    setStyle(stripFill, "width", pctStr);
+    setStyle(stripFill, "background", ctxColor);
+    if (hasCapacity && context.usedFraction != null) {
+      setAttr(stripTrack, "aria-valuenow", String(Math.min(100, context.usedFraction * 100)));
+    } else {
+      setAttr(stripTrack, "aria-valuenow", null);
+    }
     const ctxFill = $("context-fill");
     const ctxTrack = $("context-track");
-    setStyle(
-      ctxFill,
-      "width",
-      hasCapacity && context.usedFraction != null ? `${Math.min(1, Math.max(0, context.usedFraction)) * 100}%` : "0%"
-    );
-    setStyle(
-      ctxFill,
-      "background",
-      hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? "var(--pulse-danger)" : ""
-    );
+    setStyle(ctxFill, "width", pctStr);
+    setStyle(ctxFill, "background", ctxColor);
     if (hasCapacity && context.usedFraction != null) {
       setAttr(ctxTrack, "aria-valuenow", String(Math.min(100, context.usedFraction * 100)));
       setAttr(ctxTrack, "aria-valuemin", "0");
@@ -2567,16 +2760,24 @@
   function updateCountdowns(ctx, onExpiredRefresh) {
     const { $, state, language } = ctx;
     const now = Date.now() + state.serverOffset;
-    for (const [windowName, prefix] of [["5h", "five"], ["weekly", "week"]]) {
-      const bucket = state.group?.windows?.[windowName];
-      const avail = bucket?.available ? bucket : null;
-      setText($(`${prefix}-countdown`), language.countdown(avail?.resetAt, now));
-      setText($(`${prefix}-summary-countdown`), language.countdown(avail?.resetAt, now, true));
-      setText($(`${prefix}-summary-balance`), percent(avail?.remaining));
-      applyQuotaFill($(`${prefix}-summary-fill`), avail?.remaining);
-      if (avail?.resetAt && Date.parse(avail.resetAt) <= now && state.snapshot?.connection === "live" && now - state.lastExpiredRefresh > 3e4) {
-        state.lastExpiredRefresh = now;
-        onExpiredRefresh();
+    const popover = $("quota-popover");
+    if (popover) {
+      for (const el of popover.querySelectorAll(".quota-pop-nums[data-reset-at]")) {
+        const resetAt = el.dataset.resetAt;
+        const pctText = el.dataset.pct || "\u2014";
+        if (resetAt) {
+          setText(el, `${pctText} \xB7 ${language.countdown(resetAt, now, true)}`);
+        }
+      }
+    }
+    for (const group of state.snapshot?.groups || []) {
+      for (const windowName of ["5h", "weekly"]) {
+        const avail = readAvailableWindow(group.windows?.[windowName]);
+        if (avail?.resetAt && Date.parse(avail.resetAt) <= now && state.snapshot?.connection === "live" && now - state.lastExpiredRefresh > 3e4) {
+          state.lastExpiredRefresh = now;
+          onExpiredRefresh();
+          return;
+        }
       }
     }
   }
@@ -2862,6 +3063,7 @@
       setHidden(subSection, true);
       state.lastSubagentsSig = null;
     }
+    syncPinBottom(ctx);
   }
   function bindSubagentEvents(ctx) {
     const { $, state } = ctx;
@@ -2898,6 +3100,7 @@
       if (!toggle || !container) return;
       const expanded = toggle.getAttribute("aria-expanded") !== "true";
       setAttr(toggle, "aria-expanded", String(expanded));
+      syncPinBottom(ctx);
       setExpandedState(container, expanded, true);
     });
     const subList = $("subagents-list");
@@ -2983,6 +3186,7 @@
       serverOffset: 0,
       lastExpiredRefresh: 0,
       selectedCard: "speed",
+      lastQuotaSig: null,
       refreshRequest: null,
       manualRequest: null,
       syncingFromRefresh: false,
@@ -3072,19 +3276,103 @@
       host,
       $: createDomLookup(),
       localGet,
-      localSet,
-      groupNameNodes: [...document.querySelectorAll(".group-name")]
+      localSet
     };
     controller = createPanelController(ctx, { render, updateCountdowns: handleUpdateCountdowns });
     ctx.preferences = controller.connectPreferences();
     const showCard = createCardSwitcher(ctx);
     bindSubagentEvents(ctx);
     bindModelMixEvents(ctx, render);
-    ctx.$("quota-group")?.addEventListener("change", (event) => {
-      state.selectedGroup = event.target.value;
-      localSet("ag-pulse-group", state.selectedGroup);
-      render();
+    const quotaPill = ctx.$("quota-rings-pill");
+    const quotaPopover = ctx.$("quota-popover");
+    let quotaCloseTimer = null;
+    let quotaPinned = false;
+    const positionQuotaPopoverFallback = () => {
+      if (!quotaPill || !quotaPopover || CSS.supports("position-area", "block-end")) return;
+      const r = quotaPill.getBoundingClientRect();
+      const pw = quotaPopover.offsetWidth || 256;
+      const vw = document.documentElement.clientWidth || window.innerWidth;
+      const left = Math.max(8, Math.min(vw - pw - 8, r.right - pw));
+      quotaPopover.style.left = `${Math.round(left)}px`;
+      quotaPopover.style.top = `${Math.round(r.bottom + 6)}px`;
+    };
+    const isQuotaOpen = () => Boolean(quotaPopover?.matches(":popover-open")) || quotaPill?.getAttribute("aria-expanded") === "true";
+    const openQuotaPopover = () => {
+      if (!quotaPill || !quotaPopover) return;
+      if (quotaCloseTimer) {
+        clearTimeout(quotaCloseTimer);
+        quotaCloseTimer = null;
+      }
+      if (!quotaPopover.matches(":popover-open")) {
+        try {
+          quotaPopover.showPopover();
+        } catch {
+          quotaPopover.style.display = "block";
+        }
+      }
+      positionQuotaPopoverFallback();
+      setAttr(quotaPill, "aria-expanded", "true");
+    };
+    const closeQuotaPopoverNow = () => {
+      quotaPinned = false;
+      if (quotaCloseTimer) {
+        clearTimeout(quotaCloseTimer);
+        quotaCloseTimer = null;
+      }
+      if (quotaPopover && typeof quotaPopover.hidePopover === "function" && quotaPopover.matches(":popover-open")) {
+        try {
+          quotaPopover.hidePopover();
+        } catch {
+          quotaPopover.style.display = "none";
+        }
+      } else if (quotaPopover) {
+        quotaPopover.style.display = "none";
+      }
+      setAttr(quotaPill, "aria-expanded", "false");
+    };
+    const scheduleCloseQuotaPopover = () => {
+      if (quotaPinned) return;
+      if (quotaCloseTimer) clearTimeout(quotaCloseTimer);
+      quotaCloseTimer = setTimeout(closeQuotaPopoverNow, 120);
+    };
+    quotaPill?.addEventListener("pointerenter", openQuotaPopover);
+    quotaPill?.addEventListener("pointerleave", scheduleCloseQuotaPopover);
+    quotaPill?.addEventListener("focus", openQuotaPopover);
+    quotaPill?.addEventListener("blur", scheduleCloseQuotaPopover);
+    quotaPill?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (quotaPinned && isQuotaOpen()) {
+        closeQuotaPopoverNow();
+      } else {
+        quotaPinned = true;
+        openQuotaPopover();
+      }
     });
+    quotaPopover?.addEventListener("pointerenter", () => {
+      if (quotaCloseTimer) {
+        clearTimeout(quotaCloseTimer);
+        quotaCloseTimer = null;
+      }
+    });
+    quotaPopover?.addEventListener("pointerleave", scheduleCloseQuotaPopover);
+    const onDocQuotaPointerDown = (event) => {
+      if (!isQuotaOpen() || !quotaPill || !quotaPopover) return;
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+      if (path.includes(quotaPopover) || path.includes(quotaPill)) return;
+      closeQuotaPopoverNow();
+    };
+    const onDocQuotaKeyDown = (event) => {
+      if (event.key === "Escape" && isQuotaOpen()) {
+        closeQuotaPopoverNow();
+        quotaPill?.focus();
+      }
+    };
+    const onQuotaResize = () => {
+      if (isQuotaOpen()) positionQuotaPopoverFallback();
+    };
+    document.addEventListener("pointerdown", onDocQuotaPointerDown, true);
+    document.addEventListener("keydown", onDocQuotaKeyDown, true);
+    window.addEventListener("resize", onQuotaResize);
     ctx.$("timeline-enable-btn")?.addEventListener("click", () => {
       void controller.setTimelineEnabled(true);
     });
@@ -3163,6 +3451,10 @@
       if (!document.hidden) void controller.refresh();
     });
     window.addEventListener("pagehide", () => {
+      closeQuotaPopoverNow();
+      document.removeEventListener("pointerdown", onDocQuotaPointerDown, true);
+      document.removeEventListener("keydown", onDocQuotaKeyDown, true);
+      window.removeEventListener("resize", onQuotaResize);
       ctx.fontPopover?.dispose();
       ctx.themeController.dispose();
       ctx.preferences.dispose();
@@ -3175,6 +3467,7 @@
     setInterval(handleUpdateCountdowns, 1e3);
     controller.localize();
     showCard("speed");
+    syncPinBottom(ctx);
     void controller.refresh();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initPanel, { once: true });

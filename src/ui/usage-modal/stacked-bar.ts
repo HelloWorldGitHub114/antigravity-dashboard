@@ -33,13 +33,7 @@ export function createStackedBarController(
   const resetDrilldown = createDomNode('button', 'reset-drilldown', w('显示全部时段', 'Show all'));
   resetDrilldown.id = 'reset-drilldown';
   resetDrilldown.hidden = true;
-  const chartHeading = createDomNode('div');
-  const detailTitle = $('detail-title');
-  if (detailTitle) {
-    detailTitle.after(chartSummary);
-    detailTitle.before(chartHeading);
-    chartHeading.append(detailTitle, chartSummary, resetDrilldown);
-  }
+  $('detail-summary-row')?.append(chartSummary, resetDrilldown);
 
   const updateDrilldownView = (): void => {
     for (const col of $('plot')?.querySelectorAll<HTMLElement>('.bar-column') || []) {
@@ -130,23 +124,29 @@ export function createStackedBarController(
     const scopeNote = $('project-scope-note');
     if (scopeNote) {
       scopeNote.hidden = state.dimension !== 'project';
-      scopeNote.textContent = w(
-        '仅统计当前登录账号可见项目',
-        'Only shows projects visible to the currently signed-in account',
-      );
+      const viewScope = state.value?.viewScope;
+      const activeAccount = state.value?.activeAccount;
+      if (viewScope === 'all') {
+        scopeNote.textContent = w(
+          '汇总全部已记录账号 · 依赖本机保留的项目元数据',
+          'Aggregated across recorded accounts · uses locally available project metadata',
+        );
+      } else if (viewScope && activeAccount && viewScope !== activeAccount) {
+        scopeNote.textContent = w(
+          '仅统计所选账号在本机保留项目信息的对话',
+          'Shows selected account projects with locally available metadata',
+        );
+      } else {
+        scopeNote.textContent = w(
+          '统计当前账号可见项目（含本机缓存元数据）',
+          'Shows projects visible to the current account',
+        );
+      }
     }
     const hourlySec = $('hourly-section');
     if (hourlySec) hourlySec.hidden = state.dimension === 'project';
     const projectSec = $('project-detail-section');
     if (projectSec) projectSec.hidden = state.dimension !== 'project';
-    text(
-      'detail-title',
-      state.dimension === 'model'
-        ? w('按模型统计', 'Usage by model')
-        : state.dimension === 'user'
-          ? w('按用户统计', 'Usage by user')
-          : w('项目统计', 'Project Stats'),
-    );
     handlers.onSyncPickers?.();
 
     const allRangeTotals = dayIndex.totals(buckets[0].from, buckets.at(-1)!.to, query, false);
@@ -347,7 +347,7 @@ export function createStackedBarController(
     if (!buckets.some((b) => b.total)) {
       const emptyMsg =
         state.dimension === 'project' && state.projectLoading
-          ? w('正在加载当前账号项目用量…', 'Loading project statistics…')
+          ? w('正在加载所选范围项目用量…', 'Loading project statistics…')
           : w('所选时段暂无用量记录', 'No usage recorded in this period');
       plotFrag.append(createDomNode('div', 'chart-empty', emptyMsg));
     }

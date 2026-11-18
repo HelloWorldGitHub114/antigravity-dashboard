@@ -1,8 +1,8 @@
-# 开发与验证（v0.11.0+ / v0.12.0+）
+# 开发与验证（v0.11.0+ / v0.12.x）
 
 ## 架构与目录结构
 
-自 **v0.11.0** 起，项目采用 **全栈 TypeScript 模块化源码（`src/`，单文件 `<300` 行）+ `esbuild` 零依赖原位编译产物** 架构；自 **v0.12.0** 起新增可选 **Rust N-API 原生加速层与独立 CLI（`native/pulse-accel`）**。编译产物直接输出至宿主期望的原始入口路径（`sidecars/panel/`、`compat/`、`ide/`、`cli/` 与根目录 `manage.mjs`），在消除运行时 `module.exports` 字符串切片拼装与跨层协议漂移的同时，保持用户端零 `node_modules` / 零 `pip` 依赖分发：
+自 **v0.11.0** 起，项目采用 **全栈 TypeScript 模块化源码（`src/`，单文件 `<300` 行）+ `esbuild` 零依赖原位编译产物** 架构；自 **v0.12.0** 起新增可选 **Rust N-API 原生加速层与独立 CLI（`native/pulse-accel`，含 SQLite 旁路、`ledger_index.rs`、`project_ledger.rs` 等模块）**。编译产物直接输出至宿主期望的原始入口路径（`sidecars/panel/`、`compat/`、`ide/`、`cli/` 与根目录 `manage.mjs`），在消除运行时 `module.exports` 字符串切片拼装与跨层协议漂移的同时，保持用户端零 `node_modules` / 零 `pip` 依赖分发：
 
 ```text
 src/
@@ -53,7 +53,7 @@ node --expose-gc tools/check-transcript-resources.mjs
 
 # 6. 生成 dist/ 发行包（App/CLI ZIP + IDE VSIX + SHA256）并校验发布完整性
 npm run package
-node tools/publish-release.mjs --tag v0.12.0 --check-only
+node tools/publish-release.mjs --tag v0.12.3 --check-only
 ```
 
 ## 本地实时预览

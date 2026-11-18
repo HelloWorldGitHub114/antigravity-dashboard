@@ -3,6 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
 use serde::de::{MapAccess, Visitor};
@@ -14,12 +15,30 @@ const LEDGER_CACHE_FILE: &str = "ledger-compact-v1.bin";
 const LEDGER_CACHE_MAGIC: &[u8; 8] = b"AGPLDG01";
 const LEDGER_CACHE_VERSION: u32 = 1;
 const MAX_LEDGER_JSON_BYTES: usize = 8 * 1024 * 1024;
-const MAX_RECORD_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_SAFE_INT: i64 = 9_007_199_254_740_991;
-const PARALLEL_DIRTY_THRESHOLD: usize = 8;
+pub(crate) const MAX_RECORD_FILE_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_SAFE_INT: i64 = 9_007_199_254_740_991;
+pub(crate) const PARALLEL_DIRTY_THRESHOLD: usize = 8;
 const LEGACY_DISPLAY_NAME: &str = "早期历史未区分用量";
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct CachedSummarySnapshot {
+    snapshot_sig: [u8; 32],
+    accounts_stamp: (Option<i128>, Option<u64>),
+    ownership_stamp: (Option<i128>, Option<u64>),
+    all_scopes: Vec<String>,
+    snapshot: UsageSummarySnapshotOut,
+}
+
+struct InMemLedgerCache {
+    directory: String,
+    bin_mtime_ns: Option<i128>,
+    bin_size: Option<u64>,
+    entries: Arc<HashMap<(String, String), CachedFileEntry>>,
+    last_snapshot: Option<CachedSummarySnapshot>,
+}
+
+static LEDGER_MEM_CACHE: Mutex<Option<InMemLedgerCache>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,11 +195,11 @@ struct CachedFileEntry {
     records: Vec<PackedUsageRecord>,
 }
 
-fn is_hex64(s: &str) -> bool {
+pub(crate) fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn is_ledger_file_name(name: &str) -> bool {
+pub(crate) fn is_ledger_file_name(name: &str) -> bool {
     name.len() == 69 && name.ends_with(".json") && is_hex64(&name[..64])
 }
 
@@ -259,11 +278,18 @@ fn is_js_truthy(val: Option<&Value>) -> bool {
     }
 }
 
-fn mtime_ns_from_metadata(meta: &fs::Metadata) -> Option<i128> {
+pub(crate) fn mtime_ns_from_metadata(meta: &fs::Metadata) -> Option<i128> {
     let mtime = meta.modified().ok()?;
     match mtime.duration_since(UNIX_EPOCH) {
         Ok(d) => Some(d.as_nanos() as i128),
         Err(e) => Some(-(e.duration().as_nanos() as i128)),
+    }
+}
+
+pub(crate) fn read_cache_file_stamp(cache_path: &Path) -> (Option<i128>, Option<u64>) {
+    match fs::metadata(cache_path) {
+        Ok(m) => (mtime_ns_from_metadata(&m), Some(m.len())),
+        Err(_) => (None, None),
     }
 }
 
@@ -525,17 +551,17 @@ fn parse_ledger_file(
     })
 }
 
-struct BinCursor<'a> {
+pub(crate) struct BinCursor<'a> {
     data: &'a [u8],
-    pos: usize,
+    pub(crate) pos: usize,
 }
 
 impl<'a> BinCursor<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
-    fn read_bytes(&mut self, len: usize) -> Option<&'a [u8]> {
+    pub(crate) fn read_bytes(&mut self, len: usize) -> Option<&'a [u8]> {
         let end = self.pos.checked_add(len)?;
         if end > self.data.len() {
             return None;
@@ -545,44 +571,44 @@ impl<'a> BinCursor<'a> {
         Some(slice)
     }
 
-    fn read_u8(&mut self) -> Option<u8> {
+    pub(crate) fn read_u8(&mut self) -> Option<u8> {
         let b = self.read_bytes(1)?;
         Some(b[0])
     }
 
-    fn read_u32(&mut self) -> Option<u32> {
+    pub(crate) fn read_u32(&mut self) -> Option<u32> {
         let b = self.read_bytes(4)?;
         Some(u32::from_le_bytes(b.try_into().ok()?))
     }
 
-    fn read_u64(&mut self) -> Option<u64> {
+    pub(crate) fn read_u64(&mut self) -> Option<u64> {
         let b = self.read_bytes(8)?;
         Some(u64::from_le_bytes(b.try_into().ok()?))
     }
 
-    fn read_i64(&mut self) -> Option<i64> {
+    pub(crate) fn read_i64(&mut self) -> Option<i64> {
         let b = self.read_bytes(8)?;
         Some(i64::from_le_bytes(b.try_into().ok()?))
     }
 
-    fn read_i128(&mut self) -> Option<i128> {
+    pub(crate) fn read_i128(&mut self) -> Option<i128> {
         let b = self.read_bytes(16)?;
         Some(i128::from_le_bytes(b.try_into().ok()?))
     }
 
-    fn read_f64(&mut self) -> Option<f64> {
+    pub(crate) fn read_f64(&mut self) -> Option<f64> {
         let b = self.read_bytes(8)?;
         Some(f64::from_le_bytes(b.try_into().ok()?))
     }
 
-    fn read_str(&mut self) -> Option<String> {
+    pub(crate) fn read_str(&mut self) -> Option<String> {
         let len = self.read_u32()? as usize;
         let bytes = self.read_bytes(len)?;
         std::str::from_utf8(bytes).ok().map(|s| s.to_string())
     }
 }
 
-fn write_str(out: &mut Vec<u8>, s: &str) {
+pub(crate) fn write_str(out: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
     out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
     out.extend_from_slice(bytes);
@@ -741,26 +767,13 @@ fn encode_binary_cache(entries: &[&CachedFileEntry]) -> Vec<u8> {
     buf
 }
 
-fn persist_binary_cache(dir: &Path, entries: &HashMap<(String, String), CachedFileEntry>) {
-    if !dir.is_dir() {
-        return;
-    }
-    let cache_path = dir.join(LEDGER_CACHE_FILE);
-    if entries.is_empty() && !cache_path.exists() {
-        return;
-    }
-    let mut sorted: Vec<&CachedFileEntry> = entries.values().collect();
-    sorted.sort_by(|a, b| {
-        a.scope
-            .cmp(&b.scope)
-            .then_with(|| a.file_name.cmp(&b.file_name))
-    });
-    let encoded = encode_binary_cache(&sorted);
+pub(crate) fn atomic_write_cache_file(dir: &Path, file_name: &str, encoded: &[u8]) -> bool {
+    let cache_path = dir.join(file_name);
     let seq = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = dir.join(format!("{LEDGER_CACHE_FILE}.tmp.{}.{seq}", std::process::id()));
+    let tmp_path = dir.join(format!("{file_name}.tmp.{}.{seq}", std::process::id()));
     let write_ok = (|| -> std::io::Result<()> {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp_path)?;
-        f.write_all(&encoded)?;
+        f.write_all(encoded)?;
         f.flush()?;
         drop(f);
         for attempt in 0..5u64 {
@@ -781,10 +794,30 @@ fn persist_binary_cache(dir: &Path, entries: &HashMap<(String, String), CachedFi
     })();
     if write_ok.is_err() {
         let _ = fs::remove_file(&tmp_path);
+        return false;
     }
+    true
 }
 
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+fn persist_binary_cache(dir: &Path, entries: &HashMap<(String, String), CachedFileEntry>) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let cache_path = dir.join(LEDGER_CACHE_FILE);
+    if entries.is_empty() && !cache_path.exists() {
+        return true;
+    }
+    let mut sorted: Vec<&CachedFileEntry> = entries.values().collect();
+    sorted.sort_by(|a, b| {
+        a.scope
+            .cmp(&b.scope)
+            .then_with(|| a.file_name.cmp(&b.file_name))
+    });
+    let encoded = encode_binary_cache(&sorted);
+    atomic_write_cache_file(dir, LEDGER_CACHE_FILE, &encoded)
+}
+
+pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64;
@@ -848,21 +881,27 @@ fn format_iso_utc(now_ms: i64) -> Option<String> {
     ))
 }
 
-fn resolve_offset_secs(query: &LedgerSummaryQuery, at_ms: i64) -> Option<i32> {
-    if let Some(min_ms) = query.tz_min_ms {
+pub(crate) fn resolve_offset_secs_parts(
+    fixed_offset_secs: Option<i32>,
+    tz_min_ms: Option<i64>,
+    tz_max_ms: Option<i64>,
+    tz_transitions: Option<&[TzTransition]>,
+    at_ms: i64,
+) -> Option<i32> {
+    if let Some(min_ms) = tz_min_ms {
         if at_ms < min_ms {
             return None;
         }
     }
-    if let Some(max_ms) = query.tz_max_ms {
+    if let Some(max_ms) = tz_max_ms {
         if at_ms >= max_ms {
             return None;
         }
     }
-    if let Some(fixed) = query.fixed_offset_secs {
+    if let Some(fixed) = fixed_offset_secs {
         return Some(fixed);
     }
-    let transitions = query.tz_transitions.as_ref()?;
+    let transitions = tz_transitions?;
     if transitions.is_empty() {
         return None;
     }
@@ -873,8 +912,20 @@ fn resolve_offset_secs(query: &LedgerSummaryQuery, at_ms: i64) -> Option<i32> {
     Some(transitions[idx - 1].offset_secs)
 }
 
-fn date_time_parts(query: &LedgerSummaryQuery, at_ms: i64) -> Option<(String, usize)> {
-    let offset_secs = resolve_offset_secs(query, at_ms)?;
+pub(crate) fn date_ymd_hour_from_tz(
+    fixed_offset_secs: Option<i32>,
+    tz_min_ms: Option<i64>,
+    tz_max_ms: Option<i64>,
+    tz_transitions: Option<&[TzTransition]>,
+    at_ms: i64,
+) -> Option<(i64, u32, u32, usize)> {
+    let offset_secs = resolve_offset_secs_parts(
+        fixed_offset_secs,
+        tz_min_ms,
+        tz_max_ms,
+        tz_transitions,
+        at_ms,
+    )?;
     let local_ms = at_ms.checked_add((offset_secs as i64) * 1000)?;
     let local_secs = local_ms.div_euclid(1000);
     let days = local_secs.div_euclid(86400);
@@ -884,6 +935,17 @@ fn date_time_parts(query: &LedgerSummaryQuery, at_ms: i64) -> Option<(String, us
     if !(0..=9999).contains(&y) {
         return None;
     }
+    Some((y, m, d, hour))
+}
+
+fn date_time_parts(query: &LedgerSummaryQuery, at_ms: i64) -> Option<(String, usize)> {
+    let (y, m, d, hour) = date_ymd_hour_from_tz(
+        query.fixed_offset_secs,
+        query.tz_min_ms,
+        query.tz_max_ms,
+        query.tz_transitions.as_deref(),
+        at_ms,
+    )?;
     Some((format!("{y:04}-{m:02}-{d:02}"), hour))
 }
 
@@ -998,6 +1060,91 @@ struct AttributedRecord<'a> {
     user_name: String,
 }
 
+fn hash_opt_str(h: &mut Sha256, s: Option<&str>) {
+    match s {
+        Some(v) => {
+            h.update([1u8]);
+            let b = v.as_bytes();
+            h.update((b.len() as u32).to_le_bytes());
+            h.update(b);
+        }
+        None => h.update([0u8]),
+    }
+}
+
+fn hash_opt_bool(h: &mut Sha256, v: Option<bool>) {
+    match v {
+        Some(b) => h.update([1u8, if b { 1 } else { 0 }]),
+        None => h.update([0u8]),
+    }
+}
+
+fn hash_opt_f64(h: &mut Sha256, v: Option<f64>) {
+    match v {
+        Some(f) => {
+            h.update([1u8]);
+            let norm = if f == 0.0 { 0.0_f64 } else { f };
+            h.update(norm.to_bits().to_le_bytes());
+        }
+        None => h.update([0u8]),
+    }
+}
+
+fn compute_summary_snapshot_sig(query: &LedgerSummaryQuery) -> [u8; 32] {
+    let mut h = Sha256::new();
+    for s in [
+        query.scope.as_str(),
+        query.today.as_str(),
+        query.time_zone.as_str(),
+        query.source.as_str(),
+    ] {
+        let b = s.as_bytes();
+        h.update((b.len() as u32).to_le_bytes());
+        h.update(b);
+    }
+    hash_opt_str(&mut h, query.fallback_scope.as_deref());
+    match query.fixed_offset_secs {
+        Some(s) => {
+            h.update([1u8]);
+            h.update(s.to_le_bytes());
+        }
+        None => h.update([0u8]),
+    }
+    for opt in [query.tz_min_ms, query.tz_max_ms] {
+        match opt {
+            Some(v) => {
+                h.update([1u8]);
+                h.update(v.to_le_bytes());
+            }
+            None => h.update([0u8]),
+        }
+    }
+    match &query.tz_transitions {
+        Some(list) => {
+            h.update([1u8]);
+            h.update((list.len() as u32).to_le_bytes());
+            for t in list {
+                h.update(t.at_ms.to_le_bytes());
+                h.update(t.offset_secs.to_le_bytes());
+            }
+        }
+        None => h.update([0u8]),
+    }
+    h.update((query.known_accounts.len() as u32).to_le_bytes());
+    for (k, info) in &query.known_accounts {
+        let kb = k.as_bytes();
+        h.update((kb.len() as u32).to_le_bytes());
+        h.update(kb);
+        hash_opt_str(&mut h, info.email.as_deref());
+        hash_opt_str(&mut h, info.name.as_deref());
+        hash_opt_bool(&mut h, info.primary);
+        hash_opt_bool(&mut h, info.secondary);
+        hash_opt_f64(&mut h, info.added_at);
+        hash_opt_f64(&mut h, info.created_at);
+    }
+    h.finalize().into()
+}
+
 pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
     let query: LedgerSummaryQuery = serde_json::from_str(query_json).ok()?;
     if query.directory.is_empty()
@@ -1010,22 +1157,12 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
     let week_start_str = week_start(&query.today)?;
     let month_prefix = &query.today[..7];
     let updated_at = format_iso_utc(query.now_ms)?;
+    let snapshot_sig = compute_summary_snapshot_sig(&query);
 
     let dir = Path::new(&query.directory);
-    let meta = load_accounts_meta(dir).ok()?;
-    let ownership = load_ownership(dir).ok()?;
+    let accounts_stamp = read_cache_file_stamp(&dir.join("accounts-v1.json"));
+    let ownership_stamp = read_cache_file_stamp(&dir.join("ownership-v1.json"));
     let all_scopes = list_scope_directories(dir).ok()?;
-
-    let mut owner_by_name: HashMap<String, String> = HashMap::new();
-    for (conv_id, owner_scope) in &ownership {
-        if is_hex64(owner_scope) {
-            if !is_valid_guid(conv_id) {
-                return None;
-            }
-            let file_name = format!("{}.json", sha256_hex(&conv_id.to_ascii_lowercase()));
-            owner_by_name.insert(file_name, owner_scope.clone());
-        }
-    }
 
     let target_scopes: Vec<String> = if query.scope == "all" {
         if !all_scopes.is_empty() {
@@ -1062,14 +1199,43 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
         .collect();
 
     let cache_path = dir.join(LEDGER_CACHE_FILE);
-    let (mut cache_map, mut cache_dirty) = load_binary_cache(&cache_path);
+    let (bin_mtime_ns, bin_size) = read_cache_file_stamp(&cache_path);
+    let mem_hit = if bin_size.is_none() || bin_mtime_ns.is_some() {
+        let guard = LEDGER_MEM_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().and_then(|c| {
+            if c.directory == query.directory
+                && c.bin_mtime_ns == bin_mtime_ns
+                && c.bin_size == bin_size
+            {
+                Some(Arc::clone(&c.entries))
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
 
-    let before_len = cache_map.len();
-    cache_map.retain(|(s, _), _| {
-        scan_scope_set.contains(s) || all_scope_set.contains(s) || target_set.contains(s)
+    let was_mem_hit = mem_hit.is_some();
+    let (mut cache_arc, mut cache_dirty) = match mem_hit {
+        Some(arc) => (arc, false),
+        None => {
+            let (map, dirty) = load_binary_cache(&cache_path);
+            (Arc::new(map), dirty)
+        }
+    };
+
+    let mut any_removed_or_missing = false;
+    let needs_retain = cache_arc.keys().any(|(s, _)| {
+        !(scan_scope_set.contains(s) || all_scope_set.contains(s) || target_set.contains(s))
     });
-    if cache_map.len() != before_len {
+    if needs_retain {
+        let cache_map = Arc::make_mut(&mut cache_arc);
+        cache_map.retain(|(s, _), _| {
+            scan_scope_set.contains(s) || all_scope_set.contains(s) || target_set.contains(s)
+        });
         cache_dirty = true;
+        any_removed_or_missing = true;
     }
 
     let mut scope_files: Vec<(String, Vec<String>)> = Vec::with_capacity(scan_scopes.len());
@@ -1097,14 +1263,21 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
         valid_files.sort();
         let valid_set: HashSet<&str> = valid_files.iter().map(|n| n.as_str()).collect();
 
-        let keys_to_remove: Vec<(String, String)> = cache_map
+        let has_removed = cache_arc
             .keys()
-            .filter(|(cs, cname)| cs == s && !valid_set.contains(cname.as_str()))
-            .cloned()
-            .collect();
-        for k in keys_to_remove {
-            cache_map.remove(&k);
-            cache_dirty = true;
+            .any(|(cs, cname)| cs == s && !valid_set.contains(cname.as_str()));
+        if has_removed {
+            let keys_to_remove: Vec<(String, String)> = cache_arc
+                .keys()
+                .filter(|(cs, cname)| cs == s && !valid_set.contains(cname.as_str()))
+                .cloned()
+                .collect();
+            let cache_map = Arc::make_mut(&mut cache_arc);
+            for k in keys_to_remove {
+                cache_map.remove(&k);
+                cache_dirty = true;
+            }
+            any_removed_or_missing = true;
         }
 
         let mut existing_files = Vec::with_capacity(valid_files.len());
@@ -1114,9 +1287,12 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
             let file_meta = match meta_res {
                 Ok(m) => m,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if cache_map.remove(&(s.clone(), name)).is_some() {
+                    let key = (s.clone(), name);
+                    if cache_arc.contains_key(&key) {
+                        Arc::make_mut(&mut cache_arc).remove(&key);
                         cache_dirty = true;
                     }
+                    any_removed_or_missing = true;
                     continue;
                 }
                 Err(_) => return None,
@@ -1126,7 +1302,7 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
             let rel_path = format!("{s}/{name}");
             let is_dirty = dirty_set.contains(&rel_path);
             let cache_hit = !is_dirty
-                && cache_map
+                && cache_arc
                     .get(&(s.clone(), name.clone()))
                     .is_some_and(|e| e.mtime_ns == mtime_ns && e.file_size == file_size);
             if !cache_hit {
@@ -1141,6 +1317,49 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
             existing_files.push(name);
         }
         scope_files.push((s.clone(), existing_files));
+    }
+
+    let stamps_valid = (accounts_stamp.1.is_none() || accounts_stamp.0.is_some())
+        && (ownership_stamp.1.is_none() || ownership_stamp.0.is_some());
+
+    if was_mem_hit
+        && !cache_dirty
+        && !any_removed_or_missing
+        && dirty_tasks.is_empty()
+        && stamps_valid
+    {
+        let mut guard = LEDGER_MEM_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = guard.as_mut() {
+            if c.directory == query.directory
+                && c.bin_mtime_ns == bin_mtime_ns
+                && c.bin_size == bin_size
+            {
+                if let Some(snap) = c.last_snapshot.as_mut() {
+                    if snap.snapshot_sig == snapshot_sig
+                        && snap.accounts_stamp == accounts_stamp
+                        && snap.ownership_stamp == ownership_stamp
+                        && snap.all_scopes == all_scopes
+                    {
+                        snap.snapshot.updated_at = updated_at;
+                        return serde_json::to_string(&snap.snapshot).ok();
+                    }
+                }
+            }
+        }
+    }
+
+    let meta = load_accounts_meta(dir).ok()?;
+    let ownership = load_ownership(dir).ok()?;
+
+    let mut owner_by_name: HashMap<String, String> = HashMap::new();
+    for (conv_id, owner_scope) in &ownership {
+        if is_hex64(owner_scope) {
+            if !is_valid_guid(conv_id) {
+                return None;
+            }
+            let file_name = format!("{}.json", sha256_hex(&conv_id.to_ascii_lowercase()));
+            owner_by_name.insert(file_name, owner_scope.clone());
+        }
     }
 
     if !dirty_tasks.is_empty() {
@@ -1209,6 +1428,7 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
         if transient_err.load(Ordering::Relaxed) {
             return None;
         }
+        let cache_map = Arc::make_mut(&mut cache_arc);
         for (idx, task) in dirty_tasks.into_iter().enumerate() {
             match results[idx].take()? {
                 ParseFileStatus::Parsed(entry) => {
@@ -1225,9 +1445,42 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
         }
     }
 
-    if cache_dirty {
-        persist_binary_cache(dir, &cache_map);
-    }
+    let (cache_ok_for_mem, final_bin_mtime_ns, final_bin_size) = if cache_dirty {
+        let persisted = persist_binary_cache(dir, &cache_arc);
+        let (new_mtime_ns, new_size) = read_cache_file_stamp(&cache_path);
+        let ok = persisted && (new_size.is_none() || new_mtime_ns.is_some());
+        let mut guard = LEDGER_MEM_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if ok {
+            *guard = Some(InMemLedgerCache {
+                directory: query.directory.clone(),
+                bin_mtime_ns: new_mtime_ns,
+                bin_size: new_size,
+                entries: Arc::clone(&cache_arc),
+                last_snapshot: None,
+            });
+        } else if guard.as_ref().is_some_and(|c| c.directory == query.directory) {
+            *guard = None;
+        }
+        (ok, new_mtime_ns, new_size)
+    } else if !was_mem_hit && (bin_size.is_none() || bin_mtime_ns.is_some()) {
+        let mut guard = LEDGER_MEM_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(InMemLedgerCache {
+            directory: query.directory.clone(),
+            bin_mtime_ns,
+            bin_size,
+            entries: Arc::clone(&cache_arc),
+            last_snapshot: None,
+        });
+        (true, bin_mtime_ns, bin_size)
+    } else {
+        (
+            bin_size.is_none() || bin_mtime_ns.is_some(),
+            bin_mtime_ns,
+            bin_size,
+        )
+    };
+
+    let cache_map = &*cache_arc;
 
     let mut record_scopes: HashMap<String, Vec<String>> = HashMap::new();
     let mut parsed_entries: Vec<&CachedFileEntry> = Vec::new();
@@ -1639,7 +1892,27 @@ pub fn query_usage_ledger_summary_json(query_json: &str) -> Option<String> {
         source: query.source,
     };
 
-    serde_json::to_string(&snapshot).ok()
+    let out_json = serde_json::to_string(&snapshot).ok()?;
+
+    if cache_ok_for_mem && stamps_valid {
+        let mut guard = LEDGER_MEM_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = guard.as_mut() {
+            if c.directory == query.directory
+                && c.bin_mtime_ns == final_bin_mtime_ns
+                && c.bin_size == final_bin_size
+            {
+                c.last_snapshot = Some(CachedSummarySnapshot {
+                    snapshot_sig,
+                    accounts_stamp,
+                    ownership_stamp,
+                    all_scopes,
+                    snapshot,
+                });
+            }
+        }
+    }
+
+    Some(out_json)
 }
 
 #[cfg(test)]
@@ -2012,6 +2285,259 @@ mod tests {
         assert!(validate_cached_i64(-2).is_none());
         assert_eq!(validate_cached_i64(-1), Some(None));
         assert_eq!(validate_cached_i64(42), Some(Some(42)));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_in_mem_ledger_cache_invalidation() {
+        let dir = temp_dir("mem-cache");
+        let scope_a = hex64('a');
+        let rid1 = hex64('1');
+        let fhash1 = hex64('b');
+        let cache_path = dir.join(LEDGER_CACHE_FILE);
+
+        let f1 = write_ledger_doc(
+            &dir,
+            &scope_a,
+            &fhash1,
+            serde_json::json!([{
+                "id": rid1,
+                "at": 1791684000000i64,
+                "model": "Gemini 3.8",
+                "uncached": 100,
+                "cacheRead": 200,
+                "cacheWrite": 0,
+                "output": 50,
+                "partial": false
+            }]),
+            None,
+        );
+
+        let query = serde_json::json!({
+            "directory": dir.to_string_lossy(),
+            "scope": scope_a,
+            "nowMs": 1791684000000i64,
+            "today": "2026-10-11",
+            "timeZone": "Asia/Shanghai",
+            "source": "desktop-local",
+            "knownAccounts": {},
+            "fixedOffsetSecs": 28800,
+            "dirtyRelPaths": []
+        });
+
+        // Cold build
+        let out1: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out1["totalTokens"], 350);
+        let stamp1 = read_cache_file_stamp(&cache_path);
+        assert!(stamp1.0.is_some() && stamp1.1.is_some());
+
+        // Warm hit: preserves binary mtime/size
+        let out2: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out2["totalTokens"], 350);
+        assert_eq!(read_cache_file_stamp(&cache_path), stamp1);
+
+        // Corrupt binary sidecar -> detected via metadata stamp, rebuilds valid sidecar
+        fs::write(&cache_path, b"BAD").unwrap();
+        let out3: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out3["totalTokens"], 350);
+        let bin_bytes = fs::read(&cache_path).unwrap();
+        assert_eq!(&bin_bytes[..8], LEDGER_CACHE_MAGIC);
+
+        // Delete binary sidecar -> detected via metadata stamp, recreated
+        fs::remove_file(&cache_path).unwrap();
+        let out4: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out4["totalTokens"], 350);
+        assert!(cache_path.exists());
+
+        // External JSON write (different size, no dirtyRelPaths) -> detected immediately
+        write_ledger_doc(
+            &dir,
+            &scope_a,
+            &fhash1,
+            serde_json::json!([{
+                "id": rid1,
+                "at": 1791684000000i64,
+                "model": "Gemini 3.8",
+                "uncached": 1000,
+                "cacheRead": 200,
+                "cacheWrite": 0,
+                "output": 50,
+                "partial": false
+            }]),
+            None,
+        );
+        let out5: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out5["totalTokens"], 1250);
+
+        // External delete of JSON file -> detected immediately
+        fs::remove_file(&f1).unwrap();
+        let out6: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out6["totalTokens"], 0);
+        assert_eq!(out6["requests"], 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_in_mem_snapshot_cache_invalidation_and_updated_at() {
+        let dir = temp_dir("snap-cache");
+        let scope_a = hex64('a');
+        let scope_b = hex64('b');
+        let shared_conv = "44444444-4444-4444-8444-444444444444";
+        let shared_hash = sha256_hex(shared_conv);
+        let shared_rid = hex64('9');
+
+        fs::write(
+            dir.join("accounts-v1.json"),
+            serde_json::json!({
+                "schema": 1,
+                "accounts": {
+                    scope_a.clone(): { "email": "alpha-1@example.test", "primary": true },
+                    scope_b.clone(): { "email": "beta-1@example.test", "primary": false }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("ownership-v1.json"),
+            serde_json::json!({
+                shared_conv: scope_a.clone()
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        for sc in [&scope_a, &scope_b] {
+            write_ledger_doc(
+                &dir,
+                sc,
+                &shared_hash,
+                serde_json::json!([{
+                    "id": shared_rid,
+                    "at": 1791684000000i64,
+                    "model": "Gemini 3.8",
+                    "uncached": 300,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "output": 50,
+                    "partial": false
+                }]),
+                None,
+            );
+        }
+
+        let mut base_query = serde_json::json!({
+            "directory": dir.to_string_lossy(),
+            "scope": scope_a.clone(),
+            "nowMs": 1791684000000i64,
+            "today": "2026-10-11",
+            "timeZone": "Asia/Shanghai",
+            "source": "desktop-local",
+            "knownAccounts": {},
+            "fixedOffsetSecs": 28800,
+            "dirtyRelPaths": []
+        });
+
+        let out1: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&base_query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out1["totalTokens"], 350);
+        assert_eq!(out1["todayTokens"], 350);
+        assert_eq!(out1["updatedAt"], "2026-10-11T02:00:00.000Z");
+        assert_eq!(out1["userMeta"][&scope_a]["email"], "alpha-1@example.test");
+
+        // Warm call with new nowMs -> hits last_snapshot, updates only updatedAt
+        base_query["nowMs"] = serde_json::json!(1791687600000i64);
+        let out_warm: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&base_query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_warm["updatedAt"], "2026-10-11T03:00:00.000Z");
+        assert_eq!(out_warm["totalTokens"], 350);
+        assert_eq!(out_warm["userMeta"][&scope_a]["email"], "alpha-1@example.test");
+
+        // Changing accounts-v1.json invalidates last_snapshot
+        fs::write(
+            dir.join("accounts-v1.json"),
+            serde_json::json!({
+                "schema": 1,
+                "accounts": {
+                    scope_a.clone(): { "email": "alpha-2@example.test", "primary": true },
+                    scope_b.clone(): { "email": "beta-1@example.test", "primary": false }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let out_acc: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&base_query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_acc["userMeta"][&scope_a]["email"], "alpha-2@example.test");
+
+        // Changing ownership-v1.json invalidates last_snapshot
+        fs::write(
+            dir.join("ownership-v1.json"),
+            serde_json::json!({
+                shared_conv: scope_b.clone()
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let out_own: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&base_query.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_own["totalTokens"], 0);
+
+        // Changing scope to "all" invalidates last_snapshot
+        let mut q_all = base_query.clone();
+        q_all["scope"] = Value::String("all".to_string());
+        let out_all: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&q_all.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_all["totalTokens"], 350);
+        assert_eq!(out_all["todayTokens"], 350);
+
+        // Changing today invalidates last_snapshot
+        let mut q_today = q_all.clone();
+        q_today["today"] = Value::String("2026-10-12".to_string());
+        let out_today: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&q_today.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_today["totalTokens"], 350);
+        assert_eq!(out_today["todayTokens"], 0);
+
+        // Changing knownAccounts invalidates last_snapshot (when accounts-v1.json removed)
+        fs::remove_file(dir.join("accounts-v1.json")).unwrap();
+        let mut q_known1 = q_all.clone();
+        q_known1["knownAccounts"] = serde_json::json!({
+            scope_b.clone(): { "email": "beta-known-1@example.test" }
+        });
+        let out_k1: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&q_known1.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_k1["userMeta"][&scope_b]["email"], "beta-known-1@example.test");
+
+        let mut q_known2 = q_all.clone();
+        q_known2["knownAccounts"] = serde_json::json!({
+            scope_b.clone(): { "email": "beta-known-2@example.test" }
+        });
+        let out_k2: Value =
+            serde_json::from_str(&query_usage_ledger_summary_json(&q_known2.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(out_k2["userMeta"][&scope_b]["email"], "beta-known-2@example.test");
 
         let _ = fs::remove_dir_all(&dir);
     }

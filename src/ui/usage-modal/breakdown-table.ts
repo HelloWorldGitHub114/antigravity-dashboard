@@ -57,7 +57,7 @@ export function renderChartSummaryAndTable(
     );
     if (state.projectLoading && !state.projectOverview) {
       const tr = createDomNode('tr');
-      const td = createDomNode('td', 'muted', w('正在统计当前账号项目用量…', 'Loading current account projects…'));
+      const td = createDomNode('td', 'muted', w('正在统计项目用量…', 'Loading project statistics…'));
       td.colSpan = 6;
       td.style.textAlign = 'center';
       tr.append(td);

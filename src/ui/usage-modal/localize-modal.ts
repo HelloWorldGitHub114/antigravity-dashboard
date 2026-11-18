@@ -21,6 +21,21 @@ export function renderWaitingState(ctx: UsageDomContext): void {
   }
 }
 
+export function renderSubtitle(ctx: UsageDomContext, hostLabel = ctx.options.hostLabel ?? 'Antigravity'): void {
+  const { $, state, text, w } = ctx;
+  const value = state.value;
+  if (!value) return;
+  const hasMultipleAccounts = Array.isArray(value.accounts)
+    ? value.accounts.length > 1
+    : !($('account-switcher')?.hidden ?? true);
+  text(
+    'subtitle',
+    hasMultipleAccounts
+      ? w(`本机 ${hostLabel}`, `Local ${hostLabel}`)
+      : w(`本机 ${hostLabel} · 当前账号`, `Local ${hostLabel} · current account`),
+  );
+}
+
 export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): void {
   const { $, view, dialog, state, text, zh, w, full, compactNum } = ctx;
   const value = state.value;
@@ -28,13 +43,7 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
 
   text('title', w('用量统计', 'Token usage'));
   dialog.setAttribute('aria-label', w('用量统计', 'Token usage'));
-  text(
-    'subtitle',
-    w(
-      `本机 ${hostLabel} · ${value.viewScope === 'all' ? '全部账号 (汇总)' : '当前账号'}`,
-      `Local ${hostLabel} · ${value.viewScope === 'all' ? 'all accounts' : 'current account'}`,
-    ),
-  );
+  renderSubtitle(ctx, hostLabel);
   text('overview-tab', w('活动概览', 'Activity'));
   text('details-tab', w('用量详情', 'Usage details'));
   text('activity-title', w('Token 活动', 'Token activity'));
@@ -46,7 +55,6 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
   $('model-view-detailed')?.setAttribute('aria-pressed', String(state.modelViewMode === 'detailed'));
   text('model-view-simple', w('简易', 'Simple'));
   text('model-view-detailed', w('详细', 'Detailed'));
-  text('detail-title', state.dimension === 'model' ? w('按模型统计', 'Usage by model') : w('按用户统计', 'Usage by user'));
   text('locale-label', zh() ? 'EN' : '中');
 
   for (const [id, label] of [

@@ -7,7 +7,7 @@
 Token throughput, cache hits and context usage in the model selector row. Hover over context for five-hour and weekly quotas too.<br>
 Keep the summary visible. Hover for the details.
 
-[![Version 0.12.2](https://img.shields.io/badge/version-0.12.2-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.3](https://img.shields.io/badge/version-0.12.3-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -21,6 +21,8 @@ Keep the summary visible. Hover for the details.
 
 > [!IMPORTANT]
 > **Rust Native Engine in `v0.12.0` (`pulse-accel`) & Fallback Guidance:** `v0.12.0` introduces an optional Rust N-API native engine (`pulse-accel`) that dramatically speeds up UI responsiveness, SQLite conversation backfills, ledger queries, transcript scanning, and SVG rendering while substantially reducing V8 heap memory usage. As this is a major new native engine, if you run into any unexpected glitches or regressions, please [open an issue](https://github.com/ShZbz/antigravity-dashboard/issues) promptly with reproduction details. You can immediately fall back to the pure TypeScript runtime by setting `PULSE_DISABLE_NATIVE_ACCEL=1` in the environment, or roll back to release **`v0.11.0`** if the issue prevents normal use.
+
+**v0.12.3:** Refactor the sidebar panel (concentric header quota rings with interactive hover/click popover, two-column Speed/Cache chips and inline Context progress track, click-to-collapse card stage, anti-jump bottom pinning, and `@container sidebar` breakpoints), polish the Usage modal header/tabs/account-switcher layout, accelerate project statistics (`readLedgerProjectSummariesJson`, binary `project-ledger-v1.bin` + `project-meta-v1.json`, stat-validated DB/WAL caching, and table-driven `timezone.ts`), and fix multi-account isolation in project statistics (`viewScope` forwarding + `ownership-v1.json` deduplication).
 
 **v0.12.2:** Add "By Project" token usage statistics and per-conversation drilldown (horizontal session bars, expandable subagents, and SVG donut breakdown backed by native `readSqliteConversationSummariesJson`), plus independent `Aa` font-scale settings (`80%`–`150%`) across the usage modal, sidebar, and bottom inline card. [Release notes](CHANGELOG.md).
 
@@ -90,7 +92,7 @@ Keep the summary visible. Hover for the details.
 ## Antigravity IDE
 
 **v0.7.0+** includes a separate VSIX for Google's standalone Antigravity IDE. Download
-`antigrative-dashboard-ide-0.12.2.vsix` from the release and choose **Install from VSIX…**
+`antigrative-dashboard-ide-0.12.3.vsix` from the release and choose **Install from VSIX…**
 in the IDE's Extensions view. No desktop App installation is required.
 
 Fully quit the IDE, then start it with
@@ -173,7 +175,7 @@ Repository: https://github.com/ShZbz/antigravity-dashboard
 
 ### Open the App side panel
 
-Click **Open sidebar →** inside the Session statistics hover card, or open the right auxiliary pane using its top-right toggle and choose **+ → Extensions → Antigrative Dashboard**. The panel keeps speed, cache, context, quota summaries, multi-model breakdown rings, hierarchical subagents, and the optional model call timeline visible in a scrollable, adaptive frame.
+Click **Open sidebar →** inside the Session statistics hover card, or open the right auxiliary pane using its top-right toggle and choose **+ → Extensions → Antigrative Dashboard**. The refactored sidebar renders header concentric quota rings (`5h` outer + `weekly` inner with live countdown popover), two-column Speed/Cache chips, an inline Context progress bar, click-to-collapse detail cards (`#card-stage` with anti-jump bottom pinning), multi-model breakdown rings, hierarchical subagents, the optional model call timeline, and independent `Aa` font scaling inside a `@container sidebar` responsive frame.
 
 Run these commands from the project directory (`node manage.mjs <action>` or `python manage.py <action>`; add `--instance (all|pro|vertex)` to target a specific local instance):
 
@@ -222,8 +224,8 @@ Long local and Cloud Remote Agent conversations use paginated step and generator
 
 Open the cache/database icon, then **View token usage**.
 - **Activity tab:** Daily and weekly contribution heatmaps.
-- **Usage details tab:** Stacked bar charts by **Day**, **Week**, **Month**, or **Custom** date range with single-bar click drilldown; **By Model** / **By User** dimension switching; **Simple** / **Detailed** model grouping (normalizing variant suffixes with clickable `tr.model-group-row` expansion); an interactive **24-hour smooth spline trend chart** (`Period total` / `Today`); and **Remote Project Manual Usage** logging.
-- **Multi-account isolation:** Switch between individual accounts (`accounts-v1.json` / optional local `.data/usage-accounts.local.json`) or **All Accounts (Aggregated)**. Per-account conversation ownership (`ownership-v1.json`) and incremental `fileIndex` caching keep multi-account switches fast and free of cross-account duplication.
+- **Usage details tab:** Stacked bar charts by **Day**, **Week**, **Month**, or **Custom** date range with single-bar click drilldown; **By Model** / **By User** / **Project Stats** (`按模型统计` / `按用户统计` / `项目统计`) dimension switching; **Simple** / **Detailed** model grouping (normalizing variant suffixes with clickable `tr.model-group-row` expansion); **Project Stats** per-conversation drilldown (grouping workspace URIs and worktrees, expandable subagent rows, and an interactive SVG donut chart backed by native `readLedgerProjectSummariesJson` + `project-ledger-v1.bin` + `project-meta-v1.json`); an interactive **24-hour smooth spline trend chart** (`Period total` / `Today`); independent `Aa` font scaling (`80%`–`150%`); and **Remote Project Manual Usage** logging.
+- **Multi-account isolation:** Switch between individual accounts (`accounts-v1.json` / optional local `.data/usage-accounts.local.json`) or **All Accounts (Aggregated)** across **By Model**, **By User**, and **Project Stats**. Per-account conversation ownership (`ownership-v1.json`), record-level deduplication, and incremental `fileIndex` + binary `ledger-compact-v1.bin` / `project-ledger-v1.bin` caching keep multi-account switches fast and free of cross-account duplication.
 
 Desktop ledger: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`. IDE ledger: `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`. Days and months use `Asia/Shanghai` (UTC+8) and weeks start Monday. See [accounting, cleanup and limitations](docs/USAGE.md).
 

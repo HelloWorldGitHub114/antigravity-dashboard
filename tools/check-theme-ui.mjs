@@ -129,9 +129,9 @@ async function checkAccent(page,scope,inline){
     await scope.locator('#context-fill').evaluate((e,expected)=>new Promise((resolve,reject)=>{
       const end=Date.now()+7000;const check=()=>{if(getComputedStyle(e).backgroundColor===expected)resolve();else if(Date.now()>end)reject(new Error('Accent did not follow host: '+getComputedStyle(e).backgroundColor));else setTimeout(check,50);};check();
     }),expected);
-    assert.equal(await scope.locator('#five-fill').evaluate(e=>getComputedStyle(e).backgroundColor),expected);
-    assert.equal(await scope.locator('#week-fill').evaluate(e=>getComputedStyle(e).backgroundColor),expected);
     if(inline){
+      assert.equal(await scope.locator('#five-fill').evaluate(e=>getComputedStyle(e).backgroundColor),expected);
+      assert.equal(await scope.locator('#week-fill').evaluate(e=>getComputedStyle(e).backgroundColor),expected);
       const ring=await scope.locator('#context-ring').evaluate(e=>getComputedStyle(e).backgroundImage);
       assert.ok(ring.includes(ringExpected),'Context ring must use the same host primary');
     }

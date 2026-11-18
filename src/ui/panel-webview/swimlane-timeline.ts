@@ -2,6 +2,7 @@ import type { TimelineNode } from '../../contracts/index.ts';
 import { setAttr, setHidden, setText } from '../../shared/dom.ts';
 import { compact } from '../../shared/format.ts';
 import { assignModelColors, PANEL_MIX_PALETTE } from '../shared/model-donut.ts';
+import { syncPinBottom } from './dom-motion.ts';
 import {
   createChevronSvg,
   formatClock,
@@ -119,10 +120,12 @@ export function renderTimeline(ctx: PanelDomContext, speed: PanelSpeedMetrics | 
     if (treeEl.children.length) treeEl.textContent = '';
     state.lastTimelineRender = [];
     state.lastTimelineSig = null;
+    syncPinBottom(ctx);
     return;
   }
   setHidden(offBar, true);
   setHidden(panel, false);
+  syncPinBottom(ctx);
   const tl = speed?.modelTimeline || null;
   const nodes = Array.isArray(tl?.nodes) ? tl.nodes : [];
   const swimlanes = Array.isArray(tl?.swimlanes) ? tl.swimlanes : [];

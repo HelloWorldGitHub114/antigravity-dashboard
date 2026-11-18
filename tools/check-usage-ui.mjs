@@ -18,8 +18,8 @@ days.unshift({date:'2024-11-01',models:{[models[0]]:{uncached:100,cacheRead:0,ca
 const fixture={accountKey:'fixture',today:'2026-10-11',timeZone:'Asia/Shanghai',models,days,todayTokens:45000,weekTokens:400000,monthTokens:700000,totalTokens:6000000,requests:500,firstDate:days[0].date,syncing:false,unknownRequests:0,partialRequests:0,unreadableFiles:0};
 const html=`<!doctype html><html><head><meta charset="utf-8">${ide?`<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; style-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'">`:''}<style>body{margin:0;background:#17181a;color:#ddd;font:13px 'Segoe UI';padding:50px}.rounded-composer{max-width:900px;margin:300px auto 0;background:#27282a;padding:12px;border-radius:18px}.editor{height:45px}.actions{display:flex;align-items:center;gap:5px}.left{display:flex;flex:1;min-width:0}.right{display:flex;gap:5px}button{background:transparent;border:0;color:inherit;height:28px}</style></head><body>${ide?'<div class="antigravity-agent-side-panel"><div id="conversation" role="region"><div data-testid="conversation-view" data-cascade-id="11111111-1111-1111-1111-111111111111"></div>':''}<div class="rounded-composer" ${ide?'id="antigravity.agentSidePanelInputBox"':''}><div class="editor" contenteditable="true" role="combobox" aria-label="Message input"></div><div class="actions"><div class="left"><button aria-label="Add context">＋</button><button data-testid="model-selector-trigger">Gemini 3.8 Flash</button></div><div class="right"><button aria-label="Record voice memo">♩</button><button aria-label="Send message">➜</button></div></div></div>${ide?'</div></div>':''}<script>
 history.replaceState({},'', '/c/11111111-1111-1111-1111-111111111111');window.testData=${JSON.stringify(fixture)};window.testPrefs={language:'zh-CN',languageGuideDismissed:true,revision:1};
-window.projectUsageCalls=0;window.projectDetailCalls=0;
-window.agPulseHost={getMetrics:async()=>({connection:'live',usage:testData,preferences:testPrefs,groups:[],speed:null}),getPreferences:async()=>testPrefs,setPreferences:async x=>{if(window.failGuideSave&&x.usageGuideDismissed)throw Error('Fixture save failure');return testPrefs={...testPrefs,...x,revision:testPrefs.revision+1};},getProjectUsage:async()=>{window.projectUsageCalls++;return {accountKey:'multi-suffix',from:'2026-10-11',to:'2026-10-11',scope:'current-account',unavailable:false,totalTokens:7500,requests:6,updatedAt:'2026-10-11T12:00:00Z',projects:[{projectKey:'ws:antigrative-dashboard',name:'antigrative-dashboard',kind:'project',conversationCount:2,uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},{projectKey:'cli',name:'cli',kind:'cli',conversationCount:1,uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},{projectKey:'conversations',name:'conversations',kind:'conversations',conversationCount:1,uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}],days:[{date:'2026-10-11',projects:{'ws:antigrative-dashboard':{uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},'cli':{uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},'conversations':{uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}}}]};},getProjectDetail:async input=>{window.projectDetailCalls++;const extra=Array.from({length:11},(_,i)=>({id:'00000000-0000-0000-0000-'+String(i+3).padStart(12,'0'),title:'Extra main session '+(i+1)+' with an exceptionally long title that should ellipsis cleanly inside the donut legend',uncached:100,cacheRead:50,cacheWrite:0,output:20,total:170,requests:1,share:170/6870,lastActiveAt:'2026-10-11T09:00:00Z',isSubagent:false,isRemote:false}));return {projectKey:input.projectKey,projectName:'antigrative-dashboard',kind:'project',from:'2026-10-11',to:'2026-10-11',totalTokens:6870,requests:15,conversations:[{id:'11111111-1111-1111-1111-111111111111',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',uncached:2000,cacheRead:1000,cacheWrite:0,output:300,total:3300,requests:3,share:3300/6870,lastActiveAt:'2026-10-11T10:00:00Z',isSubagent:false,isRemote:false,rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names'},{id:'22222222-2222-2222-2222-222222222222',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names · researcher',uncached:1000,cacheRead:500,cacheWrite:0,output:200,total:1700,requests:1,share:1700/6870,lastActiveAt:'2026-10-11T11:00:00Z',isSubagent:true,isRemote:false,parentId:'11111111-1111-1111-1111-111111111111',rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',agentName:'researcher'},...extra]};}};
+window.projectUsageCalls=0;window.projectDetailCalls=0;window.lastProjectUsageInput=null;window.lastProjectDetailInput=null;
+window.agPulseHost={getMetrics:async()=>({connection:'live',usage:testData,preferences:testPrefs,groups:[],speed:null}),getPreferences:async()=>testPrefs,setPreferences:async x=>{if(window.failGuideSave&&x.usageGuideDismissed)throw Error('Fixture save failure');return testPrefs={...testPrefs,...x,revision:testPrefs.revision+1};},switchAccount:async input=>{const next=input?.account||input?.id||'all';testData={...testData,accountKey:next,viewScope:next};return {success:true,active:next,activeAccount:next};},getProjectUsage:async input=>{window.projectUsageCalls++;window.lastProjectUsageInput=input;return {accountKey:input?.scope||'multi-suffix',from:'2026-10-11',to:'2026-10-11',scope:input?.scope||'current-account',unavailable:false,totalTokens:7500,requests:6,updatedAt:'2026-10-11T12:00:00Z',projects:[{projectKey:'ws:antigrative-dashboard',name:'antigrative-dashboard',kind:'project',conversationCount:2,uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},{projectKey:'cli',name:'cli',kind:'cli',conversationCount:1,uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},{projectKey:'conversations',name:'conversations',kind:'conversations',conversationCount:1,uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}],days:[{date:'2026-10-11',projects:{'ws:antigrative-dashboard':{uncached:3000,cacheRead:1500,cacheWrite:0,output:500,total:5000,requests:4},'cli':{uncached:1000,cacheRead:300,cacheWrite:0,output:200,total:1500,requests:1},'conversations':{uncached:600,cacheRead:200,cacheWrite:0,output:200,total:1000,requests:1}}}]};},getProjectDetail:async input=>{window.projectDetailCalls++;window.lastProjectDetailInput=input;const extra=Array.from({length:11},(_,i)=>({id:'00000000-0000-0000-0000-'+String(i+3).padStart(12,'0'),title:'Extra main session '+(i+1)+' with an exceptionally long title that should ellipsis cleanly inside the donut legend',uncached:100,cacheRead:50,cacheWrite:0,output:20,total:170,requests:1,share:170/6870,lastActiveAt:'2026-10-11T09:00:00Z',isSubagent:false,isRemote:false}));return {projectKey:input.projectKey,projectName:'antigrative-dashboard',kind:'project',from:'2026-10-11',to:'2026-10-11',totalTokens:6870,requests:15,conversations:[{id:'11111111-1111-1111-1111-111111111111',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',uncached:2000,cacheRead:1000,cacheWrite:0,output:300,total:3300,requests:3,share:3300/6870,lastActiveAt:'2026-10-11T10:00:00Z',isSubagent:false,isRemote:false,rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names'},{id:'22222222-2222-2222-2222-222222222222',title:'Fix navigation layout and overflow clipping for extraordinarily long conversation names · researcher',uncached:1000,cacheRead:500,cacheWrite:0,output:200,total:1700,requests:1,share:1700/6870,lastActiveAt:'2026-10-11T11:00:00Z',isSubagent:true,isRemote:false,parentId:'11111111-1111-1111-1111-111111111111',rootId:'11111111-1111-1111-1111-111111111111',rootTitle:'Fix navigation layout and overflow clipping for extraordinarily long conversation names',agentName:'researcher'},...extra]};}};
 ${ide?`window.__agPulseSurface=${invokeCjsFactory(surface,'surface')}`:''}${bindWindowFactory('__agPulseI18nFactory',sources[0],'i18n')}${bindWindowFactory('__agPulseThemeFactory',sources[1],'theme')}${bindWindowFactory('__agPulseUsageFactory',sources[3],'usage-ui')}${invokeCjsFactory(sources[2],'inline-widget')}
 </script></body></html>`;
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html;charset=utf-8');res.end(html);});server.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -50,6 +50,8 @@ try{
  assert.deepEqual(await page.locator('.usage-unit').allTextContents(),['Token','Token']);
  assert.equal(await page.locator('#cache-card').evaluate(n=>n.hidden),true);assert.equal(await page.locator('#title').textContent(),'用量统计');
  assert.ok((await page.locator('#subtitle').textContent()).includes(ide?'Antigravity IDE':'Antigravity'));
+ assert.ok((await page.locator('#subtitle').textContent()).includes('当前账号'),'Single account keeps 当前账号 in subtitle');
+ assert.equal(await page.locator('#account-switcher').isVisible(),false,'Single account hides account switcher');
  assert.equal(await page.locator('#usage-intro').isVisible(),true,'First use explains local data before acknowledgment');
  assert.ok((await page.locator('#usage-intro-history').textContent()).includes('本地历史对话'));
  await page.locator('#locale').click();await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar').shadowRoot.getElementById('usage-dashboard').firstElementChild.shadowRoot.getElementById('usage-intro-title').textContent==='About your token usage');
@@ -123,6 +125,15 @@ try{
  for(let i=0;i<5;i++)await page.locator('#next').click();assert.deepEqual(await frame(),initialFrame);
  const colors=await page.locator('#legend .dot').evaluateAll(ns=>ns.map(n=>getComputedStyle(n).backgroundColor));assert.equal(new Set(colors).size,5);
  await page.locator('[data-period=week]').click();assert.equal(await page.locator('.bar-column').count(),12);await page.locator('[data-period=month]').click();assert.equal(await page.locator('.bar-column').count(),12);
+ assert.equal(await page.locator('#detail-title').count(),0,'Duplicate detail-title heading is removed');
+ const pickerRowBox=await page.locator('.detail-picker-row').boundingBox();
+ const summaryRowBox=await page.locator('#detail-summary-row').boundingBox();
+ assert.ok(pickerRowBox&&summaryRowBox&&pickerRowBox.y<summaryRowBox.y,'Pickers occupy the top row above chart summary');
+ await page.locator('[data-period=custom]').click();
+ assert.equal(await page.locator('#custom-range-controls').isVisible(),true,'Custom range inputs are visible');
+ assert.equal(await page.locator('.range').isVisible(),false,'Duplicate range label text is hidden in custom mode');
+ await page.locator('[data-period=month]').click();
+ assert.equal(await page.locator('.range').isVisible(),true,'Range label returns in non-custom modes');
  assert.deepEqual(await frame(),initialFrame,'Day/week/month changes must preserve the window frame');
  const multistack=page.locator('.stack').filter({has:page.locator('.bar-segment')}).last();
  const stackGeometry=await multistack.evaluate(n=>({gap:parseFloat(getComputedStyle(n).gap),height:n.getBoundingClientRect().height,segments:[...n.children].map(s=>({radius:parseFloat(getComputedStyle(s).borderTopLeftRadius),height:s.getBoundingClientRect().height}))}));
@@ -164,10 +175,16 @@ try{
   const makeRow=(u,c,o,r=1)=>({uncached:u,cacheRead:c,cacheWrite:0,output:o,total:u+c+o,requests:r});
   const dayModels={'Gemini 3.8 Flash (High)':makeRow(1000,2000,500,2),'gemini-3.8-flash-tiered':makeRow(400,600,200,1),'gemini-3.8-flash-n':makeRow(300,300,100,1),'gemini-3.8-flash-exp-a':makeRow(250,250,100,1),'gemini-3.8-flash':makeRow(200,200,100,1),'Claude Opus 5.5 (High)':makeRow(800,1200,400,1),'claude-opus-5-5-medium':makeRow(500,500,200,1),'Orchestrator (Argon)':makeRow(300,400,100,1)};
   const total=Object.values(dayModels).reduce((s,x)=>s+x.total,0);
-  testData={accountKey:'multi-suffix',today:'2026-10-11',timeZone:'Asia/Shanghai',models:ms,days:[{date:'2026-10-11',models:dayModels,users:{u1:{name:'user1',isLegacy:false,uncached:3750,cacheRead:5450,cacheWrite:0,output:1700,total,requests:9}}}],users:['u1'],userMeta:{u1:{name:'user1',email:'user1@example.com',isLegacy:false}},todayTokens:total,weekTokens:total,monthTokens:total,totalTokens:total,requests:9,firstDate:'2026-10-11',syncing:false,unknownRequests:0,partialRequests:0,unreadableFiles:0};
+  testData={accountKey:'multi-suffix',viewScope:'all',accounts:[{id:'all',name:'all'},{id:'acc-1',email:'user1@example.com'}],today:'2026-10-11',timeZone:'Asia/Shanghai',models:ms,days:[{date:'2026-10-11',models:dayModels,users:{u1:{name:'user1',isLegacy:false,uncached:3750,cacheRead:5450,cacheWrite:0,output:1700,total,requests:9}}}],users:['u1'],userMeta:{u1:{name:'user1',email:'user1@example.com',isLegacy:false}},todayTokens:total,weekTokens:total,monthTokens:total,totalTokens:total,requests:9,firstDate:'2026-10-11',syncing:false,unknownRequests:0,partialRequests:0,unreadableFiles:0};
  },multiModels);
  await page.locator('#details-tab').click();await page.locator('#usage-dashboard #refresh').click();
  await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar').shadowRoot.getElementById('usage-dashboard').firstElementChild.shadowRoot.querySelectorAll('tr.model-group-row').length===3);
+ assert.equal(await page.locator('#account-switcher').isVisible(),true,'Multi-account shows account switcher');
+ const multiSubtitle=await page.locator('#subtitle').textContent();
+ assert.ok(!multiSubtitle.includes('全部账号')&&!multiSubtitle.includes('当前账号'),'Multi-account subtitle omits redundant account scope text');
+ const accBox=await page.locator('#account-switcher').boundingBox();
+ const tabBox=await page.locator('#details-tab').boundingBox();
+ assert.ok(accBox&&tabBox&&accBox.x>tabBox.x+tabBox.width&&Math.abs((accBox.y+accBox.height/2)-(tabBox.y+tabBox.height/2))<12,'Account switcher aligns to the right on the tabs row');
  assert.equal(await page.locator('#model-view-picker').isVisible(),true,'Model view picker is visible in model dimension');
  assert.equal(await page.locator('#dim-label').textContent(),'按模型统计');
  assert.equal(await page.locator('#model-view-label').textContent(),'简易');
@@ -223,7 +240,8 @@ try{
  assert.equal(await page.locator('#dim-label').textContent(),'项目统计');
  assert.equal(await page.locator('#model-view-picker').isVisible(),false);
  assert.equal(await page.locator('#project-scope-note').isVisible(),true);
- assert.ok((await page.locator('#project-scope-note').textContent()).includes('仅统计当前登录账号可见项目'));
+ assert.equal(await page.locator('#project-scope-note').textContent(),'汇总全部已记录账号 · 依赖本机保留的项目元数据');
+ assert.equal(await page.evaluate(()=>window.lastProjectUsageInput?.scope),'all','Project usage receives active viewScope all');
  assert.equal(await page.locator('#hourly-section').isVisible(),false,'Hourly trend hides in project dimension');
  assert.equal(await page.locator('#project-detail-section').isVisible(),true);
  assert.equal(await page.evaluate(()=>window.projectDetailCalls),0,'Lazy detail must not compute before a project is selected');
@@ -231,6 +249,7 @@ try{
  assert.ok((await page.locator('#table-body').textContent()).includes('cli'));
  await page.locator('#table-body tr.project-row[data-project-key="ws:antigrative-dashboard"]').click();
  await page.waitForFunction(()=>window.projectDetailCalls===1);
+ assert.equal(await page.evaluate(()=>window.lastProjectDetailInput?.scope),'all','Project detail receives active viewScope all');
  await page.locator('.proj-bar-row').first().waitFor({state:'visible'});
  assert.equal(await page.locator('.proj-bar-row').count(),10,'Merged main sessions capped at top 10 initially');
  assert.equal(await page.locator('.proj-subagent-row').count(),0,'Subagents merged and collapsed by default');
@@ -260,6 +279,18 @@ try{
  assert.ok(listScrollable,'Expanded donut legend list should have overflow-y:auto scrollbar when items exceed max height');
  await page.locator('#proj-toggle-all').click();
  assert.equal(await page.locator('.proj-donut-seg').count(),7,'Collapsing toggle-all returns donut chart to top 6 + other');
+
+ // Switching #account-switcher updates project scope and re-queries project usage/detail
+ const callsBeforeAcc1=await page.evaluate(()=>window.projectUsageCalls);
+ await page.locator('#account-switcher').selectOption('acc-1');
+ await page.waitForFunction(n=>window.projectUsageCalls>n&&window.lastProjectUsageInput?.scope==='acc-1',callsBeforeAcc1);
+ assert.equal(await page.locator('#project-scope-note').textContent(),'统计当前账号可见项目（含本机缓存元数据）');
+ await page.locator('#table-body tr.project-row[data-project-key="ws:antigrative-dashboard"]').click();
+ await page.waitForFunction(()=>window.lastProjectDetailInput?.scope==='acc-1');
+ const callsBeforeAll=await page.evaluate(()=>window.projectUsageCalls);
+ await page.locator('#account-switcher').selectOption('all');
+ await page.waitForFunction(n=>window.projectUsageCalls>n&&window.lastProjectUsageInput?.scope==='all',callsBeforeAll);
+ assert.equal(await page.locator('#project-scope-note').textContent(),'汇总全部已记录账号 · 依赖本机保留的项目元数据');
 
  // Font settings (Aa) popover in usage modal: 3 rows + steppers + manual % input
  await page.locator('#usage-dashboard #font-settings').click();

@@ -3,7 +3,6 @@ import type { ManualUsageInput, ManualUsageRecord, UsageSummarySnapshot } from '
 import {
   isNativeAccelAvailable,
   queryUsageLedgerSummary,
-  type LedgerTzTransition,
 } from '../../platform/native-bridge.ts';
 import { formatStatStamp, type FileStatLike } from '../../shared/atomic-fs.ts';
 import {
@@ -22,7 +21,7 @@ import { usageRecords } from './extractor.ts';
 import { isErrno, mapPool, uniqueRecordIds, validRow } from './helpers.ts';
 import { addManualUsageHelper, deleteManualUsageHelper, listManualUsageHelper } from './manual.ts';
 import { LedgerStorage } from './storage.ts';
-import { dateKey } from './timezone.ts';
+import { dateKey, resolveTimeZoneSpec } from './timezone.ts';
 import {
   HASH_RE,
   LEDGER_FILE_RE,
@@ -33,107 +32,6 @@ import {
   type OtherAccountsInspection,
   type UsageAccountsResult,
 } from './types.ts';
-
-interface TimeZoneSpec {
-  fixedOffsetSecs: number | null;
-  tzMinMs: number | null;
-  tzMaxMs: number | null;
-  tzTransitions: LedgerTzTransition[] | null;
-}
-
-const UTC_ZONES = new Set(['UTC', 'Etc/UTC', 'GMT', 'Etc/GMT']);
-const UTC8_MODERN_ZONES = new Set([
-  'Asia/Shanghai',
-  'Asia/Chongqing',
-  'Asia/Harbin',
-  'Asia/Taipei',
-  'Asia/Hong_Kong',
-  'Asia/Singapore',
-]);
-const UTC9_MODERN_ZONES = new Set(['Asia/Tokyo', 'Asia/Seoul']);
-const MODERN_FIXED_MIN_MS = Date.UTC(1992, 0, 1);
-const tzTransitionCache = new Map<string, TimeZoneSpec>();
-
-function resolveTimeZoneSpec(zone: string, nowMs: number): TimeZoneSpec {
-  if (UTC_ZONES.has(zone)) {
-    return { fixedOffsetSecs: 0, tzMinMs: null, tzMaxMs: null, tzTransitions: null };
-  }
-  if (UTC8_MODERN_ZONES.has(zone)) {
-    return { fixedOffsetSecs: 28800, tzMinMs: MODERN_FIXED_MIN_MS, tzMaxMs: null, tzTransitions: null };
-  }
-  if (UTC9_MODERN_ZONES.has(zone)) {
-    return { fixedOffsetSecs: 32400, tzMinMs: MODERN_FIXED_MIN_MS, tzMaxMs: null, tzTransitions: null };
-  }
-  const nowYear = new Date(nowMs).getUTCFullYear();
-  const minYear = Math.min(2020, nowYear - 2);
-  const maxYear = Math.max(2031, nowYear + 2);
-  const cacheKey = `${zone}:${minYear}:${maxYear}`;
-  const cached = tzTransitionCache.get(cacheKey);
-  if (cached) return cached;
-
-  const minMs = Date.UTC(minYear, 0, 1);
-  const maxMs = Date.UTC(maxYear, 0, 1);
-  const dtf = new Intl.DateTimeFormat('en-CA', {
-    timeZone: zone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const offsetAt = (ms: number): number => {
-    const parts = dtf.formatToParts(ms);
-    let y = 1970;
-    let m = 1;
-    let d = 1;
-    let h = 0;
-    let min = 0;
-    let s = 0;
-    for (const p of parts) {
-      if (p.type === 'year') y = Number.parseInt(p.value, 10);
-      else if (p.type === 'month') m = Number.parseInt(p.value, 10);
-      else if (p.type === 'day') d = Number.parseInt(p.value, 10);
-      else if (p.type === 'hour') h = Number.parseInt(p.value, 10);
-      else if (p.type === 'minute') min = Number.parseInt(p.value, 10);
-      else if (p.type === 'second') s = Number.parseInt(p.value, 10);
-    }
-    const localSec = Math.floor(Date.UTC(y, m - 1, d, h, min, s) / 1000);
-    const utcSec = Math.floor(ms / 1000);
-    return localSec - utcSec;
-  };
-
-  const stepMs = 7 * 86400 * 1000;
-  let curMs = minMs;
-  let curOff = offsetAt(curMs);
-  const transitions: LedgerTzTransition[] = [{ atMs: minMs, offsetSecs: curOff }];
-  while (curMs < maxMs) {
-    const nextMs = Math.min(maxMs, curMs + stepMs);
-    const nextOff = offsetAt(nextMs);
-    if (nextOff !== curOff) {
-      let loSec = Math.floor(curMs / 1000);
-      let hiSec = Math.floor(nextMs / 1000);
-      while (loSec + 1 < hiSec) {
-        const midSec = Math.floor((loSec + hiSec) / 2);
-        if (offsetAt(midSec * 1000) === curOff) loSec = midSec;
-        else hiSec = midSec;
-      }
-      curOff = nextOff;
-      transitions.push({ atMs: hiSec * 1000, offsetSecs: curOff });
-    }
-    curMs = nextMs;
-  }
-
-  const spec: TimeZoneSpec = {
-    fixedOffsetSecs: null,
-    tzMinMs: minMs,
-    tzMaxMs: maxMs,
-    tzTransitions: transitions,
-  };
-  tzTransitionCache.set(cacheKey, spec);
-  return spec;
-}
 
 export class UsageLedger extends LedgerStorage {
   _loadAccountsMeta(): Promise<{ stamp: string; value: Record<string, KnownAccountInfo> }> { return loadAccountsMetaHelper(this); }

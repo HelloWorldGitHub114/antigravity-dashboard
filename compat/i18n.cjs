@@ -143,6 +143,8 @@ module.exports = function createDashboardI18n(...args) {
       autoConnect: "Open the app to connect automatically",
       loadingQuota: "Loading quota\u2026",
       unavailableQuota: "Quota unavailable",
+      quotaNo5hTag: "Weekly only",
+      quotaRingsLabel: "Model quotas",
       live: "Connected to Antigrative Dashboard",
       stale: "Showing last available quota",
       offline: "Antigrative Dashboard is offline",
@@ -454,7 +456,9 @@ module.exports = function createDashboardI18n(...args) {
       fontRowInline: "\u5E95\u90E8\u72B6\u6001\u5361\u7247",
       fontDecrease: "\u7F29\u5C0F",
       fontIncrease: "\u653E\u5927",
-      fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4"
+      fontPercent: "\u5B57\u4F53\u767E\u5206\u6BD4",
+      quotaNo5hTag: "\u4EC5\u5468\u989D\u5EA6",
+      quotaRingsLabel: "\u67E5\u770B\u6A21\u578B\u989D\u5EA6\u8BE6\u60C5"
     };
 
     // src/ui/i18n/index.ts

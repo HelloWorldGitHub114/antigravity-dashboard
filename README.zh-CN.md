@@ -7,7 +7,7 @@
 模型选择旁常驻显示生成速率、缓存命中与上下文占用；悬停上下文，一并查看上下文、5 小时和周额度详情。<br>
 缩略信息常驻；鼠标悬停或打开侧边栏，展开完整多维监控。
 
-[![Version 0.12.2](https://img.shields.io/badge/version-0.12.2-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Version 0.12.3](https://img.shields.io/badge/version-0.12.3-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![Antigravity 2.21.1 / 2.22.0](https://img.shields.io/badge/Antigravity-2.21.1%20%2F%202.22.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
@@ -21,6 +21,8 @@
 
 > [!IMPORTANT]
 > **`v0.12.0` Rust 原生引擎提示与回退说明：** `v0.12.0` 正式引入 **Rust 原生加速引擎（`pulse-accel`）**，通过 SQLite 本地直读旁路、二进制用量索引、堆外结构化 Diff 与文本脱敏等底层加速大幅提升界面响应速度，并显著缓解早期版本长时间运行或大账本场景下内存占用过高的问题。由于新引擎刚全量上线，如您在使用过程中遇到任何异常、数据偏差或兼容性问题，欢迎及时前往 [GitHub Issues](https://github.com/ShZbz/antigravity-dashboard/issues) 反馈；如需临时关闭原生加速，可设置环境变量 `PULSE_DISABLE_NATIVE_ACCEL=1` 无缝切换回纯 TypeScript 模式，若问题暂时无法容忍亦可先回退至 **`v0.11.0`** 版本。
+
+**v0.12.3 更新：** 重构侧边栏面板（标题栏同心圆环多模型额度胶囊与悬停/点击倒计时弹出卡、双列 Speed/Cache 指标卡与内嵌上下文进度条、可点击折叠的详情卡区域、防跳动吸底布局及 `@container sidebar` 容器响应式断点）；优化 Token 用量弹窗标签栏账号切换器与细节布局；引入 Rust `readLedgerProjectSummariesJson` + `project-ledger-v1.bin` + `project-meta-v1.json` 与查表/二分高速时区计算以大幅提升项目统计速度；修复项目统计切换账号无法按 `viewScope` / `ownership-v1.json` 正确隔离与去重的 Bug。
 
 **v0.12.2 更新：** 新增「按项目统计」维度与项目会话明细下钻（基于 Rust 原生 `readSqliteConversationSummariesJson`、工作区与 worktree 自动归并、主会话横向占比条、子代理展开与联动 SVG 环形分布图），并新增统计页、侧边栏、底部状态卡片三端独立 `Aa` 字体缩放设置（`80%`–`150%`）。[更新说明](CHANGELOG.md)。
 
@@ -87,7 +89,7 @@
 ## Antigravity IDE
 
 **v0.7.0+** 提供反重力独立 IDE 的专用 VSIX 适配。从发布页下载
-`antigrative-dashboard-ide-0.12.2.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
+`antigrative-dashboard-ide-0.12.3.vsix`，在 IDE 扩展页选择「从 VSIX 安装」，无需先装桌面 App。
 
 完全退出 IDE 后，使用带
 `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1`
@@ -158,7 +160,7 @@ Windows 用户也可直接运行 `./install.ps1`，Linux / macOS 运行 `sh inst
 
 ### 打开 App 侧边栏面板
 
-在会话统计悬浮卡底部点击 **打开侧边栏（Open sidebar →）**，或用右上角开关展开右侧辅助栏并点击 **＋ → Extensions → Antigrative Dashboard**。侧边栏常驻展示速度、缓存、上下文、配额摘要、多模型交互环形图、多级子代理状态树与可选结构化调用时间线。
+在会话统计悬浮卡底部点击 **打开侧边栏（Open sidebar →）**，或用右上角开关展开右侧辅助栏并点击 **＋ → Extensions → Antigrative Dashboard**。重构后的侧边栏在标题栏以同心圆环胶囊常驻展示多模型 5h/周额度并支持悬停/点击查看倒计时详情，顶部三栏卡片直观呈现速率、缓存与内嵌上下文进度条，支持点击激活标签平滑折叠详情区与防跳动吸底布局，并通过 `@container sidebar` 自适应任意侧栏宽度，同时集成多模型交互环形图、多级子代理状态树、可选结构化调用时间线与独立 `Aa` 字体缩放设置。
 
 在项目目录运行（`node manage.mjs <action>` 或 `python manage.py <action>`，可通过 `--instance (all|pro|vertex)` 指定单实例或双实例同步）：
 
@@ -197,8 +199,8 @@ Windows 用户也可直接运行 `./install.ps1`，Linux / macOS 运行 `sh inst
 
 打开缓存 / 数据库图标并点击「查看用量统计」：
 - **活动概览（Activity）：** 每日与每周贡献热力图。
-- **用量详情（Usage details）：** 支持 **天 / 周 / 月 / 自定义日期范围** 堆叠柱状图与单柱点击下钻、**按模型 / 按用户** 维度切换、**简易 / 详细** 模型变体归并（支持点击分组行展开 `[N variants ▸]` 变体明细）、**24 小时交互式平滑趋势折线图**（区间汇总 / 今日视图）以及 **远程项目手动录入（`+ Remote Usage`）**。
-- **多账号隔离与增量索引：** 通过 `ownership-v1.json` 严格按账号隔离会话归属并去重，内置内存 `fileIndex` 增量缓存与分批回填检查点，支持切换单账号或查看「全部账号汇总」（`All Accounts (Aggregated)`）。
+- **用量详情（Usage details）：** 支持 **天 / 周 / 月 / 自定义日期范围** 堆叠柱状图与单柱点击下钻、**按模型统计 / 按用户统计 / 项目统计** 三维切换、**简易 / 详细** 模型变体归并（支持点击分组行展开 `[N variants ▸]` 变体明细）、**项目统计**会话级下钻（自动归并工作区路径与 worktree 会话、可展开子代理明细与联动 SVG 环形分布图，由 Rust `readLedgerProjectSummariesJson` + `project-ledger-v1.bin` + `project-meta-v1.json` 加速与持久化）、**24 小时交互式平滑趋势折线图**（区间汇总 / 今日视图）、三端独立 `Aa` 字体缩放（`80%`–`150%`）以及 **远程项目手动录入（`+ Remote Usage`）**。
+- **多账号隔离与增量索引：** 通过 `ownership-v1.json` 与请求级去重严格按账号隔离会话归属（全面覆盖「按模型」「按用户」与「项目统计」三个维度），内置内存 `fileIndex`、二进制 `ledger-compact-v1.bin` / `project-ledger-v1.bin` 增量缓存与分批回填检查点，支持切换单账号或查看「全部账号 (汇总)」（`All Accounts (Aggregated)`）。
 
 桌面路径：`~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`；IDE 路径：`User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`。日期按 `Asia/Shanghai`（UTC+8）划分，周一为每周起始。详见[统计口径、清理和边界](docs/USAGE.md)。
 

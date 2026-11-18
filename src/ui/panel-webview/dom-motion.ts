@@ -21,6 +21,7 @@ export function isMotionReduced(): boolean {
 
 function clearMotionProps(el: HTMLElement): void {
   el.style.maxHeight = '';
+  el.style.height = '';
   el.style.opacity = '';
   el.style.overflow = '';
 }
@@ -65,7 +66,7 @@ export function setExpandedState(el: HTMLElement | null, expanded: boolean, anim
       { maxHeight: `${startHeight}px`, opacity: startOpacity },
       { maxHeight: `${endHeight}px`, opacity: endOpacity },
     ],
-    { duration: expanded ? 180 : 160, easing: 'cubic-bezier(.22,1,.36,1)' },
+    { duration: expanded ? 220 : 180, easing: 'cubic-bezier(.22,1,.36,1)' },
   );
   panelMotion.set(el, { anim, expanding: expanded });
   const settle = (cancelled: boolean) => {
@@ -76,6 +77,18 @@ export function setExpandedState(el: HTMLElement | null, expanded: boolean, anim
   };
   anim.onfinish = () => settle(false);
   anim.oncancel = () => settle(true);
+}
+
+export function syncPinBottom(ctx: PanelDomContext): void {
+  const widget = document.querySelector<HTMLElement>('.widget');
+  if (!widget) return;
+  const subSection = ctx.$('subagents-section');
+  const subToggle = ctx.$('subagents-toggle');
+  const subagentsOpen = Boolean(
+    subSection && !subSection.hidden && subToggle?.getAttribute('aria-expanded') === 'true',
+  );
+  const shouldPin = Boolean(ctx.state.selectedCard) && !subagentsOpen && !ctx.state.timelineEnabled;
+  widget.dataset.pinBottom = String(shouldPin);
 }
 
 export function createDomLookup(): <T extends HTMLElement = HTMLElement>(id: string) => T | null {
@@ -90,45 +103,93 @@ export function createDomLookup(): <T extends HTMLElement = HTMLElement>(id: str
   };
 }
 
-export function createCardSwitcher(ctx: PanelDomContext): (name: PanelCardName, animate?: boolean) => void {
+export function createCardSwitcher(
+  ctx: PanelDomContext,
+): (name: PanelCardName | null, animate?: boolean, allowToggle?: boolean) => void {
   const chips = [...document.querySelectorAll<HTMLElement>('[data-card]')];
   const cardScroll = new Map<PanelCardName, number>();
   let cardMotion: Animation | null = null;
+  let stageMorphAnim: Animation | null = null;
 
-  const showCard = (name: PanelCardName, animate = false): void => {
-    if (name !== 'speed' && name !== 'cache' && name !== 'context') return;
+  const showCard = (name: PanelCardName | null, animate = false, allowToggle = false): void => {
+    if (name !== null && name !== 'speed' && name !== 'cache' && name !== 'context') return;
     const prev = ctx.state.selectedCard;
-    const changed = prev !== name;
-    if (changed) {
+    const nextName: PanelCardName | null = allowToggle && prev === name ? null : name;
+    const changed = prev !== nextName;
+    if (changed && prev) {
       const prevEl = ctx.$(`${prev}-card`);
       if (prevEl) cardScroll.set(prev, prevEl.scrollTop);
     }
-    ctx.state.selectedCard = name;
+
+    ctx.state.selectedCard = nextName;
+    syncPinBottom(ctx);
+
+    const cardStage = ctx.$('card-stage');
+    const prevStageMotion = cardStage ? panelMotion.get(cardStage) : undefined;
+    const wasHidden = !cardStage || cardStage.hidden || Boolean(prevStageMotion && !prevStageMotion.expanding);
+    const startH = !cardStage || wasHidden ? 0 : cardStage.getBoundingClientRect().height;
+
+    if (cardStage && prevStageMotion) {
+      prevStageMotion.anim.cancel();
+      clearMotionProps(cardStage);
+      panelMotion.delete(cardStage);
+    }
+    stageMorphAnim?.cancel();
+    stageMorphAnim = null;
     cardMotion?.cancel();
     cardMotion = null;
+
     for (const chip of chips) {
-      const selected = chip.dataset.card === name;
+      const selected = chip.dataset.card === nextName;
       setAttr(chip, 'aria-selected', String(selected));
-      chip.tabIndex = selected ? 0 : -1;
+      chip.tabIndex = selected || (!nextName && chip.dataset.card === (name ?? 'speed')) ? 0 : -1;
     }
+
+    if (!nextName) {
+      if (cardStage) setExpandedState(cardStage, false, animate);
+      return;
+    }
+
     for (const key of ['speed', 'cache', 'context'] as const) {
-      setHidden(ctx.$(`${key}-card`), name !== key);
+      setHidden(ctx.$(`${key}-card`), nextName !== key);
     }
-    const card = ctx.$(`${name}-card`);
-    if (card && changed) card.scrollTop = cardScroll.get(name) ?? 0;
+    const card = ctx.$(`${nextName}-card`);
+    if (card && changed) card.scrollTop = cardScroll.get(nextName) ?? 0;
+
+    if (cardStage) {
+      if (wasHidden) {
+        setExpandedState(cardStage, true, animate);
+      } else {
+        cardStage.hidden = false;
+        const endH = cardStage.getBoundingClientRect().height;
+        if (animate && !isMotionReduced() && typeof cardStage.animate === 'function' && Math.abs(endH - startH) > 1) {
+          cardStage.style.overflow = 'hidden';
+          stageMorphAnim = cardStage.animate(
+            [{ height: `${startH}px` }, { height: `${endH}px` }],
+            { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' },
+          );
+          stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
+            cardStage.style.overflow = '';
+            cardStage.style.height = '';
+            stageMorphAnim = null;
+          };
+        }
+      }
+    }
+
     if (changed && animate && !isMotionReduced() && card?.animate) {
       cardMotion = card.animate(
         [
-          { opacity: 0.55, transform: 'translateY(4px)' },
+          { opacity: 0.45, transform: 'translateY(5px)' },
           { opacity: 1, transform: 'translateY(0)' },
         ],
-        { duration: 160, easing: 'cubic-bezier(.22,1,.36,1)' },
+        { duration: 180, easing: 'cubic-bezier(.22,1,.36,1)' },
       );
     }
   };
 
   for (const chip of chips) {
-    chip.addEventListener('click', (event) => showCard(chip.dataset.card as PanelCardName, event.detail > 0));
+    chip.addEventListener('click', (event) => showCard(chip.dataset.card as PanelCardName, event.detail > 0, true));
     chip.addEventListener('keydown', (event) => {
       const current = chips.indexOf(chip);
       let next: number | undefined;
@@ -138,7 +199,7 @@ export function createCardSwitcher(ctx: PanelDomContext): (name: PanelCardName, 
       else if (event.key === 'End') next = chips.length - 1;
       else return;
       event.preventDefault();
-      showCard(chips[next].dataset.card as PanelCardName, true);
+      showCard(chips[next].dataset.card as PanelCardName, true, false);
       chips[next].focus();
     });
   }

@@ -24,13 +24,14 @@ h1 { font-size: calc(24px * var(--pulse-usage-font-scale, 1)); letter-spacing: -
 .locale-label { display: block; min-width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
 .live-dot { display: inline-block; width: 5px; height: 5px; background: var(--pulse-success); border-radius: 50%; margin-right: 6px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--pulse-success) 22%, transparent); }
 
-.account-switcher { margin-left: 8px; padding: 2px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); max-width: 260px; text-overflow: ellipsis; }
+.account-switcher { margin-inline-start: auto; margin-bottom: 6px; padding: 3px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); max-width: 240px; min-width: 0; text-overflow: ellipsis; }
 .account-switcher[hidden] { display: none; }
 .btn-manual { display: inline-flex; align-items: center; gap: 6px; width: auto; flex: 0 0 auto; white-space: nowrap; padding: 0 12px; height: 32px; line-height: 32px; border-radius: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; color: var(--pulse-foreground); background: var(--pulse-control); border: 1px solid var(--pulse-border); }
 .btn-manual:hover { background: var(--pulse-hover); }
 .btn-manual svg { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-.tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--pulse-separator); margin: 25px 0 22px; }
+.tabs-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--pulse-separator); margin: 25px 0 22px; }
+.tabs { display: flex; gap: 22px; margin: 0; border-bottom: 0; min-width: 0; }
 .tabs button { border: 0; border-radius: 0; background: transparent; color: var(--pulse-muted); padding: 0 2px 11px; position: relative; }
 .tabs button:hover { color: var(--pulse-foreground); }
 .tabs button[aria-selected=true] { color: var(--pulse-foreground); font-weight: 600; }

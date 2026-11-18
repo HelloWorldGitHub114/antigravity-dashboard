@@ -1,6 +1,6 @@
 import { escapeHtml, setAttr, setHidden, setStyle, setText } from '../../shared/dom.ts';
 import { compact, count, rate } from '../../shared/format.ts';
-import { panelMotion, setExpandedState } from './dom-motion.ts';
+import { panelMotion, setExpandedState, syncPinBottom } from './dom-motion.ts';
 import {
   buildSubagentTree,
   classifySubagentStatus,
@@ -178,6 +178,7 @@ export function renderSubagentsSection(ctx: PanelDomContext, snapshot: PanelMetr
     setHidden(subSection, true);
     state.lastSubagentsSig = null;
   }
+  syncPinBottom(ctx);
 }
 
 export function bindSubagentEvents(ctx: PanelDomContext): void {
@@ -216,6 +217,7 @@ export function bindSubagentEvents(ctx: PanelDomContext): void {
     if (!toggle || !container) return;
     const expanded = toggle.getAttribute('aria-expanded') !== 'true';
     setAttr(toggle, 'aria-expanded', String(expanded));
+    syncPinBottom(ctx);
     setExpandedState(container, expanded, true);
   });
   const subList = $('subagents-list');

@@ -12,7 +12,7 @@
 
 ## Antigravity 自带 IDE
 
-专用包为 `antigrative-dashboard-ide-0.12.0.vsix`，安装入口与桌面 App 独立。
+专用包为 `antigrative-dashboard-ide-0.12.3.vsix`，安装入口与桌面 App 独立。
 Windows 11 / IDE 2.5.5（VS Code base 1.107.0）已用真实对话验证速率、缓存、上下文、重启历史恢复和窄宽布局。
 Linux/macOS 的 IDE 进程筛选、端口归属、安装打包（含解包 Node 入口冒烟测试）和 Trusted Types 浏览器 fixture 纳入 CI；登录后的 IDE GUI 仍待实机验收。
 当前仅支持默认用户 profile；私有 Preact/DOM 或 RPC 变化可能需要适配，不能保证未来 IDE 版本无需维护。
@@ -45,7 +45,7 @@ Linux/macOS 的 IDE 进程筛选、端口归属、安装打包（含解包 Node 
 
 三系统插件均位于 `~/.gemini/config/plugins/antigravity-pulse`；数据目录位于 `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/`（宿主可覆盖 data 目录），包含：
 - `history-v1/<account-hash>/<conversation-id>.json`：单会话最新统计快照。
-- `usage-v1/`：按账号严格隔离（`ownership-v1.json`、`accounts-v1.json`、`backfill-v1.json`）的本地 Token 历史用量账本。
+- `usage-v1/`：按账号严格隔离（`ownership-v1.json`、`accounts-v1.json`、`backfill-v1.json`）的本地 Token 历史用量账本，以及可选加速缓存与元数据索引（`ledger-compact-v1.bin`、`project-ledger-v1.bin`、`project-meta-v1.json`）。
 - `timeline-v1/<account-hash>/<conversation-id>.json`：仅在用户显式开启 `modelTimelineEnabled`（默认关闭）时写入的有界结构化调用时间线树（`<= 400` 节点 / `<= 192 KiB`）。
 
 更新、重装、卸载保留统计数据，不保留已卸载的运行代码。设置开关保留其他插件和自定义字段。
@@ -61,7 +61,7 @@ Linux/macOS 的 IDE 进程筛选、端口归属、安装打包（含解包 Node 
 
 三系统共用同一套合并布局和 V4 桥接协议。每个宿主后台具有独立实例标识与绑定；data 目录中的 `active-sidecar.json` 由新实例原子接管，旧实例每 2 秒检测接管后解绑退出。启动接管用短期文件锁串行化，异常退出的锁可恢复；不终止无关 PID。
 
-内嵌悬浮卡通过浏览器原生 popover 顶层展示，避免输入区层叠上下文导致宿主按钮遮挡；不支持该 API 的旧宿主回退为普通固定定位。控件、卡片、图表与配额菜单自动跟随宿主深浅主题与自定义 `--primary`、`--background`、`--foreground` 颜色并校正对比度。
+内嵌悬浮卡与侧边栏多模型额度弹出卡均通过浏览器原生 popover 顶层展示（侧边栏支持 CSS Anchor Positioning 并保留视口回退定位），避免输入区或容器裁剪导致按钮遮挡；不支持该 API 的旧宿主回退为普通固定定位。侧边栏通过 `@container sidebar` 容器查询随面板自身宽度自适应布局，控件、卡片、图表与配额菜单自动跟随宿主深浅主题与自定义 `--primary`、`--background`、`--foreground` 颜色并校正对比度。
 
 汉化与子代理兼容：通过 WAI-ARIA 可编辑语义、稳定 `data-testid` 与最近 `[data-cascade-id]` 作用域定位主对话与多级子代理输入区；完整数值放不下时通过 240ms WAAPI 动画平滑降级为三个图标，发生实际可见碰撞时安全隐藏。
 

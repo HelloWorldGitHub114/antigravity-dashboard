@@ -3,7 +3,7 @@ import { setAttr, setHidden, setText } from '../../shared/dom.ts';
 import createDashboardI18n from '../i18n/index.ts';
 import { createFontPopover, FONT_POPOVER_CSS } from '../shared/font-popover.ts';
 import createAgPulseTheme from '../theme/index.ts';
-import { createCardSwitcher, createDomLookup } from './dom-motion.ts';
+import { createCardSwitcher, createDomLookup, syncPinBottom } from './dom-motion.ts';
 import { bindModelMixEvents, renderModelMix } from './model-mix.ts';
 import { createPanelController } from './polling.ts';
 import { renderQuotaAndSpeedSections, updateCountdowns } from './quota-section.ts';
@@ -59,6 +59,7 @@ function initPanel(): void {
     serverOffset: 0,
     lastExpiredRefresh: 0,
     selectedCard: 'speed',
+    lastQuotaSig: null,
     refreshRequest: null,
     manualRequest: null,
     syncingFromRefresh: false,
@@ -164,7 +165,6 @@ function initPanel(): void {
     $: createDomLookup(),
     localGet,
     localSet,
-    groupNameNodes: [...document.querySelectorAll<HTMLElement>('.group-name')],
   };
 
   controller = createPanelController(ctx, { render, updateCountdowns: handleUpdateCountdowns });
@@ -174,11 +174,79 @@ function initPanel(): void {
   bindSubagentEvents(ctx);
   bindModelMixEvents(ctx, render);
 
-  ctx.$<HTMLSelectElement>('quota-group')?.addEventListener('change', (event) => {
-    state.selectedGroup = (event.target as HTMLSelectElement).value;
-    localSet('ag-pulse-group', state.selectedGroup);
-    render();
+  const quotaPill = ctx.$('quota-rings-pill');
+  const quotaPopover = ctx.$('quota-popover');
+  let quotaCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  let quotaPinned = false;
+  const positionQuotaPopoverFallback = (): void => {
+    if (!quotaPill || !quotaPopover || CSS.supports('position-area', 'block-end')) return;
+    const r = quotaPill.getBoundingClientRect();
+    const pw = quotaPopover.offsetWidth || 256;
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const left = Math.max(8, Math.min(vw - pw - 8, r.right - pw));
+    quotaPopover.style.left = `${Math.round(left)}px`;
+    quotaPopover.style.top = `${Math.round(r.bottom + 6)}px`;
+  };
+  const isQuotaOpen = (): boolean => Boolean(quotaPopover?.matches(':popover-open')) || quotaPill?.getAttribute('aria-expanded') === 'true';
+  const openQuotaPopover = (): void => {
+    if (!quotaPill || !quotaPopover) return;
+    if (quotaCloseTimer) { clearTimeout(quotaCloseTimer); quotaCloseTimer = null; }
+    if (!quotaPopover.matches(':popover-open')) {
+      try { quotaPopover.showPopover(); } catch { quotaPopover.style.display = 'block'; }
+    }
+    positionQuotaPopoverFallback();
+    setAttr(quotaPill, 'aria-expanded', 'true');
+  };
+  const closeQuotaPopoverNow = (): void => {
+    quotaPinned = false;
+    if (quotaCloseTimer) { clearTimeout(quotaCloseTimer); quotaCloseTimer = null; }
+    if (quotaPopover && typeof quotaPopover.hidePopover === 'function' && quotaPopover.matches(':popover-open')) {
+      try { quotaPopover.hidePopover(); } catch { quotaPopover.style.display = 'none'; }
+    } else if (quotaPopover) {
+      quotaPopover.style.display = 'none';
+    }
+    setAttr(quotaPill, 'aria-expanded', 'false');
+  };
+  const scheduleCloseQuotaPopover = (): void => {
+    if (quotaPinned) return;
+    if (quotaCloseTimer) clearTimeout(quotaCloseTimer);
+    quotaCloseTimer = setTimeout(closeQuotaPopoverNow, 120);
+  };
+  quotaPill?.addEventListener('pointerenter', openQuotaPopover);
+  quotaPill?.addEventListener('pointerleave', scheduleCloseQuotaPopover);
+  quotaPill?.addEventListener('focus', openQuotaPopover);
+  quotaPill?.addEventListener('blur', scheduleCloseQuotaPopover);
+  quotaPill?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (quotaPinned && isQuotaOpen()) {
+      closeQuotaPopoverNow();
+    } else {
+      quotaPinned = true;
+      openQuotaPopover();
+    }
   });
+  quotaPopover?.addEventListener('pointerenter', () => {
+    if (quotaCloseTimer) { clearTimeout(quotaCloseTimer); quotaCloseTimer = null; }
+  });
+  quotaPopover?.addEventListener('pointerleave', scheduleCloseQuotaPopover);
+  const onDocQuotaPointerDown = (event: PointerEvent): void => {
+    if (!isQuotaOpen() || !quotaPill || !quotaPopover) return;
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [event.target];
+    if (path.includes(quotaPopover) || path.includes(quotaPill)) return;
+    closeQuotaPopoverNow();
+  };
+  const onDocQuotaKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && isQuotaOpen()) {
+      closeQuotaPopoverNow();
+      quotaPill?.focus();
+    }
+  };
+  const onQuotaResize = (): void => {
+    if (isQuotaOpen()) positionQuotaPopoverFallback();
+  };
+  document.addEventListener('pointerdown', onDocQuotaPointerDown, true);
+  document.addEventListener('keydown', onDocQuotaKeyDown, true);
+  window.addEventListener('resize', onQuotaResize);
 
   ctx.$('timeline-enable-btn')?.addEventListener('click', () => { void controller.setTimelineEnabled(true); });
   ctx.$('timeline-disable-btn')?.addEventListener('click', () => {
@@ -257,6 +325,10 @@ function initPanel(): void {
     if (!document.hidden) void controller.refresh();
   });
   window.addEventListener('pagehide', () => {
+    closeQuotaPopoverNow();
+    document.removeEventListener('pointerdown', onDocQuotaPointerDown, true);
+    document.removeEventListener('keydown', onDocQuotaKeyDown, true);
+    window.removeEventListener('resize', onQuotaResize);
     ctx.fontPopover?.dispose();
     ctx.themeController.dispose();
     ctx.preferences.dispose();
@@ -270,6 +342,7 @@ function initPanel(): void {
   setInterval(handleUpdateCountdowns, 1000);
   controller.localize();
   showCard('speed');
+  syncPinBottom(ctx);
   void controller.refresh();
 }
 

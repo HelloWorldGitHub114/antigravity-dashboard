@@ -22,34 +22,52 @@
   </svg>
   <main class="widget" data-i18n-aria="strip" aria-label="Antigrative Dashboard statistics">
     <header class="widget-header">
-      <div class="brand"><svg class="icon"><use href="#pulse"/></svg><span>Antigrative Dashboard</span><span class="connection-dot" id="connection-dot"></span></div>
+      <div class="brand">
+        <img class="brand-logo" src="/logo.svg" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <svg class="brand-logo-fallback" viewBox="0 0 24 24" aria-hidden="true">
+          <rect width="24" height="24" rx="6" fill="#18191c"/>
+          <path d="M12 5.2 6.8 18.2h2.4l1.2-3.2h3.2l1.2 3.2h2.4L12 5.2Zm-.9 7.6 1-2.8 1 2.8h-2Z" fill="#ffffff"/>
+        </svg>
+        <span>Antigrative Dashboard</span>
+        <span class="connection-dot" id="connection-dot"></span>
+      </div>
       <div class="header-controls">
-        <label class="sr-only" for="quota-group"><span data-i18n="group">Quota group</span></label>
-        <button class="icon-button" id="language-toggle" type="button" data-i18n-aria="language" aria-label="Language" title="Switch to Chinese">EN</button><select id="quota-group" data-i18n-aria="group" aria-label="Quota group"><option value="" data-i18n="loadingQuota">Loading quota…</option></select>
-        <button class="icon-button" id="refresh-button" type="button" data-i18n-aria="refreshStats" aria-label="Refresh statistics" title="Refresh statistics"><svg class="icon"><use href="#refresh"/></svg></button>
+        <button class="quota-rings-pill" id="quota-rings-pill" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="quota-popover" data-i18n-aria="quotaRingsLabel" aria-label="Model quotas">
+          <span class="quota-unavailable-text" data-i18n="loadingQuota">Loading quota…</span>
+        </button>
+        <div id="quota-popover" popover="manual" class="quota-popover-card" role="dialog" data-i18n-aria="quotaRingsLabel" aria-label="Model quotas"></div>
+        <button class="icon-button" id="language-toggle" type="button" data-i18n-aria="language" aria-label="Language" title="Switch to Chinese">EN</button>
         <button class="icon-button font-trigger" id="font-settings" type="button" data-i18n-aria="fontSettings" aria-label="Font size settings" title="Font size settings">Aa</button>
+        <button class="icon-button" id="refresh-button" type="button" data-i18n-aria="refreshStats" aria-label="Refresh statistics" title="Refresh statistics"><svg class="icon"><use href="#refresh"/></svg></button>
       </div>
     </header>
     <p class="sampled-model"><span data-i18n="contextModel">Sampled model</span><span id="strip-model">—</span></p>
     <nav class="status-strip" role="tablist" data-i18n-aria="panelDetails" aria-label="Metric details">
       <button class="metric-chip" id="speed-tab" type="button" role="tab" data-card="speed" aria-controls="speed-card" aria-selected="true" tabindex="0">
-        <span class="metric-label"><svg class="icon"><use href="#gauge"/></svg><span data-i18n="panelSpeed">Speed</span></span>
-        <span class="chip-primary"><strong id="strip-tps">—</strong><span class="unit">tok/s</span></span><span class="chip-secondary" id="session-steps">—</span>
+        <div class="chip-col-left">
+          <span class="metric-label"><svg class="icon"><use href="#gauge"/></svg><span data-i18n="panelSpeed">Speed</span></span>
+          <span class="chip-secondary" id="session-steps">—</span>
+        </div>
+        <span class="chip-primary"><strong id="strip-tps">—</strong><span class="unit">tok/s</span></span>
       </button>
       <button class="metric-chip" id="cache-tab" type="button" role="tab" data-card="cache" aria-controls="cache-card" aria-selected="false" tabindex="-1">
-        <span class="metric-label"><svg class="icon"><use href="#cache"/></svg><span data-i18n="panelCache">Cache</span></span>
-        <span class="chip-primary"><strong id="strip-cache">—</strong></span><span class="chip-secondary" id="strip-cache-total">— tok</span>
+        <div class="chip-col-left">
+          <span class="metric-label"><svg class="icon"><use href="#cache"/></svg><span data-i18n="panelCache">Cache</span></span>
+          <span class="chip-secondary" id="strip-cache-total">— tok</span>
+        </div>
+        <span class="chip-primary"><strong id="strip-cache">—</strong></span>
       </button>
-      <button class="metric-chip" id="context-tab" type="button" role="tab" data-card="context" aria-controls="context-card" aria-selected="false" tabindex="-1">
-        <span class="metric-label"><svg class="icon"><use href="#context"/></svg><span data-i18n="panelContext">Context</span></span>
-        <span class="chip-primary"><strong id="strip-context">—</strong><span class="unit" data-i18n="panelUsed">used</span></span><span class="chip-secondary" id="strip-context-size">—</span>
+      <button class="metric-chip is-context" id="context-tab" type="button" role="tab" data-card="context" aria-controls="context-card" aria-selected="false" tabindex="-1">
+        <div class="context-chip-top">
+          <span class="metric-label"><svg class="icon"><use href="#context"/></svg><span data-i18n="panelContext">Context</span></span>
+          <span class="context-chip-cap" id="strip-context-size">—</span>
+        </div>
+        <div class="context-chip-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-i18n-aria="context" id="strip-context-track">
+          <i class="context-chip-fill" id="strip-context-fill"></i>
+        </div>
       </button>
     </nav>
-    <section class="quota-overview" data-i18n-aria="panelSharedQuota" aria-label="Shared quota">
-      <div class="quota-mini"><div><span>5h</span><strong id="five-summary-balance">—</strong></div><div class="quota-track"><i id="five-summary-fill"></i></div><p><span data-i18n="resetIn">Resets in</span><span id="five-summary-countdown">—</span></p></div>
-      <div class="quota-mini"><div><span data-i18n="weekShort">Wk</span><strong id="week-summary-balance">—</strong></div><div class="quota-track"><i id="week-summary-fill"></i></div><p><span data-i18n="resetIn">Resets in</span><span id="week-summary-countdown">—</span></p></div>
-    </section>
-    <section class="card-stage" data-i18n-aria="panelDetails" aria-label="Metric details">
+    <section class="card-stage" id="card-stage" data-i18n-aria="panelDetails" aria-label="Metric details">
       <article class="detail-card" id="speed-card" role="tabpanel" tabindex="0" aria-labelledby="speed-tab">
         <div class="card-heading"><span><svg class="icon"><use href="#gauge"/></svg><span data-i18n="session">Session statistics</span></span><span class="card-tag" id="request-count">— samples</span></div>
         <dl>
@@ -100,22 +118,6 @@
         <div class="quota-track" role="progressbar" data-i18n-aria="context" id="context-track"><i id="context-fill"></i></div>
         <dl><div><dt data-i18n="contextModel">Sampled model</dt><dd id="context-model">—</dd></div><div id="context-orchestrator-row" hidden><dt data-i18n="contextPlanner">Planner entrypoint</dt><dd id="context-orchestrator">—</dd></div></dl>
         <p class="card-footnote context-split-note" id="context-orchestrator-note" hidden></p>
-        <div class="quota-details">
-      <section class="quota-section" id="five-details" role="region" data-i18n-aria="five" aria-label="Five-hour quota">
-        <div class="card-heading"><span><svg class="icon"><use href="#clock"/></svg><span data-i18n="five">Five-hour quota</span></span><span class="card-tag group-name">—</span></div>
-        <div class="balance"><strong id="five-balance">—</strong><span><span data-i18n="remaining">remaining</span></span></div>
-        <div class="quota-track" role="progressbar" data-i18n-aria="five" aria-label="Five-hour quota remaining" id="five-track"><i id="five-fill"></i></div>
-        <dl><div><dt><span data-i18n="resetIn">Resets in</span></dt><dd class="reset-countdown" id="five-countdown">—</dd></div><div><dt><span data-i18n="resetTime">Reset time (UTC+8)</span></dt><dd id="five-reset">—</dd></div></dl>
-        <p class="card-footnote quota-note" id="five-note">Read from the account API.</p>
-      </section>
-      <section class="quota-section" id="week-details" role="region" data-i18n-aria="week" aria-label="Weekly quota">
-        <div class="card-heading"><span><svg class="icon"><use href="#calendar"/></svg><span data-i18n="week">Weekly quota</span></span><span class="card-tag group-name">—</span></div>
-        <div class="balance"><strong id="week-balance">—</strong><span><span data-i18n="remaining">remaining</span></span></div>
-        <div class="quota-track" role="progressbar" data-i18n-aria="week" aria-label="Weekly quota remaining" id="week-track"><i id="week-fill"></i></div>
-        <dl><div><dt><span data-i18n="resetIn">Resets in</span></dt><dd class="reset-countdown" id="week-countdown">—</dd></div><div><dt><span data-i18n="resetTime">Reset time (UTC+8)</span></dt><dd id="week-reset">—</dd></div></dl>
-        <p class="card-footnote quota-note" id="week-note">Read from the account API.</p>
-      </section>
-        </div>
       </article>
     </section>
     <section class="subagents-section" id="subagents-section" hidden>
@@ -125,7 +127,7 @@
           <span data-i18n="subagentsTitle">Subagents</span>
           <span class="subagents-count" id="subagents-count">0</span>
         </span>
-        <span class="subagents-chevron" id="subagents-chevron" aria-hidden="true"><svg class="icon"><use href="#chevron"/></svg></span>
+        <span class="subagents-chevron" aria-hidden="true"><svg class="icon"><use href="#chevron"/></svg></span>
       </button>
       <div class="subagents-container" id="subagents-container" hidden>
         <div class="subagents-list" id="subagents-list"></div>

@@ -3,6 +3,7 @@ pub mod json_projector;
 pub mod ledger_index;
 pub mod log_rotator;
 pub mod napi_entry;
+pub mod project_ledger;
 pub mod proto_wire;
 pub mod sanitizer_accel;
 pub mod shared_cache;
@@ -15,6 +16,7 @@ pub mod win32_discovery;
 pub use json_projector::project_trajectory_json;
 pub use ledger_index::query_usage_ledger_summary_json;
 pub use log_rotator::{rotate_log_tail, rotate_log_tail_json};
+pub use project_ledger::read_ledger_project_summaries_json;
 pub use sanitizer_accel::{audit_open_source_privacy_json, sync_and_audit_open_source_json};
 pub use snapshot_diff::diff_session_snapshots_json;
 pub use sqlite_trajectory::{

@@ -97,7 +97,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
   };
 
   const loadProjectDetail = async (projectKey: string, from: string, to: string): Promise<void> => {
-    const scope = state.value?.activeAccount || null;
+    const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
     const reqKey = `${scope || ''}|${projectKey}|${from}|${to}`;
     if (state.projectDetailKey === reqKey && (state.projectDetail || state.projectDetailLoading)) return;
     const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
@@ -130,7 +130,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
   };
 
   const ensureProjectUsage = async (from: string, to: string): Promise<void> => {
-    const scope = state.value?.activeAccount || null;
+    const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
     const reqKey = `${scope || ''}|${from}|${to}`;
     if (state.projectOverviewKey === reqKey) return;
     const bridge = (window as UsageWindow).agPulseBridge || (window as UsageWindow).agPulseHost;
@@ -145,6 +145,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
       if (state.disposed || myEpoch !== projectReqEpoch) return;
       if (res && typeof res === 'object' && 'error' in res) {
         state.projectOverview = null;
+        state.projectOverviewKey = '';
         dayIndex.rebuildProjects(null);
         state.projectError = res.error;
       } else {
@@ -164,6 +165,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     } catch (err) {
       if (state.disposed || myEpoch !== projectReqEpoch) return;
       state.projectOverview = null;
+      state.projectOverviewKey = '';
       dayIndex.rebuildProjects(null);
       state.projectError = err instanceof Error ? err.message : ctx.w('加载失败', 'Load failed');
     } finally {
@@ -286,7 +288,10 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         if (dialog.open) render();
         return;
       }
-      if (state.accountKey && state.accountKey !== data.accountKey) {
+      if (
+        (state.accountKey && state.accountKey !== data.accountKey) ||
+        (state.value?.viewScope && data.viewScope && state.value.viewScope !== data.viewScope)
+      ) {
         state.selected = null;
         state.selectedBar = null;
         state.disabledModels.clear();
@@ -295,6 +300,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         state.expandedModelGroups.clear();
         state.projectOverview = null;
         state.projectOverviewKey = '';
+        dayIndex.rebuildProjects(null);
         state.selectedProjectKey = null;
         state.projectDetail = null;
         state.projectDetailKey = '';

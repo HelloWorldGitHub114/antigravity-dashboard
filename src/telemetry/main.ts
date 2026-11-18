@@ -130,6 +130,7 @@ const staticFiles: Record<string, [string, string]> = {
   '/': ['index.html', 'text/html'],
   '/styles.css': ['styles.css', 'text/css'],
   '/format.mjs': ['format.mjs', 'text/javascript'],
+  '/logo.svg': ['../../assets/logo.svg', 'image/svg+xml'],
 };
 const inlineSource = (cache: Map<string, string> | null = isSidecar ? compatCache : null): string => {
   const file = readCompat('inline-widget.cjs', cache);

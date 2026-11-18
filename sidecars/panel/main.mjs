@@ -826,7 +826,8 @@ var createMetrics = (targetStore, targetUsage, getHealth) => async (input) => {
 var staticFiles = {
   "/": ["index.html", "text/html"],
   "/styles.css": ["styles.css", "text/css"],
-  "/format.mjs": ["format.mjs", "text/javascript"]
+  "/format.mjs": ["format.mjs", "text/javascript"],
+  "/logo.svg": ["../../assets/logo.svg", "image/svg+xml"]
 };
 var inlineSource = (cache = isSidecar ? compatCache : null) => {
   const file = readCompat("inline-widget.cjs", cache);

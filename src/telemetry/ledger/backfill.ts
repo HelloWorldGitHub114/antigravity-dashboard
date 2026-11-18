@@ -23,6 +23,7 @@ import {
   type UnrefableTimer,
 } from './backfill-sync.ts';
 import { sha256 } from './helpers.ts';
+import { persistProjectMetaFromRawSummaries } from './project-stats.ts';
 import { UsageLedger } from './summary.ts';
 import { HASH_RE, type BackfillEntry, type BackfillHost, type UsageAccountsResult } from './types.ts';
 
@@ -71,6 +72,7 @@ export class DesktopUsage {
   disposed = false;
   continuation: ReturnType<typeof setTimeout> | null = null;
   pending: Promise<void> | null = null;
+  lastPersistedRawSummaries: Record<string, unknown> | null = null;
 
   constructor(
     store: DesktopUsageStore,
@@ -168,6 +170,17 @@ export class DesktopUsage {
       missing++;
     }
     if (!current()) return { current, completed: false };
+    const rawSummaries = (this.store as { rawSummaries?: Record<string, unknown> | null }).rawSummaries;
+    if (
+      rawSummaries &&
+      typeof rawSummaries === 'object' &&
+      rawSummaries !== this.lastPersistedRawSummaries
+    ) {
+      this.lastPersistedRawSummaries = rawSummaries;
+      if (Object.keys(rawSummaries).length > 0) {
+        await persistProjectMetaFromRawSummaries(this.ledger, rawSummaries).catch(() => {});
+      }
+    }
     const local = await this.discoverLocal();
     if (!current()) return { current, completed: false };
     missing += local.errors || 0;

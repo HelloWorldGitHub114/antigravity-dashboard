@@ -196,4 +196,6 @@ export const ZH_DICTIONARY: I18nDictionary = {
   fontDecrease: '缩小',
   fontIncrease: '放大',
   fontPercent: '字体百分比',
+  quotaNo5hTag: '仅周额度',
+  quotaRingsLabel: '查看模型额度详情',
 };

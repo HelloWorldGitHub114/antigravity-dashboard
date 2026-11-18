@@ -79,6 +79,8 @@ export const EN_DICTIONARY = {
   autoConnect: 'Open the app to connect automatically',
   loadingQuota: 'Loading quota…',
   unavailableQuota: 'Quota unavailable',
+  quotaNo5hTag: 'Weekly only',
+  quotaRingsLabel: 'Model quotas',
   live: 'Connected to Antigrative Dashboard',
   stale: 'Showing last available quota',
   offline: 'Antigrative Dashboard is offline',

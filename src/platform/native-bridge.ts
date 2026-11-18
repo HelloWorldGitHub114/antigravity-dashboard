@@ -83,6 +83,43 @@ export interface LedgerSummaryQuery {
   dirtyRelPaths?: string[];
 }
 
+export interface LedgerProjectQuery {
+  directory: string;
+  scope: string;
+  timeZone: string;
+  fixedOffsetSecs?: number | null;
+  tzMinMs?: number | null;
+  tzMaxMs?: number | null;
+  tzTransitions?: LedgerTzTransition[] | null;
+  zeroAtDate: string;
+  dirtyRelPaths?: string[];
+}
+
+export interface LedgerProjectDayBucket {
+  date: string;
+  uncached: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  requests: number;
+  maxAt: number;
+}
+
+export interface LedgerProjectFileSummary {
+  fileHash: string;
+  docId: string;
+  source: string;
+  projectName: string;
+  note: string;
+  days: LedgerProjectDayBucket[];
+}
+
+export interface LedgerProjectSummariesResult {
+  scope: string;
+  timeZone: string;
+  files: LedgerProjectFileSummary[];
+}
+
 export interface SanitizerPatternInput {
   pattern: string;
   flags?: string;
@@ -132,6 +169,7 @@ interface PulseAccelAddon {
   readSqliteConversationSummariesJson?: (dbPath: string) => string | null;
   diffSessionSnapshotsJson?: (inputsJson: string) => string | null;
   queryUsageLedgerSummaryJson?: (queryJson: string) => string | null;
+  readLedgerProjectSummariesJson?: (queryJson: string) => string | null;
   auditOpenSourcePrivacyJson?: (optionsJson: string) => string | null;
   syncAndAuditOpenSourceJson?: (optionsJson: string) => string | null;
   rotateLogTailJson?: (logPath: string, maxBytes: number, keepLines: number) => string | null;
@@ -361,6 +399,7 @@ export function readSqliteConversationSummaries(
 type SingleJsonAddonMethod =
   | 'diffSessionSnapshotsJson'
   | 'queryUsageLedgerSummaryJson'
+  | 'readLedgerProjectSummariesJson'
   | 'auditOpenSourcePrivacyJson'
   | 'syncAndAuditOpenSourceJson';
 
@@ -403,6 +442,25 @@ export function diffSessionSnapshots(
 export function queryUsageLedgerSummary<T = unknown>(query: LedgerSummaryQuery): T | null {
   if (!query?.directory || !query?.scope) return null;
   return callSingleJsonAddon<T>('queryUsageLedgerSummaryJson', query);
+}
+
+/**
+ * Reads and aggregates per-file daily token buckets for project stats in Rust using
+ * `project-ledger-v1.bin` + process-local memory cache, returning `null` if unavailable or on fallback.
+ */
+export function readLedgerProjectSummaries(
+  query: LedgerProjectQuery,
+): LedgerProjectSummariesResult | null {
+  if (!query?.directory || !query?.scope) return null;
+  const payload: LedgerProjectQuery = {
+    ...query,
+    dirtyRelPaths: query.dirtyRelPaths ?? [],
+  };
+  return callSingleJsonAddon<LedgerProjectSummariesResult>(
+    'readLedgerProjectSummariesJson',
+    payload,
+    (parsed) => Array.isArray(parsed.files),
+  );
 }
 
 /**

@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use crate::json_projector::project_trajectory_json;
 use crate::ledger_index::query_usage_ledger_summary_json;
 use crate::log_rotator::rotate_log_tail_json;
+use crate::project_ledger::read_ledger_project_summaries_json;
 use crate::sanitizer_accel::{audit_open_source_privacy_json, sync_and_audit_open_source_json};
 use crate::snapshot_diff::diff_session_snapshots_json;
 use crate::sqlite_trajectory::{
@@ -467,6 +468,13 @@ unsafe extern "C" fn cb_query_usage_ledger_summary_json(
     run_single_json_arg_cb(env, info, query_usage_ledger_summary_json)
 }
 
+unsafe extern "C" fn cb_read_ledger_project_summaries_json(
+    env: NapiEnv,
+    info: NapiCallbackInfo,
+) -> NapiValue {
+    run_single_json_arg_cb(env, info, read_ledger_project_summaries_json)
+}
+
 unsafe extern "C" fn cb_audit_open_source_privacy_json(
     env: NapiEnv,
     info: NapiCallbackInfo,
@@ -631,6 +639,13 @@ pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValu
                 exports,
                 b"queryUsageLedgerSummaryJson\0",
                 cb_query_usage_ledger_summary_json,
+            );
+            export_fn(
+                napi,
+                env,
+                exports,
+                b"readLedgerProjectSummariesJson\0",
+                cb_read_ledger_project_summaries_json,
             );
             export_fn(
                 napi,

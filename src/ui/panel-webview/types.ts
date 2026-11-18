@@ -43,7 +43,8 @@ export interface PanelState {
   timer: ReturnType<typeof setTimeout> | null;
   serverOffset: number;
   lastExpiredRefresh: number;
-  selectedCard: PanelCardName;
+  selectedCard: PanelCardName | null;
+  lastQuotaSig: string | null;
   refreshRequest: Promise<void> | null;
   manualRequest: Promise<void> | null;
   syncingFromRefresh: boolean;
@@ -84,5 +85,4 @@ export interface PanelDomContext {
   $: <T extends HTMLElement = HTMLElement>(id: string) => T | null;
   localGet: (key: string) => string | null;
   localSet: (key: string, value: string) => void;
-  groupNameNodes: HTMLElement[];
 }

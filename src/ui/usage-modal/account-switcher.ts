@@ -1,4 +1,5 @@
 import type { UsageAccountInfo } from '../../contracts/index.ts';
+import { renderSubtitle } from './localize-modal.ts';
 import type { UsageDomContext, UsageWindow } from './types.ts';
 
 type AccountEntry = UsageAccountInfo | { id?: string; account?: string; accountKey?: string; name?: string; email?: string | null } | string;
@@ -27,6 +28,7 @@ export async function syncAccountSwitcher(ctx: UsageDomContext): Promise<void> {
   if (!list || !list.length) list = [state.value?.viewScope || state.value?.accountKey || 'default'];
   const currentKey = state.value?.viewScope || 'all';
   select.hidden = list.length <= 1;
+  renderSubtitle(ctx);
 
   const items: Array<[string, string]> = list.map((acc) => {
     const id =

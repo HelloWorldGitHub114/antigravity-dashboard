@@ -64,6 +64,7 @@ export class LedgerStorage {
   cache: SummaryCacheEntry | null = null;
   fileIndex = new Map<string, Map<string, FileIndexEntry>>();
   dirtyRelPaths = new Set<string>();
+  projectDirtyRelPaths = new Set<string>();
   keyVersions = new Map<string, number>();
   metaCache: StampCache<Record<string, KnownAccountInfo>> | null = null;
   metaVersion = 0;
@@ -124,7 +125,9 @@ export class LedgerStorage {
   }
 
   _markDirtyRelPath(scope: string, name: string): void {
-    this.dirtyRelPaths.add(`${scope}/${name}`);
+    const rel = `${scope}/${name}`;
+    this.dirtyRelPaths.add(rel);
+    this.projectDirtyRelPaths.add(rel);
   }
 
   _bumpKeyVersion(scope: string, name: string): void {
@@ -164,6 +167,10 @@ export class LedgerStorage {
 
   accountsFile(): string {
     return join(this.directory, 'accounts-v1.json');
+  }
+
+  projectMetaFile(): string {
+    return join(this.directory, 'project-meta-v1.json');
   }
 
   async backfillState(scope: string, host: BackfillHost): Promise<Record<string, BackfillEntry>> {

@@ -78,6 +78,7 @@ const server=createServer(async(req,res)=>{
  if(path==='/app.js'){res.setHeader('Content-Type','application/javascript');res.end(url.searchParams.has('v')?code:'throw new Error("Fixture stale unversioned script");');return;}
  if(path==='/styles.css'){res.setHeader('Content-Type','text/css');res.end(url.searchParams.has('v')?await readFile(join(repo,'sidecars/panel/styles.css')):'');return;}
  if(path==='/theme.css'){res.setHeader('Content-Type','text/css');res.end(createTheme().css(':root'));return;}
+ if(path==='/logo.svg'){res.setHeader('Content-Type','image/svg+xml');res.end(await readFile(join(repo,'assets/logo.svg')));return;}
  if(path==='/preload.js'){res.setHeader('Content-Type','application/javascript');res.end(url.searchParams.has('sdk')?`window.sidecar={conversationId:${JSON.stringify(id)},fetch:(p,init)=>fetch(${JSON.stringify(base)}+p,init)};document.addEventListener('DOMContentLoaded',()=>document.body.style.background='#fafafa');`:'');return;}
  if(path==='/frame'){
   const inner=html.replace('<head>',`<head><base href="${base}/">`).replace('/preload.js','/preload.js?sdk');
@@ -103,38 +104,51 @@ try{
   // Provider reference and unknown compaction must not change the fixture's
   // active 100K host window / 20% occupancy in either language.
   await view.locator('#strip-tps').waitFor();
-  await view.locator('#strip-context').filter({hasText:'20%'}).waitFor();
+  await view.locator('#strip-context-size').filter({hasText:'20K / 100K'}).waitFor();
   assert.equal(await view.locator('#panel-model-mix').isVisible(),false,'Single-model baseline hides multi-model donut');
   assert.equal(await view.locator('#context-orchestrator-row').isVisible(),false,'Single-model baseline hides orchestrator row');
   assert.equal(await view.locator('#timeline-off-bar').isVisible(),true,'Default timeline renders compact OFF bar');
   assert.equal(await view.locator('#timeline-panel').isVisible(),false);
   assert.equal(await view.locator('#timeline-tree .timeline-node, #timeline-swimlanes .timeline-seg').count(),0,'Zero timeline nodes rendered when OFF');
   assert.equal(await view.locator('#context-tokens').textContent(),'20K / 100K tok');
-  assert.equal(await view.locator('#context-provider-limit,#context-compaction-limit,#context-host-limit,#context-note,#transcript-details').count(),0,'Compact context omits duplicate capacities and diagnostic prose');
+  assert.equal(await view.locator('#context-provider-limit,#context-compaction-limit,#context-host-limit,#context-note,#transcript-details,.quota-overview,#context-card .quota-details').count(),0,'Compact context omits duplicate capacities, quota details, and diagnostic prose');
   await view.locator('#strip-tps').filter({hasText:'38.7'}).waitFor();
   assert.deepEqual(await view.locator('.metric-label span').allTextContents(),['Speed','Cache','Context']);
   assert.ok(await view.locator('#strip-tps').evaluate(e=>parseFloat(getComputedStyle(e).fontSize))>=18);
-  assert.equal(await view.locator('#strip-cache').textContent(),'75.0%');assert.equal(await view.locator('#strip-context').textContent(),'20%');
-  assert.equal(await view.locator('#five-balance').textContent(),'80.0%');assert.equal(await view.locator('#week-balance').textContent(),'75.0%');
+  assert.equal(await view.locator('#strip-cache').textContent(),'75.0%');assert.equal(await view.locator('#strip-context-size').textContent(),'20K / 100K');
+  assert.ok(await view.locator('#quota-rings-pill .quota-ring-item').count()>=1,'Quota rings render in header');
+  await view.locator('#quota-rings-pill').hover();
+  await view.locator('#quota-popover').waitFor({state:'visible'});
+  const popText=await view.locator('#quota-popover').textContent();
+  assert.ok(popText.includes('80.0%')&&popText.includes('75.0%'),`Expected quota balances in popover, got: ${popText}`);
+  await view.locator('#quota-rings-pill').click();
+  await page.keyboard.press('Escape');
+  await view.locator('#quota-popover').waitFor({state:'hidden'});
   const frame=()=>view.locator('.widget').evaluate(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});
   const initialFrame=await frame();assert.equal(await view.locator('#speed-card').isVisible(),true,'Default view shows statistics, not an empty hover prompt');
+  assert.equal(await view.locator('.widget').getAttribute('data-pin-bottom'),'true','Collapsed lower sections pin to bottom when a top detail card is open');
   for(const name of ['cache','context','speed']){
    await view.locator(`[data-card=${name}]`).click();assert.equal(await view.locator(`#${name}-card`).isVisible(),true);
    await page.mouse.move(0,0);await page.waitForTimeout(250);assert.equal(await view.locator(`#${name}-card`).isVisible(),true,'Selection remains after pointer leaves');
    assert.deepEqual(await frame(),initialFrame,'Metric selection must preserve the outer frame');
   }
+  await view.locator('#speed-tab').click();
+  await view.locator('#card-stage').waitFor({state:'hidden'});
+  assert.equal(await view.locator('#card-stage').isVisible(),false,'Clicking active card tab collapses detail stage');
+  assert.equal(await view.locator('.widget').getAttribute('data-pin-bottom'),'false','Collapsing top card unpins lower sections');
+  await view.locator('#speed-tab').click();
+  await view.locator('#speed-card').waitFor({state:'visible'});
+  assert.equal(await view.locator('#speed-card').isVisible(),true,'Clicking collapsed card tab expands it again');
+  assert.equal(await view.locator('.widget').getAttribute('data-pin-bottom'),'true');
   await view.locator('#speed-tab').focus();await page.keyboard.press('ArrowRight');assert.equal(await view.locator('#cache-tab').getAttribute('aria-selected'),'true');
   await page.keyboard.press('End');assert.equal(await view.locator('#context-tab').getAttribute('aria-selected'),'true');
-  assert.equal(await view.locator('#context-card').evaluate(e=>e.scrollHeight>e.clientHeight),true,'Long context/quota details scroll inside the stable frame');
-  await view.locator('#context-card').evaluate(e=>e.scrollTop=100);
-  await view.locator('#cache-tab').click();await view.locator('#context-tab').click();assert.ok(await view.locator('#context-card').evaluate(e=>e.scrollTop)>0);
   if(mode==='opaque-iframe'){
    assert.equal(await view.locator('html').evaluate(()=>self.origin),'null');
    assert.equal(await view.locator('body').evaluate(e=>getComputedStyle(e).backgroundColor===getComputedStyle(document.querySelector('.widget')).backgroundColor),true,'SDK inline body background follows the dashboard theme');
   }
   await view.locator('#language-toggle').click();await view.locator('#language-toggle').filter({hasText:'中'}).waitFor();
   assert.equal(await view.locator('#context-tokens').textContent(),'20K / 100K tok');
-  assert.equal(await view.locator('#strip-context').textContent(),'20%');
+  assert.equal(await view.locator('#strip-context-size').textContent(),'20K / 100K');
   assert.deepEqual(await view.locator('.metric-label span').allTextContents(),['速度','缓存','上下文']);
   assert.deepEqual(await frame(),initialFrame,'Language switches must not resize the frame');
   await mkdir(join(repo,'.data/sidebar-design'),{recursive:true});
@@ -160,7 +174,7 @@ try{
   await page.goto(base);await viewOrPageWait(page);
   async function viewOrPageWait(p){await p.locator('#strip-tps').filter({hasText:'51.2'}).waitFor();}
   const size=()=>page.locator('.widget').evaluate(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,overflow:e.scrollWidth>e.clientWidth}));const initial=await size();assert.equal(initial.overflow,false);
-  for(const name of ['speed','cache','context']){await page.locator(`[data-card=${name}]`).click();assert.deepEqual(await size(),initial);}
+  for(const name of ['cache','context','speed']){await page.locator(`[data-card=${name}]`).click();assert.deepEqual(await size(),initial);}
   await page.screenshot({path:join(repo,`.data/sidebar-design/width-${width}.png`)});await page.close();
  }
  {
