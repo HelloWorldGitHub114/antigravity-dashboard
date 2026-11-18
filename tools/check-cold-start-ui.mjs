@@ -28,9 +28,9 @@ try{
  ui.start();
  for(let i=0;i<Number(process.env.AG_PULSE_NAV_ROUNDS||5);i++){
   if(i){
-   // Interrupt one initial navigation with a second, then let its DOM settle.
-   const first=page.goto(base+`/loading?round=${i}`).catch(()=>{});
-   await page.goto(base+'/c/'+(i%2?'22222222-2222-2222-2222-222222222222':'11111111-1111-1111-1111-111111111111'),{waitUntil:'domcontentloaded'});await first;
+   // Interrupt one initial navigation with a second after commit, before delayed composer mounts, then let its DOM settle.
+   await page.goto(base+`/loading?round=${i}`,{waitUntil:'commit'});
+   await page.goto(base+'/c/'+(i%2?'22222222-2222-2222-2222-222222222222':'11111111-1111-1111-1111-111111111111'),{waitUntil:'domcontentloaded'});
   }
   await page.waitForFunction(()=>document.getElementById('ag-pulse-status-bar')?.shadowRoot.getElementById('tps').textContent==='50.0',null,{timeout:15000}).catch(async error=>{
    console.error(JSON.stringify({round:i,health:ui.health,pageErrors:errors,contexts:[...ui.sessions.values()].map(c=>({frame:c.frameId,contexts:[...c.contexts],candidates:[...c.contextCandidates]})),dom:await page.evaluate(()=>({path:location.pathname,mounted:Boolean(document.getElementById('ag-pulse-status-bar')),bridge:Boolean(window.agPulseHost),installed:window.__agPulseInlineInstalled,tps:document.getElementById('ag-pulse-status-bar')?.shadowRoot.getElementById('tps').textContent}))}));throw error;
