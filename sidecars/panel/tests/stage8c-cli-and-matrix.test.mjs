@@ -242,10 +242,10 @@ test('tools/build.mjs target matrix, Cargo.toml [[bin]], .cargo/config.toml, and
   assert.match(buildRs, /dynamic_lookup/);
 
   const nativeYml = readFileSync(join(ROOT, '.github', 'workflows', 'native.yml'), 'utf8');
+  assert.match(nativeYml, /\bmacos-(?:latest|15-intel)\b/, '.github/workflows/native.yml missing macOS runner');
   for (const expected of [
     'workflow_call:',
     'windows-latest',
-    'macos-latest',
     'ubuntu-latest',
     'aarch64-apple-darwin',
     'x86_64-apple-darwin',

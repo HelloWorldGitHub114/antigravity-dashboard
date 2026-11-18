@@ -264,7 +264,15 @@ test('manage.mjs debug-launch CLI status respects default OFF under isolated hom
   const out = execFileSync(process.execPath, [join(ROOT, 'manage.mjs'), 'debug-launch', 'status', '--home', home], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, USERPROFILE: home, APPDATA: join(home, 'AppData', 'Roaming') },
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: join(home, 'AppData', 'Roaming'),
+      LOCALAPPDATA: join(home, 'AppData', 'Local'),
+      XDG_DATA_HOME: join(home, '.local', 'share'),
+      XDG_CONFIG_HOME: join(home, '.config'),
+    },
   });
   const parsed = JSON.parse(out);
   assert.equal(parsed.enabled, false);

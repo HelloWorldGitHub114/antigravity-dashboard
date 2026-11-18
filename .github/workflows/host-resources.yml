@@ -1,6 +1,8 @@
 name: Official host resources
 on:
   push:
+    tags-ignore:
+      - 'v*'
   pull_request:
   workflow_call:
 permissions:
@@ -13,7 +15,7 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: linux-x64/Antigravity.tar.gz
-          - os: macos-latest
+          - os: macos-15-intel
             artifact: darwin-arm/Antigravity.dmg
     runs-on: ${{ matrix.os }}
     steps:
@@ -38,6 +40,9 @@ jobs:
             hdiutil attach "$root/download" -mountpoint "$root/mount" -nobrowse -readonly
             resources=$(find "$root/mount" -path '*/Contents/Resources/app.asar' -print -quit)
             resources=$(dirname "$resources")
+            agent_bin=$(find "$resources/bin" -name 'language_server*' -print -quit)
+            test -n "$agent_bin"
+            echo "ANTIGRAVITY_AGENTAPI_EXE=$agent_bin" >> "$GITHUB_ENV"
           fi
           test -f "$resources/app.asar"
           echo "AG_PULSE_APP_RESOURCES=$resources" >> "$GITHUB_ENV"

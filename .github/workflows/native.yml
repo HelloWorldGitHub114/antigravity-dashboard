@@ -24,15 +24,15 @@ jobs:
             node_artifact: sidecars/panel/pulse-accel.win32-x64.node
             cli_artifact: cli/bin/ag-pulse-statusline.win32-x64.exe
           - name: darwin-arm64
-            os: macos-latest
+            os: macos-15-intel
             target: aarch64-apple-darwin
-            cross: false
+            cross: true
             node_artifact: sidecars/panel/pulse-accel.darwin-arm64.node
             cli_artifact: cli/bin/ag-pulse-statusline.darwin-arm64
           - name: darwin-x64
-            os: macos-latest
+            os: macos-15-intel
             target: x86_64-apple-darwin
-            cross: true
+            cross: false
             node_artifact: sidecars/panel/pulse-accel.darwin-x64.node
             cli_artifact: cli/bin/ag-pulse-statusline.darwin-x64
           - name: linux-x64
@@ -71,7 +71,7 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          MACOSX_DEPLOYMENT_TARGET: '10.15'
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'aarch64-apple-darwin' && '11.0' || '10.15' }}
         run: node tools/build.mjs --native-tag --target ${{ matrix.target }}
       - name: Verify tagged artifacts exist
         shell: bash
