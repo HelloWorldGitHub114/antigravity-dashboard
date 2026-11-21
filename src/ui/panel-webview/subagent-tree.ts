@@ -10,9 +10,27 @@ import {
   subagentRefs,
   type SubagentTreeNode,
 } from './subagent-helpers.ts';
-import type { PanelDomContext, PanelMetricsSnapshot } from './types.ts';
+import type { PanelDomContext, PanelMetricsSnapshot, PanelState } from './types.ts';
 
-function syncSubagentNode(ctx: PanelDomContext, nodeEl: HTMLElement, node: SubagentTreeNode, depth: number, existingNodes: Map<string, HTMLElement>): void {
+const subagentNodeMaps = new WeakMap<PanelState, Map<string, HTMLElement>>();
+
+function getSubagentNodeMap(state: PanelState): Map<string, HTMLElement> {
+  let map = subagentNodeMaps.get(state);
+  if (!map) {
+    map = new Map();
+    subagentNodeMaps.set(state, map);
+  }
+  return map;
+}
+
+function syncSubagentNode(
+  ctx: PanelDomContext,
+  nodeEl: HTMLElement,
+  node: SubagentTreeNode,
+  depth: number,
+  existingNodes: Map<string, HTMLElement>,
+  nextNodes: Map<string, HTMLElement>,
+): void {
   const { state, language } = ctx;
   const t = language.t;
   const refs = subagentRefs.get(nodeEl)!;
@@ -115,14 +133,21 @@ function syncSubagentNode(ctx: PanelDomContext, nodeEl: HTMLElement, node: Subag
     }
     refs.childrenEl.dataset.parentId = id;
     if (!panelMotion.has(refs.childrenEl)) setHidden(refs.childrenEl, !isTreeExpanded);
-    syncSubagentChildren(ctx, refs.childrenEl, node.children, depth + 1, existingNodes);
+    syncSubagentChildren(ctx, refs.childrenEl, node.children, depth + 1, existingNodes, nextNodes);
   } else if (refs.childrenEl) {
     refs.childrenEl.remove();
     refs.childrenEl = null;
   }
 }
 
-function syncSubagentChildren(ctx: PanelDomContext, containerEl: HTMLElement, nodes: ReadonlyArray<SubagentTreeNode>, depth: number, existingNodes: Map<string, HTMLElement>): void {
+function syncSubagentChildren(
+  ctx: PanelDomContext,
+  containerEl: HTMLElement,
+  nodes: ReadonlyArray<SubagentTreeNode>,
+  depth: number,
+  existingNodes: Map<string, HTMLElement>,
+  nextNodes: Map<string, HTMLElement>,
+): void {
   const desiredIds = new Set(nodes.map((n) => String(n.id)));
   for (const child of [...containerEl.children]) {
     if (!child.classList?.contains('subagent-tree-node') || !desiredIds.has((child as HTMLElement).dataset?.id || '')) {
@@ -135,7 +160,8 @@ function syncSubagentChildren(ctx: PanelDomContext, containerEl: HTMLElement, no
     let nodeEl = existingNodes.get(id);
     if (nodeEl) existingNodes.delete(id);
     else nodeEl = createSubagentNodeElement();
-    syncSubagentNode(ctx, nodeEl, node, depth, existingNodes);
+    nextNodes.set(id, nodeEl);
+    syncSubagentNode(ctx, nodeEl, node, depth, existingNodes, nextNodes);
     if (nodeEl !== cursor) containerEl.insertBefore(nodeEl, cursor);
     else cursor = cursor.nextElementSibling;
   }
@@ -161,16 +187,27 @@ export function renderSubagentsSection(ctx: PanelDomContext, snapshot: PanelMetr
       : `EMPTY|${language.language}`;
     if (nextSig !== state.lastSubagentsSig || list.children.length === 0) {
       state.lastSubagentsSig = nextSig;
+      const nodeMap = getSubagentNodeMap(state);
       if (items.length) {
         const container = $('subagents-container');
-        const savedScroll = container ? container.scrollTop : 0;
+        const preserveScroll = Boolean(container && !container.hidden);
+        const savedScroll = preserveScroll && container ? container.scrollTop : 0;
         const existingNodes = new Map<string, HTMLElement>();
-        for (const el of list.querySelectorAll<HTMLElement>('.subagent-tree-node[data-id]')) {
-          if (el.dataset.id) existingNodes.set(el.dataset.id, el);
+        for (const [id, el] of nodeMap) {
+          if (el.isConnected && list.contains(el)) existingNodes.set(id, el);
         }
-        syncSubagentChildren(ctx, list, buildSubagentTree(items), 1, existingNodes);
-        if (container) container.scrollTop = savedScroll;
+        if (existingNodes.size === 0 && list.children.length > 0) {
+          for (const el of list.querySelectorAll<HTMLElement>('.subagent-tree-node[data-id]')) {
+            if (el.dataset.id) existingNodes.set(el.dataset.id, el);
+          }
+        }
+        const nextNodes = new Map<string, HTMLElement>();
+        syncSubagentChildren(ctx, list, buildSubagentTree(items), 1, existingNodes, nextNodes);
+        nodeMap.clear();
+        for (const [id, el] of nextNodes) nodeMap.set(id, el);
+        if (preserveScroll && container) container.scrollTop = savedScroll;
       } else {
+        nodeMap.clear();
         list.innerHTML = `<div class="subagent-empty">${escapeHtml(language.t('transcriptLoading'))}</div>`;
       }
     }
@@ -217,8 +254,8 @@ export function bindSubagentEvents(ctx: PanelDomContext): void {
     if (!toggle || !container) return;
     const expanded = toggle.getAttribute('aria-expanded') !== 'true';
     setAttr(toggle, 'aria-expanded', String(expanded));
+    setExpandedState(container, expanded, true, () => syncPinBottom(ctx));
     syncPinBottom(ctx);
-    setExpandedState(container, expanded, true);
   });
   const subList = $('subagents-list');
   subList?.addEventListener('click', (event) => {

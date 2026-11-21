@@ -159,8 +159,8 @@ export function delegatedHints(
       const spec = meta && isRecord(meta.subagentSpec) ? meta.subagentSpec : null;
       const rawRole =
         (typeof spec?.role === 'string' ? spec.role : '') ||
-        (typeof spec?.typeName === 'string' ? spec.typeName : '') ||
-        (typeof meta?.subagentRole === 'string' ? meta.subagentRole : '');
+        (typeof meta?.subagentRole === 'string' ? meta.subagentRole : '') ||
+        (typeof spec?.typeName === 'string' ? spec.typeName : '');
       const parentId =
         normalizeConversationId(meta?.parentConversationId) ||
         (normalizeConversationId(meta?.rootConversationId) === parent ? parent : null);

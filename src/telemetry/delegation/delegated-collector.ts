@@ -30,6 +30,14 @@ import {
   type TaskUsageRecord,
 } from './task-usage.ts';
 
+const PLACEHOLDER_ROLES = new Set(['未命名会话', 'Untitled Session']);
+const cleanRole = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || PLACEHOLDER_ROLES.has(trimmed)) return null;
+  return trimmed;
+};
+
 export function buildTimelineChildren(
   task: DelegatedTaskState,
   summaries: Record<string, unknown>,
@@ -51,10 +59,11 @@ export function buildTimelineChildren(
           : null;
       const hintRole = task.hints?.get(cid)?.role || null;
       const safeRole =
-        (typeof spec?.role === 'string' && spec.role) ||
-        (typeof spec?.typeName === 'string' && spec.typeName) ||
-        (typeof meta?.subagentRole === 'string' && meta.subagentRole) ||
-        hintRole ||
+        cleanRole(spec?.role) ||
+        cleanRole(meta?.subagentRole) ||
+        cleanRole(d.role) ||
+        cleanRole(hintRole) ||
+        cleanRole(spec?.typeName) ||
         (typeof spec?.modelTier === 'string' && spec.modelTier
           ? `worker (${spec.modelTier})`
           : 'subagent');
@@ -294,8 +303,8 @@ export async function collectTaskChildren(
           task.childTimelines?.set(id, {
             id,
             role:
-              specRole ||
-              task.hints?.get(id)?.role ||
+              cleanRole(specRole) ||
+              cleanRole(task.hints?.get(id)?.role) ||
               (typeof spec?.modelTier === 'string' && spec.modelTier
                 ? `worker (${spec.modelTier})`
                 : 'subagent'),

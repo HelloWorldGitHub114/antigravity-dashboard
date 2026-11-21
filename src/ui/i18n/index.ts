@@ -50,6 +50,8 @@ const BACKEND_ERRORS: Record<string, string> = {
   '检测到多个 Antigravity 实例，请保留一个': 'Multiple Antigravity instances detected. Keep one open.',
   '未找到 Antigravity 桌面后台': 'Antigravity desktop backend was not found.',
   '当前版本未提供可用的本地检测凭据': 'Local metrics credentials are unavailable in this version.',
+  '当前版本已切换为本地 SQLite 直读模式（云端额度暂不可用）':
+    'Local SQLite mode active (cloud quota unavailable in this host version).',
   '等待 Antigravity 本地接口启动': 'Waiting for the local Antigravity API.',
   '未找到 Antigravity 语言服务日志，请检查日志路径':
     'Antigravity language-server log was not found. Check the log path.',

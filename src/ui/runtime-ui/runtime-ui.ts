@@ -44,6 +44,10 @@ export class RuntimeUi {
   deleteManualUsage: RuntimeUiOptions['deleteManualUsage'];
   getAccounts: RuntimeUiOptions['getAccounts'];
   switchAccount: RuntimeUiOptions['switchAccount'];
+  getRecordingAccount: RuntimeUiOptions['getRecordingAccount'];
+  setRecordingAccount: RuntimeUiOptions['setRecordingAccount'];
+  addAccount: RuntimeUiOptions['addAccount'];
+  reassignConversation: RuntimeUiOptions['reassignConversation'];
   getProjectUsage: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail: RuntimeUiOptions['getProjectDetail'];
   clearTimeline: RuntimeUiOptions['clearTimeline'];
@@ -66,6 +70,10 @@ export class RuntimeUi {
     deleteManualUsage = null,
     getAccounts = null,
     switchAccount = null,
+    getRecordingAccount = null,
+    setRecordingAccount = null,
+    addAccount = null,
+    reassignConversation = null,
     getProjectUsage = null,
     getProjectDetail = null,
     clearTimeline = null,
@@ -98,6 +106,10 @@ export class RuntimeUi {
     this.deleteManualUsage = deleteManualUsage;
     this.getAccounts = getAccounts;
     this.switchAccount = switchAccount;
+    this.getRecordingAccount = getRecordingAccount;
+    this.setRecordingAccount = setRecordingAccount;
+    this.addAccount = addAccount;
+    this.reassignConversation = reassignConversation;
     this.getProjectUsage = getProjectUsage;
     this.getProjectDetail = getProjectDetail;
     this.clearTimeline = clearTimeline;

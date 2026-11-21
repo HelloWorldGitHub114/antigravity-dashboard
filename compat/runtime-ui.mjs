@@ -319,6 +319,10 @@ function rendererBridge(binding) {
     deleteManualUsage: (input) => call("deleteManualUsage", input),
     getAccounts: () => call("getAccounts", {}),
     switchAccount: (input) => call("switchAccount", input),
+    getRecordingAccount: () => call("getRecordingAccount", {}),
+    setRecordingAccount: (input) => call("setRecordingAccount", input),
+    addAccount: (input) => call("addAccount", input),
+    reassignConversation: (input) => call("reassignConversation", input),
     getProjectUsage: (input) => call("getProjectUsage", input ?? {}),
     getProjectDetail: (input) => call("getProjectDetail", input)
   };
@@ -394,6 +398,10 @@ var USAGE_OPERATIONS = /* @__PURE__ */ new Set([
   "deleteManualUsage",
   "getAccounts",
   "switchAccount",
+  "getRecordingAccount",
+  "setRecordingAccount",
+  "addAccount",
+  "reassignConversation",
   "getProjectUsage",
   "getProjectDetail",
   "clearTimeline"
@@ -480,6 +488,58 @@ async function dispatchBindingCall(host, connection, input) {
       const raw = input.input;
       const account = typeof raw === "string" ? raw : raw?.account || raw?.id;
       result = { success: true, active: account, activeAccount: account };
+    }
+  } else if (input.type === "getRecordingAccount") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    if (typeof host.getRecordingAccount === "function") {
+      result = await host.getRecordingAccount();
+    } else {
+      const { UsageLedger } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      const [selected, accounts] = await Promise.all([
+        ledger.getActiveLocalAccount(),
+        ledger.getAccounts(null)
+      ]);
+      result = { active: selected, selected, localMode: true, accounts };
+    }
+  } else if (input.type === "setRecordingAccount") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    if (typeof host.setRecordingAccount === "function") {
+      result = await host.setRecordingAccount(input.input);
+    } else {
+      const { UsageLedger } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      const raw = input.input ?? {};
+      const scope = raw.scope ?? raw.account ?? raw.id ?? null;
+      const saved = await ledger.setActiveLocalAccount(scope === "auto" || scope === "" ? null : scope);
+      const accounts = await ledger.getAccounts(saved);
+      result = { active: saved, selected: saved, localMode: true, accounts };
+    }
+  } else if (input.type === "addAccount") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    if (typeof host.addAccount === "function") {
+      result = await host.addAccount(input.input);
+    } else {
+      const { UsageLedger } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      const created = await ledger.createLocalAccount(input.input ?? {});
+      const accounts = await ledger.getAccounts(created.id);
+      result = { success: true, account: created, active: created.id, selected: created.id, accounts };
+    }
+  } else if (input.type === "reassignConversation") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    const req = input.input ?? {};
+    if (typeof host.reassignConversation === "function") {
+      result = await host.reassignConversation(req);
+    } else {
+      const { UsageLedger } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      const ids = [
+        ...Array.isArray(req.conversationIds) ? req.conversationIds : [],
+        ...typeof req.conversationId === "string" ? [req.conversationId] : []
+      ];
+      const out = await ledger.reassignConversationOwnership(ids, req.targetScope || "");
+      result = { success: true, ...out };
     }
   } else if (input.type === "getProjectUsage") {
     if (!await host.enabled()) throw Error("Plugin disabled");
@@ -774,6 +834,10 @@ var RuntimeUi = class {
   deleteManualUsage;
   getAccounts;
   switchAccount;
+  getRecordingAccount;
+  setRecordingAccount;
+  addAccount;
+  reassignConversation;
   getProjectUsage;
   getProjectDetail;
   clearTimeline;
@@ -795,6 +859,10 @@ var RuntimeUi = class {
     deleteManualUsage = null,
     getAccounts = null,
     switchAccount = null,
+    getRecordingAccount = null,
+    setRecordingAccount = null,
+    addAccount = null,
+    reassignConversation = null,
     getProjectUsage = null,
     getProjectDetail = null,
     clearTimeline = null
@@ -827,6 +895,10 @@ var RuntimeUi = class {
     this.deleteManualUsage = deleteManualUsage;
     this.getAccounts = getAccounts;
     this.switchAccount = switchAccount;
+    this.getRecordingAccount = getRecordingAccount;
+    this.setRecordingAccount = setRecordingAccount;
+    this.addAccount = addAccount;
+    this.reassignConversation = reassignConversation;
     this.getProjectUsage = getProjectUsage;
     this.getProjectDetail = getProjectDetail;
     this.clearTimeline = clearTimeline;

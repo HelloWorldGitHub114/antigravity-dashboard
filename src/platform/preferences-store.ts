@@ -1,5 +1,5 @@
 // App-independent preferences: no renderer origin, account, or conversation data.
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   LanguageCode,
@@ -37,18 +37,28 @@ export function validateLanguage(value: unknown): LanguageCode {
   return value;
 }
 
+interface PreferencesCacheEntry {
+  mtimeMs: number;
+  ctimeMs: number;
+  size: number;
+  ino: number;
+  value: PreferencesState;
+}
+
 /**
  * Serialized, atomic, schema-versioned store for user UI preferences.
  */
 export class PreferencesStore {
   file: string;
   private queue: Promise<void>;
+  private cache: PreferencesCacheEntry | null;
 
   constructor({
     file = join(dirname(platformPaths().settings), 'preferences.json'),
   }: PreferencesStoreOptions = {}) {
     this.file = file;
     this.queue = Promise.resolve();
+    this.cache = null;
   }
 
   /**
@@ -57,12 +67,22 @@ export class PreferencesStore {
   async get(): Promise<PreferencesState> {
     await this.queue;
     try {
+      const info = await stat(this.file);
+      if (
+        this.cache &&
+        this.cache.mtimeMs === info.mtimeMs &&
+        this.cache.ctimeMs === info.ctimeMs &&
+        this.cache.size === info.size &&
+        this.cache.ino === info.ino
+      ) {
+        return { ...this.cache.value };
+      }
       const raw = (await readFile(this.file, 'utf8')).replace(/^\uFEFF/, '');
       const value = JSON.parse(raw) as Record<string, unknown> | null;
       if (!value || typeof value !== 'object' || Array.isArray(value) || value.schema !== 1) {
         throw new Error('Invalid preferences schema');
       }
-      return {
+      const parsed: PreferencesState = {
         language: value.language === null ? null : validateLanguage(value.language),
         languageGuideDismissed: value.languageGuideDismissed === true,
         usageGuideDismissed: value.usageGuideDismissed === true,
@@ -78,7 +98,16 @@ export class PreferencesStore {
             ? value.revision
             : 0,
       };
+      this.cache = {
+        mtimeMs: info.mtimeMs,
+        ctimeMs: info.ctimeMs,
+        size: info.size,
+        ino: info.ino,
+        value: parsed,
+      };
+      return { ...parsed };
     } catch (error) {
+      this.cache = null;
       if (isErrnoCode(error, 'ENOENT')) {
         return {
           language: null,
@@ -187,9 +216,10 @@ export class PreferencesStore {
         ...scales,
         revision,
       };
+      this.cache = null;
       await atomicWriteJson(this.file, diskRecord, { fsync: true, trailingNewline: true });
 
-      return {
+      const nextState: PreferencesState = {
         language,
         languageGuideDismissed,
         usageGuideDismissed,
@@ -198,6 +228,19 @@ export class PreferencesStore {
         ...scales,
         revision,
       };
+      try {
+        const info = await stat(this.file);
+        this.cache = {
+          mtimeMs: info.mtimeMs,
+          ctimeMs: info.ctimeMs,
+          size: info.size,
+          ino: info.ino,
+          value: nextState,
+        };
+      } catch {
+        this.cache = null;
+      }
+      return { ...nextState };
     });
 
     this.queue = operation.then(

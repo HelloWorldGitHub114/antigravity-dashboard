@@ -1,14 +1,20 @@
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { platformPaths } from '../../platform/paths.ts';
 import { discoverProcesses, type DiscoveredProcess } from '../discovery.ts';
 import type { RemoteUpdateLike, TrajectoryReaderClient, TrajectoryResult } from '../reader/types.ts';
 import { TrajectoryReader, type ReadTrajectoryOptions } from '../reader/trajectory-reader.ts';
 import {
+  createNoLocalCredentialsError,
+  discoverServerEndpoint,
+  isNoLocalCredentialsError,
   isPidAlive,
+  parseEnvCredentials,
   PORT_LOG_GLOBAL,
   readFileSlice,
   readLogWithStats,
   serverFromDiscovery,
+  type DiscoveryEnv,
   type ProcessCandidate,
   type ServerEndpoint,
   type ServerSource,
@@ -23,17 +29,23 @@ import {
 } from './transport.ts';
 
 export interface ClientPathInfo {
+  home?: string;
+  profile?: string;
+  data?: string;
   log?: string;
   logCandidates?: string[];
+  conversationsDir?: string;
 }
 
 export interface AntigravityClientOptions {
   paths?: () => ClientPathInfo;
   readLog?: (file: string, encoding: BufferEncoding) => Promise<string>;
   processes?: () => Promise<ProcessCandidate | readonly ProcessCandidate[] | DiscoveredProcess[]>;
+  env?: DiscoveryEnv;
   now?: () => number;
   onRpc?: ((event: RpcMetricsEvent) => void) | null;
   modelTimelineEnabled?: boolean;
+  conversationsDir?: string | null;
 }
 
 const ENDPOINT_LOST_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENOTCONN']);
@@ -48,6 +60,17 @@ function isEndpointLost(error: unknown): boolean {
   );
 }
 
+function isAuthStatusError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { status?: unknown; isConnectTrailer?: unknown };
+  if (e.isConnectTrailer === true) return false;
+  return typeof e.status === 'number' && (e.status === 401 || e.status === 403);
+}
+
+function envCredentialKey(server: ServerEndpoint): string {
+  return createHash('sha256').update(`${server.pid}:${server.port}:${server.csrf}`).digest('hex');
+}
+
 /**
  * Local RPC & streaming snapshot client for Antigravity's standalone `language_server`.
  */
@@ -55,9 +78,11 @@ export class AntigravityClient implements TrajectoryReaderClient {
   paths: () => ClientPathInfo;
   readLog: (file: string, encoding: BufferEncoding) => Promise<string>;
   processes: () => Promise<ProcessCandidate | readonly ProcessCandidate[] | DiscoveredProcess[]>;
+  env: DiscoveryEnv;
   now: () => number;
   onRpc: ((event: RpcMetricsEvent) => void) | null;
   modelTimelineEnabled: boolean;
+  conversationsDir: string | null;
   reader: TrajectoryReader;
   server: ServerEndpoint | null = null;
   serverSource: ServerSource | null = null;
@@ -67,22 +92,31 @@ export class AntigravityClient implements TrajectoryReaderClient {
   retryAt = 0;
   discoveryFailures = 0;
   discoveryError: unknown = null;
+  private envServers = new WeakSet<ServerEndpoint>();
+  private rejectedEnvCredentials = new Set<string>();
 
   constructor({
     paths = platformPaths,
     readLog = defaultReadLog,
     processes = discoverProcesses,
+    env = process.env,
     now = Date.now,
     onRpc = null,
     modelTimelineEnabled = false,
+    conversationsDir = null,
   }: AntigravityClientOptions = {}) {
     this.paths = paths;
     this.readLog = readLog;
     this.processes = processes;
+    this.env = env;
     this.now = now;
     this.onRpc = onRpc;
     this.modelTimelineEnabled = modelTimelineEnabled === true;
-    this.reader = new TrajectoryReader(this, { modelTimelineEnabled: this.modelTimelineEnabled });
+    this.conversationsDir = conversationsDir;
+    this.reader = new TrajectoryReader(this, {
+      modelTimelineEnabled: this.modelTimelineEnabled,
+      conversationsDir,
+    });
   }
 
   setModelTimelineEnabled(enabled: boolean): boolean {
@@ -146,6 +180,20 @@ export class AntigravityClient implements TrajectoryReaderClient {
     return this.discovering;
   }
 
+  private resolveDiscoveryFromLog(
+    log: string,
+    parsed: ProcessCandidate | readonly ProcessCandidate[],
+  ): ServerEndpoint {
+    const { server, source } = discoverServerEndpoint(log, parsed, this.env);
+    if (source === 'env') {
+      if (this.rejectedEnvCredentials.has(envCredentialKey(server))) {
+        throw createNoLocalCredentialsError(server.pid, server.port);
+      }
+      this.envServers.add(server);
+    }
+    return server;
+  }
+
   async discoverNow(): Promise<ServerEndpoint> {
     this.server = null;
     this.serverSource = null;
@@ -167,17 +215,26 @@ export class AntigravityClient implements TrajectoryReaderClient {
         if (this.readLog === defaultReadLog) {
           const { text, size, mtimeMs } = await readLogWithStats(file);
           foundLog = true;
-          this.server = serverFromDiscovery(text, parsed);
+          this.server = this.resolveDiscoveryFromLog(text, parsed);
           this.serverSource = { file, size, mtimeMs };
           break;
         }
         const log = await this.readLog(file, 'utf8');
         foundLog = true;
-        this.server = serverFromDiscovery(log, parsed);
+        this.server = this.resolveDiscoveryFromLog(log, parsed);
         break;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | null | undefined)?.code;
         if (code !== 'ENOENT' && code !== 'ENOTDIR') lastError = error;
+      }
+    }
+    if (!this.server && !lastError && !foundLog && parseEnvCredentials(this.env)) {
+      try {
+        this.server = this.resolveDiscoveryFromLog('', parsed);
+      } catch (error) {
+        if (isNoLocalCredentialsError(error)) {
+          lastError = error;
+        }
       }
     }
     if (!this.server) {
@@ -187,12 +244,38 @@ export class AntigravityClient implements TrajectoryReaderClient {
     return this.server;
   }
 
-  private invalidateServer(server: ServerEndpoint, error: unknown): void {
-    if (this.server === server) {
-      this.server = null;
-      this.serverSource = null;
-      this.discoveryError = error;
-      this.retryAt = Math.max(this.retryAt, this.lastScanAt + 3000);
+  private invalidateServer(server: ServerEndpoint, error: unknown): boolean {
+    if (this.server !== server) return false;
+    this.server = null;
+    this.serverSource = null;
+    this.discoveryError = error;
+    this.retryAt = Math.max(this.retryAt, this.lastScanAt + 3000);
+    return true;
+  }
+
+  private async withEndpointRecovery<T>(
+    run: (server: ServerEndpoint) => Promise<T>,
+    retry: boolean,
+    retryCall: () => Promise<T>,
+  ): Promise<T> {
+    const server = await this.discover();
+    try {
+      return await run(server);
+    } catch (error) {
+      if (!isEndpointLost(error)) throw error;
+      const envAuthFailure = this.envServers.has(server) && isAuthStatusError(error);
+      if (envAuthFailure) {
+        this.rejectedEnvCredentials.add(envCredentialKey(server));
+      }
+      const invalidated = this.invalidateServer(server, error);
+      if (envAuthFailure && invalidated && !retry) {
+        this.discoveryError = createNoLocalCredentialsError(server.pid, server.port);
+      }
+      if (retry) {
+        await this.discover(envAuthFailure && invalidated);
+        return retryCall();
+      }
+      throw error;
     }
   }
 
@@ -202,20 +285,13 @@ export class AntigravityClient implements TrajectoryReaderClient {
     retry = true,
     options: { modelTimelineEnabled?: boolean } | null = null,
   ): Promise<T> {
-    const server = await this.discover();
     const timelineEnabled =
       options?.modelTimelineEnabled === undefined ? this.modelTimelineEnabled : options.modelTimelineEnabled === true;
-    try {
-      return await executeRpcCall<T>(server, method, body, timelineEnabled, this.now, this.onRpc);
-    } catch (error) {
-      if (!isEndpointLost(error)) throw error;
-      this.invalidateServer(server, error);
-      if (retry) {
-        await this.discover();
-        return this.call<T>(method, body, false, options);
-      }
-      throw error;
-    }
+    return this.withEndpointRecovery(
+      (server) => executeRpcCall<T>(server, method, body, timelineEnabled, this.now, this.onRpc),
+      retry,
+      () => this.call<T>(method, body, false, options),
+    );
   }
 
   async readAgentStateSnapshot(
@@ -231,22 +307,15 @@ export class AntigravityClient implements TrajectoryReaderClient {
     } else {
       resolvedOptions = options;
     }
-    const server = await this.discover();
     const timelineEnabled =
       resolvedOptions?.modelTimelineEnabled === undefined
         ? this.modelTimelineEnabled
         : resolvedOptions.modelTimelineEnabled === true;
-    try {
-      return await streamAgentStateSnapshot(server, conversationId, resolvedOptions, timelineEnabled, this.now);
-    } catch (error) {
-      if (!isEndpointLost(error)) throw error;
-      this.invalidateServer(server, error);
-      if (resolvedRetry) {
-        await this.discover();
-        return this.readAgentStateSnapshot(conversationId, resolvedOptions, false);
-      }
-      throw error;
-    }
+    return this.withEndpointRecovery(
+      (server) => streamAgentStateSnapshot(server, conversationId, resolvedOptions, timelineEnabled, this.now),
+      resolvedRetry,
+      () => this.readAgentStateSnapshot(conversationId, resolvedOptions, false),
+    );
   }
 
   resetTrajectories(): void {

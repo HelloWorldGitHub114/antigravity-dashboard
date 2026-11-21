@@ -7,6 +7,13 @@ export {
   type LocalConversationEntry,
 } from './local-conversations.ts';
 export {
+  readLocalConversationSummaries,
+  resolveLocalAntigravityDir,
+  statSqliteDbStamp,
+  type LocalSummariesResult,
+  type LocalSummaryRecord,
+} from './local-summaries.ts';
+export {
   extractPlanModelFromSteps,
   mergeGeneratorMetadata,
   normalizeRemoteSnapshot,

@@ -150,6 +150,40 @@ import { delegatedHints, delegatedIds } from "./delegation.mjs";
 // src/telemetry/delegation/hints.ts
 import { normalizeConversationId } from "./delegation.mjs";
 var isRecord = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value));
+var PLACEHOLDER_ROLES = /* @__PURE__ */ new Set(["\u672A\u547D\u540D\u4F1A\u8BDD", "Untitled Session"]);
+function cleanRole(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || PLACEHOLDER_ROLES.has(trimmed)) return null;
+  return trimmed;
+}
+function mergeTrajectoryMeta(summaryMeta, rawMeta, trajMeta) {
+  const sources = [summaryMeta, rawMeta, trajMeta].filter(
+    (m) => m !== null
+  );
+  if (!sources.length) return null;
+  if (sources.length === 1) return sources[0];
+  const merged = {};
+  const mergedSpec = {};
+  for (let i = sources.length - 1; i >= 0; i--) {
+    const src = sources[i];
+    for (const [k, v] of Object.entries(src)) {
+      if (k === "subagentSpec" && isRecord(v)) {
+        for (const [sk, sv] of Object.entries(v)) {
+          if (sv !== void 0 && sv !== null && sv !== "") {
+            mergedSpec[sk] = sv;
+          }
+        }
+      } else if (v !== void 0 && v !== null && v !== "") {
+        merged[k] = v;
+      }
+    }
+  }
+  if (Object.keys(mergedSpec).length > 0) {
+    merged.subagentSpec = mergedSpec;
+  }
+  return merged;
+}
 function extractChildTimeRange(raw) {
   const rawObj = isRecord(raw) ? raw : null;
   const traj = rawObj && isRecord(rawObj.trajectory) ? rawObj.trajectory : null;
@@ -196,11 +230,12 @@ function mergeTaskHint(hints, taskId, rawId, { role = null, parentId = null, dep
   const cid = normalizeConversationId(rawId);
   if (!cid || cid === taskId) return;
   const prev = hints.get(cid) || { role: null, parentId: null, depth: null };
-  const nextRole = typeof role === "string" && role.trim() ? role.trim() : null;
+  const nextRole = cleanRole(role);
+  const prevRole = cleanRole(prev.role);
   const nextParent = normalizeConversationId(parentId);
   const nextDepth = typeof depth === "number" && Number.isInteger(depth) && depth >= 0 ? depth : null;
   hints.set(cid, {
-    role: nextRole || prev.role || null,
+    role: nextRole || prevRole || null,
     parentId: nextParent || prev.parentId || null,
     depth: nextDepth ?? prev.depth ?? null
   });
@@ -215,7 +250,7 @@ function seedTaskHints(hints, taskId, saved) {
     const parentId = normalizeConversationId(item.parentId);
     const rawDepth = typeof item.depth === "number" && Number.isInteger(item.depth) && item.depth >= 0 ? item.depth : null;
     mergeTaskHint(hints, taskId, cid, {
-      role: typeof item.role === "string" && item.role.trim() ? item.role.trim() : null,
+      role: cleanRole(item.role),
       parentId,
       depth: parentId || rawDepth !== null && rawDepth > 1 ? rawDepth : null
     });
@@ -225,10 +260,15 @@ function resolveTaskHint(task, id, summaries, raw = null) {
   const h = task.hints?.get(id);
   const summary = findSummaryEntry(summaries, id);
   const rawObj = isRecord(raw) ? raw : null;
-  const meta = (isRecord(summary.trajectoryMetadata) ? summary.trajectoryMetadata : null) || (rawObj && isRecord(rawObj.trajectoryMetadata) ? rawObj.trajectoryMetadata : null);
+  const rawTraj = rawObj && isRecord(rawObj.trajectory) ? rawObj.trajectory : null;
+  const meta = mergeTrajectoryMeta(
+    isRecord(summary.trajectoryMetadata) ? summary.trajectoryMetadata : null,
+    rawObj && isRecord(rawObj.trajectoryMetadata) ? rawObj.trajectoryMetadata : null,
+    rawTraj && isRecord(rawTraj.metadata) ? rawTraj.metadata : null
+  );
   const spec = meta && isRecord(meta.subagentSpec) ? meta.subagentSpec : null;
-  const specRole = (typeof spec?.role === "string" ? spec.role : "") || (typeof spec?.typeName === "string" ? spec.typeName : "") || (typeof meta?.subagentRole === "string" ? meta.subagentRole : "");
-  const role = specRole.trim() || h?.role || (typeof summary.summary === "string" ? summary.summary : null) || null;
+  const specRole = cleanRole(spec?.role) || cleanRole(meta?.subagentRole) || cleanRole(spec?.typeName) || "";
+  const role = specRole || cleanRole(h?.role) || cleanRole(summary.summary) || null;
   const parentId = normalizeConversationId(meta?.parentConversationId) || h?.parentId || null;
   const metaDepth = typeof meta?.nestingDepth === "number" && Number.isInteger(meta.nestingDepth) ? meta.nestingDepth : typeof meta?.subagentDepth === "number" && Number.isInteger(meta.subagentDepth) ? meta.subagentDepth : null;
   let depth = metaDepth;
@@ -275,6 +315,13 @@ import {
   taskModelRecords,
   taskRecords
 } from "./task-usage.mjs";
+var PLACEHOLDER_ROLES2 = /* @__PURE__ */ new Set(["\u672A\u547D\u540D\u4F1A\u8BDD", "Untitled Session"]);
+var cleanRole2 = (value) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || PLACEHOLDER_ROLES2.has(trimmed)) return null;
+  return trimmed;
+};
 function buildTimelineChildren(task, summaries) {
   return [...task.children].map((cid) => {
     const tl = task.childTimelines?.get(cid);
@@ -285,7 +332,7 @@ function buildTimelineChildren(task, summaries) {
     const meta = s.trajectoryMetadata && typeof s.trajectoryMetadata === "object" ? s.trajectoryMetadata : null;
     const spec = meta?.subagentSpec && typeof meta.subagentSpec === "object" ? meta.subagentSpec : null;
     const hintRole = task.hints?.get(cid)?.role || null;
-    const safeRole = typeof spec?.role === "string" && spec.role || typeof spec?.typeName === "string" && spec.typeName || typeof meta?.subagentRole === "string" && meta.subagentRole || hintRole || (typeof spec?.modelTier === "string" && spec.modelTier ? `worker (${spec.modelTier})` : "subagent");
+    const safeRole = cleanRole2(spec?.role) || cleanRole2(meta?.subagentRole) || cleanRole2(d.role) || cleanRole2(hintRole) || cleanRole2(spec?.typeName) || (typeof spec?.modelTier === "string" && spec.modelTier ? `worker (${spec.modelTier})` : "subagent");
     return {
       id: cid,
       role: safeRole,
@@ -459,7 +506,7 @@ async function collectTaskChildren(ctx, task, force, current) {
           const spec = meta?.subagentSpec && typeof meta.subagentSpec === "object" ? meta.subagentSpec : null;
           task.childTimelines?.set(id, {
             id,
-            role: specRole || task.hints?.get(id)?.role || (typeof spec?.modelTier === "string" && spec.modelTier ? `worker (${spec.modelTier})` : "subagent"),
+            role: cleanRole2(specRole) || cleanRole2(task.hints?.get(id)?.role) || (typeof spec?.modelTier === "string" && spec.modelTier ? `worker (${spec.modelTier})` : "subagent"),
             parentId,
             depth,
             model: m.activeModel || m.model || null,

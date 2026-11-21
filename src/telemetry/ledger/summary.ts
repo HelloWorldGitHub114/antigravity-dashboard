@@ -6,13 +6,17 @@ import {
 } from '../../platform/native-bridge.ts';
 import { formatStatStamp, type FileStatLike } from '../../shared/atomic-fs.ts';
 import {
+  createLocalAccountHelper,
   getAccountsHelper,
+  getActiveLocalAccountHelper,
   inspectOtherAccountsHelper,
   loadAccountsMetaHelper,
   loadOwnershipHelper,
   otherScopeFilesHelper,
+  reassignConversationOwnershipHelper,
   registerAccountHelper,
   registerOwnershipHelper,
+  setActiveLocalAccountHelper,
   writeAccountsMetaHelper,
   writeOwnershipHelper,
 } from './accounts.ts';
@@ -39,6 +43,10 @@ export class UsageLedger extends LedgerStorage {
   _writeAccountsMeta(entries: Record<string, KnownAccountInfo>): Promise<void> { return writeAccountsMetaHelper(this, entries); }
   saveAccountsMeta(entries: Record<string, KnownAccountInfo>): Promise<void> { return this.enqueueWrite(() => writeAccountsMetaHelper(this, entries)); }
   registerAccount(scope: string, meta: KnownAccountInfo = {}): Promise<void> { return registerAccountHelper(this, scope, meta); }
+  getActiveLocalAccount(): Promise<string | null> { return getActiveLocalAccountHelper(this); }
+  setActiveLocalAccount(scope: string | null): Promise<string | null> { return setActiveLocalAccountHelper(this, scope); }
+  createLocalAccount(input: { email?: string; name?: string; identifier?: string; activate?: boolean }) { return createLocalAccountHelper(this, input); }
+  reassignConversationOwnership(conversationIds: string | readonly string[], targetScope: string) { return reassignConversationOwnershipHelper(this, conversationIds, targetScope); }
   _loadOwnership(): Promise<{ stamp: string; value: Record<string, string> }> { return loadOwnershipHelper(this); }
   ownership(): Promise<Record<string, string>> { return loadOwnershipHelper(this).then((r) => r.value); }
   _writeOwnership(entries: Record<string, string>): Promise<void> { return writeOwnershipHelper(this, entries); }

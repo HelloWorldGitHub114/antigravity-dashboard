@@ -883,6 +883,17 @@ function readLedgerProjectSummaries(query) {
 
 // src/telemetry/ledger/accounts.ts
 import { join as join3 } from "node:path";
+async function readRawActiveLocalAccount(storage) {
+  try {
+    const raw = await storage.fs.readFile(storage.accountsFile(), "utf8");
+    if (raw.length > 2 * 1024 * 1024) return null;
+    const parsed = JSON.parse(raw);
+    const value = parsed && typeof parsed === "object" ? parsed.activeLocalAccount : null;
+    return typeof value === "string" && HASH_RE.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
 async function loadAccountsMetaHelper(storage) {
   return await storage._loadStampCachedJson(
     storage.accountsFile(),
@@ -899,10 +910,14 @@ async function loadAccountsMetaHelper(storage) {
     }
   );
 }
-async function writeAccountsMetaHelper(storage, entries) {
+async function writeAccountsMetaHelper(storage, entries, options = {}) {
   const file = storage.accountsFile();
+  const hasExplicitActive = Object.hasOwn(options, "activeLocalAccount");
+  const activeLocalAccount = hasExplicitActive ? typeof options.activeLocalAccount === "string" && HASH_RE.test(options.activeLocalAccount) ? options.activeLocalAccount : null : await readRawActiveLocalAccount(storage);
   storage.metaVersion++;
-  await storage._atomicWrite(storage.directory, file, JSON.stringify({ schema: 1, accounts: entries }, null, 2));
+  const payload = { schema: 1, accounts: entries };
+  if (activeLocalAccount) payload.activeLocalAccount = activeLocalAccount;
+  await storage._atomicWrite(storage.directory, file, JSON.stringify(payload, null, 2));
   const st = await storage._stat(file).catch(() => null);
   const normalized = Object.fromEntries(
     Object.entries(entries || {}).filter(([k, v]) => HASH_RE.test(k) && Boolean(v) && typeof v === "object")
@@ -911,6 +926,165 @@ async function writeAccountsMetaHelper(storage, entries) {
   storage.metaCache = stamp ? { stamp, value: normalized } : null;
   storage.revision++;
   storage.cache = null;
+}
+async function getActiveLocalAccountHelper(storage) {
+  return await readRawActiveLocalAccount(storage);
+}
+function setActiveLocalAccountHelper(storage, scope) {
+  if (scope !== null && (!scope || !HASH_RE.test(scope))) {
+    return Promise.reject(new Error("Invalid account scope"));
+  }
+  return storage.enqueueWrite(async () => {
+    const { value: current } = await loadAccountsMetaHelper(storage);
+    await writeAccountsMetaHelper(storage, current, { activeLocalAccount: scope });
+    return scope;
+  });
+}
+function createLocalAccountHelper(storage, input) {
+  const rawIdentifier = typeof input?.identifier === "string" ? input.identifier.trim() : "";
+  const rawEmail = typeof input?.email === "string" ? input.email.trim() : "";
+  const rawName = typeof input?.name === "string" ? input.name.trim() : "";
+  const cleanText2 = (s, maxLen) => s.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, maxLen);
+  let email = null;
+  let name = cleanText2(rawName, 120);
+  const candidate = cleanText2(rawEmail || rawIdentifier, 256);
+  if (candidate) {
+    if (candidate.includes("@") || candidate.startsWith("vertex:")) {
+      email = candidate;
+    } else if (!name) {
+      name = candidate.slice(0, 120);
+    }
+  }
+  if (!email && !name) {
+    return Promise.reject(new Error("Account email or name is required"));
+  }
+  const scope = email ? sha256(email) : sha256(`local-account:${name.toLowerCase()}`);
+  const displayName = name || email || `Account (${scope.slice(0, 8)})`;
+  const activate = input?.activate !== false;
+  return storage.enqueueWrite(async () => {
+    const { value: current } = await loadAccountsMetaHelper(storage);
+    const existing = current[scope] || storage.knownAccounts[scope] || {};
+    const finalEmail = email || existing.email || null;
+    const finalName = name || existing.name || finalEmail || displayName;
+    const primary = existing.primary === true;
+    current[scope] = {
+      ...existing,
+      email: finalEmail,
+      name: finalName,
+      primary,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    await writeAccountsMetaHelper(
+      storage,
+      current,
+      activate ? { activeLocalAccount: scope } : {}
+    );
+    return {
+      id: scope,
+      name: finalName,
+      email: finalEmail || finalName,
+      primary,
+      active: activate
+    };
+  });
+}
+function reassignConversationOwnershipHelper(storage, rawConversationIds, targetScope) {
+  if (!targetScope || !HASH_RE.test(targetScope)) {
+    return Promise.reject(new Error("Invalid target account scope"));
+  }
+  const inputList = Array.isArray(rawConversationIds) ? rawConversationIds : [rawConversationIds];
+  const ids = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const item of inputList) {
+    if (typeof item !== "string") continue;
+    const norm = item.trim().toLowerCase();
+    if (!GUID_RE.test(norm) || seen.has(norm)) continue;
+    seen.add(norm);
+    ids.push(norm);
+    if (ids.length >= 128) break;
+  }
+  if (!ids.length) {
+    return Promise.reject(new Error("At least one valid conversation ID is required"));
+  }
+  return storage.enqueueWrite(async () => {
+    const { value: ownership } = await loadOwnershipHelper(storage);
+    const scopes = await storage.scopeDirectories();
+    const otherScopes = scopes.filter((s) => s !== targetScope);
+    let reassigned = 0;
+    for (const cid of ids) {
+      const fileName = `${sha256(cid)}.json`;
+      const targetFile = join3(storage.directory, targetScope, fileName);
+      const mergedMap = /* @__PURE__ */ new Map();
+      let existingTargetDoc = null;
+      try {
+        const text = await storage.fs.readFile(targetFile, "utf8");
+        if (text.length <= MAX_RECORD_FILE_BYTES) {
+          const parsed = JSON.parse(text);
+          if (parsed.schema === 1 && parsed.account === targetScope && Array.isArray(parsed.records)) {
+            existingTargetDoc = parsed;
+            for (const row of parsed.records) {
+              if (validRow(row)) mergedMap.set(row.id, row);
+            }
+          }
+        }
+      } catch (error) {
+        if (!isErrno(error, "ENOENT", "ENOTDIR")) {
+        }
+      }
+      const sourceScopesWithFile = [];
+      let movedRecords = 0;
+      for (const oldScope of otherScopes) {
+        const oldFile = join3(storage.directory, oldScope, fileName);
+        try {
+          const text = await storage.fs.readFile(oldFile, "utf8");
+          sourceScopesWithFile.push(oldScope);
+          if (text.length > MAX_RECORD_FILE_BYTES) continue;
+          const parsed = JSON.parse(text);
+          if (parsed.schema === 1 && parsed.account === oldScope && Array.isArray(parsed.records)) {
+            for (const row of parsed.records) {
+              if (validRow(row) && !mergedMap.has(row.id)) {
+                mergedMap.set(row.id, row);
+                movedRecords++;
+              }
+            }
+          }
+        } catch (error) {
+          if (!isErrno(error, "ENOENT", "ENOTDIR")) {
+          }
+        }
+      }
+      const ownerChanged = ownership[cid] !== targetScope;
+      if (sourceScopesWithFile.length > 0 && (mergedMap.size > 0 || !existingTargetDoc)) {
+        const records = [...mergedMap.values()].sort(
+          (a, b) => (a.at ?? 0) - (b.at ?? 0) || a.id.localeCompare(b.id)
+        );
+        const doc = {
+          schema: 1,
+          account: targetScope,
+          records
+        };
+        await storage._atomicWrite(join3(storage.directory, targetScope), targetFile, JSON.stringify(doc));
+        await storage._setFileIndexFromWrite(targetScope, fileName, targetFile, doc);
+        for (const oldScope of sourceScopesWithFile) {
+          const oldFile = join3(storage.directory, oldScope, fileName);
+          try {
+            await storage.fs.unlink(oldFile);
+          } catch (error) {
+            if (!isErrno(error, "ENOENT", "ENOTDIR")) throw error;
+          }
+          storage.fileIndex.get(oldScope)?.delete(fileName);
+          storage._bumpKeyVersion(oldScope, fileName);
+          storage._markDirtyRelPath(oldScope, fileName);
+        }
+      }
+      ownership[cid] = targetScope;
+      if (ownerChanged || sourceScopesWithFile.length > 0 || movedRecords > 0) {
+        reassigned++;
+      }
+    }
+    await writeOwnershipHelper(storage, ownership);
+    return { reassigned, targetScope, conversationIds: ids };
+  });
 }
 function registerAccountHelper(storage, scope, meta = {}) {
   if (!scope || !HASH_RE.test(scope)) return Promise.resolve();
@@ -1342,6 +1516,18 @@ var UsageLedger = class extends LedgerStorage {
   }
   registerAccount(scope, meta = {}) {
     return registerAccountHelper(this, scope, meta);
+  }
+  getActiveLocalAccount() {
+    return getActiveLocalAccountHelper(this);
+  }
+  setActiveLocalAccount(scope) {
+    return setActiveLocalAccountHelper(this, scope);
+  }
+  createLocalAccount(input) {
+    return createLocalAccountHelper(this, input);
+  }
+  reassignConversationOwnership(conversationIds, targetScope) {
+    return reassignConversationOwnershipHelper(this, conversationIds, targetScope);
   }
   _loadOwnership() {
     return loadOwnershipHelper(this);
@@ -3426,6 +3612,8 @@ var DesktopUsage = class {
       ...value,
       viewScope: scope,
       activeAccount: this.store?.identity || scope,
+      recordingAccount: this.store?.identity || null,
+      localAccountMode: Boolean(this.store?.localFallbackActive),
       accounts,
       syncing: this.syncing || !!this.continuation,
       status: this.status,
@@ -3443,6 +3631,57 @@ var DesktopUsage = class {
   }
   async getAccounts() {
     return await this.ledger.getAccounts(this.viewScope || "all");
+  }
+  async getRecordingAccountState() {
+    const [selected, accounts] = await Promise.all([
+      this.ledger.getActiveLocalAccount(),
+      this.ledger.getAccounts(this.store?.identity || null)
+    ]);
+    return {
+      active: this.store?.identity || selected || null,
+      selected,
+      localMode: Boolean(this.store?.localFallbackActive),
+      accounts
+    };
+  }
+  async setRecordingAccount(target) {
+    const raw = typeof target === "string" ? target : target && typeof target === "object" ? target.scope ?? target.account ?? target.id ?? null : null;
+    const scope = raw === "" || raw === "auto" ? null : raw;
+    if (scope !== null && !HASH_RE.test(scope)) throw new Error("Invalid account scope");
+    const saved = await this.ledger.setActiveLocalAccount(scope);
+    const storeMut = this.store;
+    if (saved) {
+      storeMut?.setLocalIdentity?.(saved);
+    } else if (scope === null) {
+      storeMut?.setLocalIdentity?.(null);
+    }
+    this.lastSync = 0;
+    return this.getRecordingAccountState();
+  }
+  async addLocalAccount(input) {
+    const created = await this.ledger.createLocalAccount(input);
+    const activate = input?.activate !== false;
+    if (activate) {
+      const storeMut = this.store;
+      storeMut?.setLocalIdentity?.(created.id);
+      this.lastSync = 0;
+    }
+    const state = await this.getRecordingAccountState();
+    return {
+      success: true,
+      account: created,
+      active: state.active,
+      selected: state.selected,
+      accounts: state.accounts
+    };
+  }
+  async reassignConversation(input) {
+    const ids = [
+      ...Array.isArray(input?.conversationIds) ? input.conversationIds : [],
+      ...typeof input?.conversationId === "string" ? [input.conversationId] : []
+    ];
+    const result = await this.ledger.reassignConversationOwnership(ids, input?.targetScope || "");
+    return { success: true, ...result };
   }
   async switchAccount(target) {
     const scope = typeof target === "string" ? target : target?.account || target?.id || target?.accountKey;

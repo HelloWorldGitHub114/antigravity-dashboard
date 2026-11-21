@@ -27,6 +27,27 @@ module.exports = function createDashboardI18n(...args) {
     });
 
     // src/shared/format.ts
+    var rateFormatter = new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 1
+    });
+    var resetDateFormatters = /* @__PURE__ */ new Map();
+    function getResetDateFormatter(language) {
+      let formatter = resetDateFormatters.get(language);
+      if (!formatter) {
+        const locale = language === "en" ? "en-GB" : "zh-CN";
+        formatter = new Intl.DateTimeFormat(locale, {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: "Asia/Shanghai"
+        });
+        resetDateFormatters.set(language, formatter);
+      }
+      return formatter;
+    }
     function elapsed(seconds, language = "zh-CN") {
       if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "\u2014";
       if (seconds < 60) {
@@ -54,15 +75,7 @@ module.exports = function createDashboardI18n(...args) {
     function resetDate(value, language = "zh-CN") {
       if (value === null || value === void 0) return "\u2014";
       const date = value instanceof Date ? value : new Date(value);
-      const locale = language === "en" ? "en-GB" : "zh-CN";
-      return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(locale, {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "Asia/Shanghai"
-      }).format(date) : "\u2014";
+      return Number.isFinite(date.getTime()) ? getResetDateFormatter(language).format(date) : "\u2014";
     }
 
     // src/ui/i18n/dictionary-en.ts
@@ -275,7 +288,18 @@ module.exports = function createDashboardI18n(...args) {
       debugLaunchSaving: "Saving\u2026",
       debugLaunchFailed: "Could not update debug launch setting",
       integrationRestartHint: "Debug launch enabled \u2014 restart Antigravity to show the inline bottom bar; statistics remain available in this panel.",
-      openUsageStats: "Usage stats"
+      openUsageStats: "Usage stats",
+      recordingAccountTitle: "Recording account",
+      recordingAccountDesc: "Attribute new local sessions and turns to the selected account; entering an email aligns with historical ledger hashes.",
+      recordingAccountAuto: "Auto (by ownership / primary)",
+      recordingAccountAddBtn: "+ Add account",
+      recordingAccountInputPlaceholder: "Enter account email (recommended) or label",
+      recordingAccountSaveBtn: "Add & switch",
+      recordingAccountCancelBtn: "Cancel",
+      recordingAccountStatusAuto: "Active: Auto ({account})",
+      recordingAccountStatusPinned: "Active: Pinned to {account}",
+      recordingAccountSaved: "Switched recording account",
+      recordingAccountFailed: "Could not update recording account"
     };
 
     // src/ui/i18n/dictionary-zh.ts
@@ -488,7 +512,18 @@ module.exports = function createDashboardI18n(...args) {
       debugLaunchSaving: "\u6B63\u5728\u4FDD\u5B58\u2026",
       debugLaunchFailed: "\u66F4\u65B0\u8C03\u8BD5\u542F\u52A8\u8BBE\u7F6E\u5931\u8D25",
       integrationRestartHint: "\u5DF2\u5F00\u542F\u8C03\u8BD5\u542F\u52A8\uFF0C\u91CD\u542F Antigravity \u540E\u5373\u53EF\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F\uFF1B\u5F53\u524D\u9762\u677F\u7EDF\u8BA1\u4ECD\u53EF\u6B63\u5E38\u4F7F\u7528\u3002",
-      openUsageStats: "\u7528\u91CF\u7EDF\u8BA1"
+      openUsageStats: "\u7528\u91CF\u7EDF\u8BA1",
+      recordingAccountTitle: "\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
+      recordingAccountDesc: "\u672C\u5730\u6A21\u5F0F\u4E0B\u65B0\u5BF9\u8BDD\u4E0E\u7EED\u804A\u8BF7\u6C42\u5F52\u5165\u6240\u9009\u8D26\u53F7\uFF1B\u8F93\u5165\u767B\u5F55\u90AE\u7BB1\u53EF\u4E0E\u5386\u53F2\u8D26\u672C\u54C8\u5E0C\u5B8C\u5168\u5BF9\u9F50\u3002",
+      recordingAccountAuto: "\u81EA\u52A8\uFF08\u6309\u4F1A\u8BDD\u5F52\u5C5E / \u4E3B\u8D26\u53F7\uFF09",
+      recordingAccountAddBtn: "+ \u6DFB\u52A0\u8D26\u53F7",
+      recordingAccountInputPlaceholder: "\u8F93\u5165\u767B\u5F55\u90AE\u7BB1\uFF08\u63A8\u8350\uFF09\u6216\u81EA\u5B9A\u4E49\u540D\u79F0",
+      recordingAccountSaveBtn: "\u6DFB\u52A0\u5E76\u5207\u6362",
+      recordingAccountCancelBtn: "\u53D6\u6D88",
+      recordingAccountStatusAuto: "\u5F53\u524D\uFF1A\u81EA\u52A8\u5339\u914D ({account})",
+      recordingAccountStatusPinned: "\u5F53\u524D\uFF1A\u5DF2\u9501\u5B9A\u81F3 {account}",
+      recordingAccountSaved: "\u5DF2\u5207\u6362\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
+      recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25"
     };
 
     // src/ui/i18n/index.ts
@@ -498,6 +533,7 @@ module.exports = function createDashboardI18n(...args) {
       "\u68C0\u6D4B\u5230\u591A\u4E2A Antigravity \u5B9E\u4F8B\uFF0C\u8BF7\u4FDD\u7559\u4E00\u4E2A": "Multiple Antigravity instances detected. Keep one open.",
       "\u672A\u627E\u5230 Antigravity \u684C\u9762\u540E\u53F0": "Antigravity desktop backend was not found.",
       "\u5F53\u524D\u7248\u672C\u672A\u63D0\u4F9B\u53EF\u7528\u7684\u672C\u5730\u68C0\u6D4B\u51ED\u636E": "Local metrics credentials are unavailable in this version.",
+      "\u5F53\u524D\u7248\u672C\u5DF2\u5207\u6362\u4E3A\u672C\u5730 SQLite \u76F4\u8BFB\u6A21\u5F0F\uFF08\u4E91\u7AEF\u989D\u5EA6\u6682\u4E0D\u53EF\u7528\uFF09": "Local SQLite mode active (cloud quota unavailable in this host version).",
       "\u7B49\u5F85 Antigravity \u672C\u5730\u63A5\u53E3\u542F\u52A8": "Waiting for the local Antigravity API.",
       "\u672A\u627E\u5230 Antigravity \u8BED\u8A00\u670D\u52A1\u65E5\u5FD7\uFF0C\u8BF7\u68C0\u67E5\u65E5\u5FD7\u8DEF\u5F84": "Antigravity language-server log was not found. Check the log path.",
       "\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1": "No statistics are available for this conversation yet.",

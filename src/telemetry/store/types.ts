@@ -64,7 +64,8 @@ export interface StoreClientLike {
     seedSummaries?: (raw: Record<string, RawSummaryRecord> | null | undefined, now?: number, server?: Record<string, unknown> | null) => void;
   };
   server?: Record<string, unknown> | null;
-  paths?: () => { profile?: string; log?: string; logCandidates?: string[] };
+  conversationsDir?: string | null;
+  paths?: () => { home?: string; profile?: string; data?: string; log?: string; logCandidates?: string[]; conversationsDir?: string };
   setModelTimelineEnabled?: (enabled: boolean) => void;
   resetTrajectories?: () => void;
 }
@@ -126,4 +127,5 @@ export interface MetricsStoreOptions {
   transcripts?: StoreTranscriptsLike | null;
   delegated?: StoreDelegatedLike | null;
   owns?: () => boolean;
+  resolveLocalIdentity?: ((recentConversationIds: readonly string[]) => Promise<string | null> | string | null) | null;
 }

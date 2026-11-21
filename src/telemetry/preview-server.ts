@@ -2,12 +2,15 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import type {
+  AddAccountRequest,
   DeleteManualUsageRequest,
   IntegrationHealth,
   ManualUsageInput,
   MetricsRequestInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  ReassignConversationRequest,
+  SetRecordingAccountRequest,
   SwitchAccountRequest,
 } from '../contracts/index.ts';
 import type { RuntimePreferencesBridge } from '../ui/runtime-ui/index.ts';
@@ -19,9 +22,15 @@ export interface PreviewUsageBridge {
   deleteManualUsage: (input?: DeleteManualUsageRequest) => Promise<unknown>;
   getAccounts: () => Promise<unknown>;
   switchAccount: (input?: SwitchAccountRequest) => Promise<unknown>;
+  getRecordingAccount?: () => Promise<unknown>;
+  setRecordingAccount?: (input?: SetRecordingAccountRequest) => Promise<unknown>;
+  addAccount?: (input?: AddAccountRequest) => Promise<unknown>;
+  reassignConversation?: (input: ReassignConversationRequest) => Promise<unknown>;
   getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
   getProjectDetail: (input: { projectKey: string; scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
 }
+
+export type PreviewMetricsRequestInput = MetricsRequestInput & { includeUsage?: boolean };
 
 export interface PreviewServerOptions {
   here: string;
@@ -30,7 +39,7 @@ export interface PreviewServerOptions {
   staticFiles: Record<string, [string, string]>;
   livePreferences: Required<RuntimePreferencesBridge>;
   store: MetricsStore;
-  metrics: (input?: MetricsRequestInput) => Promise<MetricsSnapshot>;
+  metrics: (input?: PreviewMetricsRequestInput) => Promise<MetricsSnapshot>;
   getHealth: () => IntegrationHealth;
   usageBridge?: PreviewUsageBridge;
   i18nModule: () => string;
@@ -38,6 +47,13 @@ export interface PreviewServerOptions {
   themeCss: () => string;
   inlineSource: () => string;
 }
+
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const assetCacheControl = (pathname: string, url: URL): string => {
+  if (pathname === '/' || pathname.startsWith('/toolbar-preview')) return 'no-cache';
+  const version = url.searchParams.get('v');
+  return version && version.length > 0 ? IMMUTABLE_CACHE_CONTROL : 'no-cache';
+};
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const prefError = (error: unknown): string => {
@@ -100,6 +116,10 @@ export function startPreviewServer(options: PreviewServerOptions): void {
         res.end(JSON.stringify({ enabled, configured: enabled, activePortPresent: false, platform: process.platform }));
         return;
       }
+      if (url.pathname === '/api/usage/recording-account' && req.method === 'GET' && usageBridge?.getRecordingAccount) {
+        res.end(JSON.stringify(await usageBridge.getRecordingAccount()));
+        return;
+      }
       if (req.method === 'POST' && sameOrigin) {
         const isJson = String(req.headers['content-type']).startsWith('application/json');
         if (url.pathname === '/api/preferences' && !isJson) { res.writeHead(405); res.end(); return; }
@@ -118,6 +138,9 @@ export function startPreviewServer(options: PreviewServerOptions): void {
             const parsed = body.trim() ? JSON.parse(body) : {};
             if (url.pathname === '/api/usage/accounts') res.end(JSON.stringify(await usageBridge.getAccounts()));
             else if (url.pathname === '/api/usage/switch-account') res.end(JSON.stringify(await usageBridge.switchAccount(parsed)));
+            else if (url.pathname === '/api/usage/recording-account' && usageBridge.setRecordingAccount) res.end(JSON.stringify(await usageBridge.setRecordingAccount(parsed)));
+            else if (url.pathname === '/api/usage/accounts/add' && usageBridge.addAccount) res.end(JSON.stringify(await usageBridge.addAccount(parsed)));
+            else if (url.pathname === '/api/usage/reassign-conversation' && usageBridge.reassignConversation) res.end(JSON.stringify(await usageBridge.reassignConversation(parsed)));
             else if (url.pathname === '/api/usage/manual/add') res.end(JSON.stringify(await usageBridge.addManualUsage(parsed)));
             else if (url.pathname === '/api/usage/manual/delete') res.end(JSON.stringify(await usageBridge.deleteManualUsage(parsed)));
             else if (url.pathname === '/api/usage/project-overview') res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
@@ -142,17 +165,31 @@ export function startPreviewServer(options: PreviewServerOptions): void {
       res.writeHead(405); res.end(); return;
     }
     if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
-    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (url.pathname === '/api/metrics') {
+      res.setHeader('Cache-Control', 'no-store');
       if (req.headers.origin && !sameOrigin) { res.writeHead(403); res.end(); return; }
       try {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(await metrics({ conversationId: url.searchParams.get('conversationId'), force: url.searchParams.get('force') === '1' })));
+        res.end(
+          JSON.stringify(
+            await metrics({
+              conversationId: url.searchParams.get('conversationId'),
+              force: url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true',
+              includeUsage: url.searchParams.get('includeUsage') !== '0',
+            }),
+          ),
+        );
       } catch { res.writeHead(500); res.end('{"error":"数据暂时不可用"}'); }
       return;
     }
-    if (url.pathname === '/api/integration') { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(getHealth())); return; }
+    if (url.pathname === '/api/integration') {
+      res.setHeader('Cache-Control', 'no-store');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(getHealth()));
+      return;
+    }
+    res.setHeader('Cache-Control', assetCacheControl(url.pathname, url));
     if (url.pathname === '/preload.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end('// Standalone preview: no host bridge.'); return; }
     if (url.pathname === '/i18n.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }); res.end(i18nModule()); return; }
     if (url.pathname === '/theme.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }); res.end(themeModule()); return; }

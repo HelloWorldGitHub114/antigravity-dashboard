@@ -1,3 +1,4 @@
+import type { UsageAccountInfo } from '../../contracts/index.ts';
 import type { LanguageCode, PreferencesSnapshot, PreferencesUpdateInput } from '../../contracts/preferences.ts';
 import { setAttr, setHidden, setText } from '../../shared/dom.ts';
 import type { DashboardI18n } from '../i18n/index.ts';
@@ -13,6 +14,16 @@ export interface DebugLaunchUiState {
   error?: string | null;
 }
 
+export interface RecordingAccountUiState {
+  active: string | null;
+  selected: string | null;
+  localMode?: boolean;
+  accounts: UsageAccountInfo[];
+  busy?: boolean;
+  error?: string | null;
+  notice?: string | null;
+}
+
 export interface SettingsPopoverOptions {
   trigger: HTMLButtonElement;
   mountRoot: HTMLElement;
@@ -22,12 +33,15 @@ export interface SettingsPopoverOptions {
   onSelectLanguage: (lang: LanguageCode) => void | Promise<void>;
   onToggleDebugLaunch: (nextEnabled: boolean) => void | Promise<void>;
   onRefreshDebugLaunch?: () => void | Promise<void>;
+  onSelectRecordingAccount?: (scope: string | null) => void | Promise<void>;
+  onAddRecordingAccount?: (identifier: string) => void | Promise<void>;
 }
 
 export interface SettingsPopoverHandle {
   element: HTMLDivElement;
   syncPreferences: (prefs?: Partial<PreferencesSnapshot> | null) => void;
   syncDebugLaunch: (next: Partial<DebugLaunchUiState>) => void;
+  syncRecordingAccount: (next: Partial<RecordingAccountUiState>) => void;
   syncLanguage: (lang?: LanguageCode, saveError?: boolean) => void;
   localize: () => void;
   close: () => void;
@@ -49,9 +63,21 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     onSelectLanguage,
     onToggleDebugLaunch,
     onRefreshDebugLaunch,
+    onSelectRecordingAccount,
+    onAddRecordingAccount,
   } = options;
   const doc = trigger.ownerDocument;
   const t = language.t;
+
+  const accountState: RecordingAccountUiState = {
+    active: null,
+    selected: null,
+    localMode: false,
+    accounts: [],
+    busy: false,
+    error: null,
+    notice: null,
+  };
 
   const debugState: DebugLaunchUiState = {
     enabled: Boolean(
@@ -114,6 +140,102 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   const div1 = doc.createElement('div');
   div1.className = 'settings-divider';
 
+  // --- Section 1b: Recording Account Selector & Add Account ---
+  const accountSection = doc.createElement('div');
+  accountSection.className = 'settings-section settings-account-section';
+
+  const accountCopy = doc.createElement('div');
+  accountCopy.className = 'settings-copy';
+  const accountTitle = doc.createElement('span');
+  accountTitle.className = 'settings-row-title';
+  const accountDesc = doc.createElement('span');
+  accountDesc.className = 'settings-row-desc';
+  accountCopy.append(accountTitle, accountDesc);
+
+  const accountControls = doc.createElement('div');
+  accountControls.className = 'settings-account-controls';
+
+  const accountSelect = doc.createElement('select');
+  accountSelect.id = 'recording-account-select';
+  accountSelect.className = 'settings-account-select';
+  accountSelect.addEventListener('change', () => {
+    if (accountState.busy) return;
+    const val = accountSelect.value;
+    void onSelectRecordingAccount?.(val === 'auto' || !val ? null : val);
+  });
+
+  const accountAddToggle = doc.createElement('button');
+  accountAddToggle.id = 'recording-account-add-toggle';
+  accountAddToggle.type = 'button';
+  accountAddToggle.className = 'settings-account-btn';
+
+  const accountAddForm = doc.createElement('div');
+  accountAddForm.id = 'recording-account-add-form';
+  accountAddForm.className = 'settings-account-add-form';
+  accountAddForm.hidden = true;
+
+  const accountInput = doc.createElement('input');
+  accountInput.id = 'recording-account-input';
+  accountInput.type = 'text';
+  accountInput.className = 'settings-account-input';
+  accountInput.autocomplete = 'off';
+
+  const accountAddActions = doc.createElement('div');
+  accountAddActions.className = 'settings-account-add-actions';
+
+  const accountCancelBtn = doc.createElement('button');
+  accountCancelBtn.id = 'recording-account-cancel-btn';
+  accountCancelBtn.type = 'button';
+  accountCancelBtn.className = 'settings-account-btn';
+
+  const accountSaveBtn = doc.createElement('button');
+  accountSaveBtn.id = 'recording-account-save-btn';
+  accountSaveBtn.type = 'button';
+  accountSaveBtn.className = 'settings-account-btn is-primary';
+
+  const submitNewAccount = (): void => {
+    if (accountState.busy) return;
+    const raw = accountInput.value.trim();
+    if (!raw) {
+      accountInput.focus();
+      return;
+    }
+    void Promise.resolve(onAddRecordingAccount?.(raw)).then(() => {
+      accountInput.value = '';
+      accountAddForm.hidden = true;
+    });
+  };
+
+  accountAddToggle.addEventListener('click', () => {
+    accountAddForm.hidden = !accountAddForm.hidden;
+    if (!accountAddForm.hidden) accountInput.focus();
+  });
+  accountCancelBtn.addEventListener('click', () => {
+    accountInput.value = '';
+    accountAddForm.hidden = true;
+  });
+  accountSaveBtn.addEventListener('click', submitNewAccount);
+  accountInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitNewAccount();
+    }
+  });
+
+  accountAddActions.append(accountCancelBtn, accountSaveBtn);
+  accountAddForm.append(accountInput, accountAddActions);
+  accountControls.append(accountSelect, accountAddToggle);
+
+  const accountStatusEl = doc.createElement('p');
+  accountStatusEl.id = 'recording-account-status';
+  accountStatusEl.className = 'settings-debug-status';
+  accountStatusEl.setAttribute('role', 'status');
+
+  accountSection.append(accountCopy, accountControls, accountAddForm, accountStatusEl);
+
+  const divAccount = doc.createElement('div');
+  divAccount.className = 'settings-divider';
+
   // --- Section 2: Language Segmented Control ---
   const langSection = doc.createElement('div');
   langSection.className = 'settings-section';
@@ -172,12 +294,17 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   });
   fontSection.append(fontControls.headElement, fontControls.rowsElement);
 
-  popover.append(debugSection, div1, langSection, div2, fontSection);
+  popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection);
   mountRoot.append(popover);
 
-  const isOpen = (): boolean => popover.matches(':popover-open');
+  const isOpen = (): boolean => popover.matches(':popover-open') || popover.dataset.open === 'true';
+  const supportsAnchor = (): boolean =>
+    typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('position-area', 'block-end');
+  let resizeRaf: number | null = null;
+  let lastSyncedFontSig: string | null = null;
 
   const positionPopover = (): void => {
+    if (supportsAnchor()) return;
     const r = trigger.getBoundingClientRect();
     const popRect = popover.getBoundingClientRect();
     const popW = popRect.width || 276;
@@ -227,6 +354,68 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     setText(debugStatusEl, msg);
   };
 
+  const renderRecordingAccount = (): void => {
+    accountSelect.disabled = Boolean(accountState.busy);
+    accountAddToggle.disabled = Boolean(accountState.busy);
+    accountSaveBtn.disabled = Boolean(accountState.busy);
+    accountCancelBtn.disabled = Boolean(accountState.busy);
+    accountInput.disabled = Boolean(accountState.busy);
+
+    const realAccounts = (accountState.accounts || []).filter((a) => a && a.id && a.id !== 'all');
+    const selectedKey = accountState.selected || 'auto';
+    const sig = `${language.language}|${selectedKey}|${realAccounts
+      .map((a) => `${a.id}:${a.email || a.name}:${Boolean(a.primary)}`)
+      .join(',')}`;
+    if (accountSelect.dataset.sig !== sig) {
+      accountSelect.dataset.sig = sig;
+      const autoOpt = doc.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = t('recordingAccountAuto');
+      autoOpt.selected = selectedKey === 'auto';
+      const opts = [autoOpt];
+      for (const acc of realAccounts) {
+        const opt = doc.createElement('option');
+        opt.value = acc.id;
+        const label = acc.email || acc.name || `Account (${acc.id.slice(0, 8)})`;
+        const primarySuffix = acc.primary
+          ? language.language === 'zh-CN'
+            ? ' (主)'
+            : ' (Primary)'
+          : '';
+        opt.textContent = `${label}${primarySuffix}`;
+        opt.selected = acc.id === selectedKey;
+        opts.push(opt);
+      }
+      accountSelect.replaceChildren(...opts);
+    } else if (accountSelect.value !== selectedKey) {
+      accountSelect.value = selectedKey;
+    }
+
+    const activeId = accountState.active || accountState.selected || null;
+    const matched = activeId ? realAccounts.find((a) => a.id === activeId) : null;
+    const activeLabel =
+      matched?.email ||
+      matched?.name ||
+      (activeId ? `Account (${activeId.slice(0, 8)})` : '—');
+
+    let tone = 'ready';
+    let msg = accountState.selected
+      ? t('recordingAccountStatusPinned', { account: activeLabel })
+      : t('recordingAccountStatusAuto', { account: activeLabel });
+    if (accountState.busy) {
+      tone = 'saving';
+      msg = t('debugLaunchSaving');
+    } else if (accountState.error) {
+      tone = 'error';
+      msg = accountState.error;
+    } else if (accountState.notice) {
+      tone = 'ready';
+      msg = accountState.notice;
+    }
+    accountStatusEl.dataset.tone = tone;
+    setText(accountStatusEl, msg);
+  };
+
   const syncLanguage = (lang: LanguageCode = language.language, saveError = languageSaveError): void => {
     languageSaveError = saveError;
     const isZh = lang === 'zh-CN';
@@ -245,31 +434,75 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     setAttr(trigger, 'aria-label', title);
     setText(debugTitle, t('debugLaunchTitle'));
     setText(debugDesc, t('debugLaunchDesc'));
+    setText(accountTitle, t('recordingAccountTitle'));
+    setText(accountDesc, t('recordingAccountDesc'));
+    setAttr(accountSelect, 'aria-label', t('recordingAccountTitle'));
+    setText(accountAddToggle, t('recordingAccountAddBtn'));
+    accountInput.placeholder = t('recordingAccountInputPlaceholder');
+    setAttr(accountInput, 'aria-label', t('recordingAccountInputPlaceholder'));
+    setText(accountSaveBtn, t('recordingAccountSaveBtn'));
+    setText(accountCancelBtn, t('recordingAccountCancelBtn'));
     setText(langTitle, t('languageSection'));
     setAttr(langGroup, 'aria-label', t('languageSection'));
     setText(btnZh, t('languageZhLabel'));
     setText(btnEn, t('languageEnLabel'));
     syncLanguage(language.language, languageSaveError);
     renderDebugStatus();
+    renderRecordingAccount();
     fontControls.localize();
   };
 
   const syncPreferences = (prefs?: Partial<PreferencesSnapshot> | null): void => {
     if (!prefs || typeof prefs !== 'object' || 'error' in prefs) return;
-    fontControls.sync(prefs);
+    const p = prefs as Partial<{
+      usageFontScale: unknown;
+      sidebarFontScale: unknown;
+      inlineFontScale: unknown;
+      debugLaunchEnabled: unknown;
+    }>;
+    const fontSig = `${p.usageFontScale ?? ''}|${p.sidebarFontScale ?? ''}|${p.inlineFontScale ?? ''}`;
+    if (fontSig !== lastSyncedFontSig) {
+      lastSyncedFontSig = fontSig;
+      fontControls.sync(prefs);
+    }
     if ('debugLaunchEnabled' in prefs && typeof prefs.debugLaunchEnabled === 'boolean' && !debugState.busy) {
-      debugState.enabled = prefs.debugLaunchEnabled;
-      renderDebugStatus();
+      if (debugState.enabled !== prefs.debugLaunchEnabled) {
+        debugState.enabled = prefs.debugLaunchEnabled;
+        renderDebugStatus();
+      }
     }
   };
 
   const syncDebugLaunch = (next: Partial<DebugLaunchUiState>): void => {
-    Object.assign(debugState, next);
-    renderDebugStatus();
+    let changed = false;
+    for (const key of Object.keys(next) as Array<keyof DebugLaunchUiState>) {
+      const value = next[key];
+      if (!Object.is(debugState[key], value)) {
+        (debugState as unknown as Record<string, unknown>)[key] = value;
+        changed = true;
+      }
+    }
+    if (changed) renderDebugStatus();
+  };
+
+  const syncRecordingAccount = (next: Partial<RecordingAccountUiState>): void => {
+    for (const key of Object.keys(next) as Array<keyof RecordingAccountUiState>) {
+      (accountState as unknown as Record<string, unknown>)[key] = next[key];
+    }
+    renderRecordingAccount();
+  };
+
+  const cancelResizeRaf = (): void => {
+    if (resizeRaf !== null) {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = null;
+    }
   };
 
   const close = (): void => {
+    cancelResizeRaf();
     if (!isOpen()) return;
+    delete popover.dataset.open;
     try {
       popover.hidePopover();
     } catch {
@@ -284,6 +517,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     try {
       popover.showPopover();
     } catch {
+      popover.dataset.open = 'true';
       popover.style.display = 'block';
     }
     positionPopover();
@@ -313,7 +547,11 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   };
 
   const onViewportChange = (): void => {
-    if (isOpen()) positionPopover();
+    if (!isOpen() || supportsAnchor() || resizeRaf !== null) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = null;
+      if (isOpen()) positionPopover();
+    });
   };
 
   setAttr(trigger, 'aria-haspopup', 'dialog');
@@ -322,7 +560,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   trigger.addEventListener('click', onTriggerClick);
   doc.addEventListener('pointerdown', onDocPointerDown, true);
   doc.addEventListener('keydown', onDocKeyDown, true);
-  window.addEventListener('resize', onViewportChange);
+  window.addEventListener('resize', onViewportChange, { passive: true });
 
   localize();
   syncPreferences(options.initialPreferences);
@@ -331,6 +569,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     element: popover,
     syncPreferences,
     syncDebugLaunch,
+    syncRecordingAccount,
     syncLanguage,
     localize,
     close,

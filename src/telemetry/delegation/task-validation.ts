@@ -65,6 +65,15 @@ function safeSubagentContext(value: unknown): SubagentContextSummary | null {
   };
 }
 
+const PLACEHOLDER_ROLES = new Set(['未命名会话', 'Untitled Session']);
+
+function sanitizeRole(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || PLACEHOLDER_ROLES.has(trimmed)) return null;
+  return trimmed.slice(0, 128);
+}
+
 export function safeSubagentItem(item: unknown): SubagentItem | null {
   if (!isObject(item) || typeof item.id !== 'string' || !GUID.test(item.id)) return null;
   const rateStatus: LatestRateStatus = ['ok', 'missing', 'unreliable', 'legacy'].includes(
@@ -74,7 +83,7 @@ export function safeSubagentItem(item: unknown): SubagentItem | null {
     : 'missing';
   return {
     id: item.id.toLowerCase(),
-    role: typeof item.role === 'string' ? item.role.slice(0, 128) : null,
+    role: sanitizeRole(item.role),
     parentId:
       typeof item.parentId === 'string' && GUID.test(item.parentId)
         ? item.parentId.toLowerCase()

@@ -1621,14 +1621,34 @@ module.exports = function installAgPulseInlineWidget(...args) {
     };
 
     // src/shared/format.ts
+    var rateFormatter = new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 1
+    });
+    var countFormatters = /* @__PURE__ */ new Map();
+    function getCountFormatter(locale) {
+      let formatter = countFormatters.get(locale);
+      if (!formatter) {
+        try {
+          formatter = new Intl.NumberFormat(locale);
+          if (countFormatters.size >= 16) countFormatters.clear();
+          countFormatters.set(locale, formatter);
+        } catch {
+          return null;
+        }
+      }
+      return formatter;
+    }
     function percent(fraction) {
       return typeof fraction === "number" && Number.isFinite(fraction) ? `${(fraction * 100).toFixed(1)}%` : "\u2014";
     }
     function rate(value) {
-      return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : "\u2014";
+      return typeof value === "number" && Number.isFinite(value) ? rateFormatter.format(value) : "\u2014";
     }
     function count(value, locale = "en-US") {
-      return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString(locale) : "\u2014";
+      if (typeof value !== "number" || !Number.isFinite(value)) return "\u2014";
+      const formatter = getCountFormatter(locale);
+      return formatter ? formatter.format(value) : value.toLocaleString(locale);
     }
     function compact(value, options = {}) {
       const fallback = options.fallback ?? "\u2014";
@@ -1642,7 +1662,11 @@ module.exports = function installAgPulseInlineWidget(...args) {
       if (value >= 1e3) {
         return `${(value / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
       }
-      return options.localeFallback ? value.toLocaleString(options.localeFallback) : String(value);
+      if (options.localeFallback) {
+        const formatter = getCountFormatter(options.localeFallback);
+        return formatter ? formatter.format(value) : value.toLocaleString(options.localeFallback);
+      }
+      return String(value);
     }
 
     // src/ui/inline-widget/inline.css
@@ -3288,11 +3312,38 @@ module.exports = function installAgPulseInlineWidget(...args) {
       params.onAfterRender(activeGroup);
       return activeGroup;
     }
+    var LAYOUT_RELEVANT_SELECTOR = 'button,[role="button"],a[href],input,select,[contenteditable="true"],[data-cascade-id],[data-testid="model-selector-trigger"],[id="antigravity.agentSidePanelInputBox"]';
+    function isLayoutRelevantNode(candidate) {
+      if (candidate.nodeType !== 1) return false;
+      const el = candidate;
+      return el.matches(LAYOUT_RELEVANT_SELECTOR) || Boolean(el.querySelector(LAYOUT_RELEVANT_SELECTOR));
+    }
+    function isRelevantMutation(record, node) {
+      const target = record.target;
+      if (target === node || node?.contains(target)) return false;
+      if (!node?.isConnected) return true;
+      if (target.contains(node) || node.parentElement?.contains(target)) return true;
+      if (record.type === "attributes") {
+        const attr = record.attributeName;
+        if (attr === "data-cascade-id" || attr === "data-testid" || attr === "hidden" || attr === "inert" || attr === "contenteditable") {
+          return true;
+        }
+        return isLayoutRelevantNode(target);
+      }
+      for (const added of record.addedNodes) {
+        if (isLayoutRelevantNode(added)) return true;
+      }
+      for (const removed of record.removedNodes) {
+        if (removed === node || removed.nodeType === 1 && removed.contains(node)) return true;
+        if (isLayoutRelevantNode(removed)) return true;
+      }
+      return false;
+    }
     function bindHostLifecycleListeners(params) {
       const { getNode, scheduleLayout, hideCards } = params;
       const observer = new MutationObserver((records) => {
         const node = getNode();
-        if (records.some((record) => record.target !== node && !node?.contains(record.target))) {
+        if (records.some((record) => isRelevantMutation(record, node))) {
           scheduleLayout();
         }
       });
@@ -3322,8 +3373,8 @@ module.exports = function installAgPulseInlineWidget(...args) {
       };
       document.addEventListener("keydown", onKey);
       document.addEventListener("pointerdown", onPointer);
-      window.addEventListener("resize", scheduleLayout);
-      document.addEventListener("scroll", scheduleLayout, true);
+      window.addEventListener("resize", scheduleLayout, { passive: true });
+      document.addEventListener("scroll", scheduleLayout, { capture: true, passive: true });
       return () => {
         observer.disconnect();
         document.removeEventListener("keydown", onKey);
@@ -3338,9 +3389,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
       data = null;
       lastConversation = null;
       pending = false;
+      pendingForce = false;
       refreshRequest = null;
+      queuedForceRequest = null;
       manualRequest = null;
       requestEpoch = 0;
+      refreshSeq = 0;
       lastFetch = 0;
       lastExpiredRefresh = 0;
       disposed = false;
@@ -3370,8 +3424,11 @@ module.exports = function installAgPulseInlineWidget(...args) {
       }
       invalidateEpoch() {
         this.requestEpoch++;
+        this.refreshSeq++;
         this.pending = false;
+        this.pendingForce = false;
         this.refreshRequest = null;
+        this.queuedForceRequest = null;
         this.manualRequest = null;
         this.lastFetch = 0;
       }
@@ -3395,8 +3452,11 @@ module.exports = function installAgPulseInlineWidget(...args) {
         if (id === this.lastConversation) return false;
         this.lastConversation = id;
         this.requestEpoch++;
+        this.refreshSeq++;
         this.pending = false;
+        this.pendingForce = false;
         this.refreshRequest = null;
+        this.queuedForceRequest = null;
         this.lastFetch = 0;
         this.callbacks.onConversationReset();
         this.manualRequest = null;
@@ -3411,15 +3471,29 @@ module.exports = function installAgPulseInlineWidget(...args) {
       refresh(force = false) {
         if (this.disposed) return void 0;
         if (this.syncConversation()) this.callbacks.onRender();
-        if (this.pending && this.refreshRequest) return this.refreshRequest;
+        if (this.pending && this.refreshRequest) {
+          if (!force || this.pendingForce) return this.refreshRequest;
+          if (this.queuedForceRequest) return this.queuedForceRequest;
+          const queuedEpoch = this.requestEpoch;
+          const nextForced = this.refreshRequest.catch(() => {
+          }).then(() => {
+            this.queuedForceRequest = null;
+            if (this.disposed || queuedEpoch !== this.requestEpoch) return;
+            return this.refresh(true);
+          });
+          this.queuedForceRequest = nextForced;
+          return nextForced;
+        }
         const node = this.callbacks.getNode();
         if (!node?.isConnected) return void 0;
         const conversation = this.callbacks.getConversationId();
         const epoch = this.requestEpoch;
-        const current = () => !this.disposed && epoch === this.requestEpoch && conversation === this.callbacks.getConversationId() && conversation === this.lastConversation && Boolean(this.callbacks.getNode()?.isConnected);
+        const seq = ++this.refreshSeq;
+        const current = () => !this.disposed && epoch === this.requestEpoch && seq === this.refreshSeq && conversation === this.callbacks.getConversationId() && conversation === this.lastConversation && Boolean(this.callbacks.getNode()?.isConnected);
         this.pending = true;
+        this.pendingForce = force;
         this.lastFetch = Date.now();
-        this.refreshRequest = (async () => {
+        const reqPromise = (async () => {
           try {
             const result = await this.host.getMetrics({
               conversationId: conversation,
@@ -3452,13 +3526,15 @@ module.exports = function installAgPulseInlineWidget(...args) {
               this.callbacks.onRender();
             }
           } finally {
-            if (epoch === this.requestEpoch) {
+            if (epoch === this.requestEpoch && seq === this.refreshSeq) {
               this.pending = false;
+              this.pendingForce = false;
               this.refreshRequest = null;
             }
           }
         })();
-        return this.refreshRequest;
+        this.refreshRequest = reqPromise;
+        return reqPromise;
       }
       refreshManually(onBeforeRefresh) {
         if (this.manualRequest) return this.manualRequest.promise;
@@ -3472,7 +3548,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
         this.manualRequest = request;
         request.promise = (async () => {
           try {
-            if (this.pending && this.refreshRequest) await this.refreshRequest;
             if (!this.disposed && epoch === this.requestEpoch) await this.refresh(true);
           } finally {
             const remaining = 250 - (performance.now() - started);
@@ -3745,13 +3820,19 @@ module.exports = function installAgPulseInlineWidget(...args) {
         scheduleLayout,
         hideCards: () => cards.hide()
       });
-      const timerId = setInterval(() => {
+      const runHeartbeat = () => {
+        if (document.hidden) return;
         mount();
         fit();
         polling.tick(group);
         cards.position();
         polling.pollIfDue();
-      }, 1e3);
+      };
+      const onVisibilityChange = () => {
+        if (!document.hidden) runHeartbeat();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      const timerId = setInterval(runHeartbeat, 1e3);
       win.__agPulseOpenUsage = () => {
         if (!usageDashboard || !polling.data?.usage) return false;
         cards.hide();
@@ -3762,6 +3843,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         polling.dispose();
         density.dispose(node);
         clearInterval(timerId);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         cards.disposeTimers();
         if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
         unbindHost();

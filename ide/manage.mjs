@@ -182,7 +182,7 @@ function readJsonObjectSync(filePath, fallback = {}) {
 }
 
 // src/lifecycle/debug-launch.ts
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
   closeSync as closeSync2,
@@ -195,8 +195,37 @@ import {
   rmSync,
   writeFileSync as writeFileSync4
 } from "node:fs";
+import { mkdir as mkdir2, readdir, rm as rm2 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { basename as basename3, dirname as dirname5, join as join4, resolve as resolve2 } from "node:path";
+var READ_SHORTCUTS_PS = [
+  "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
+  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+  "$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json",
+  "$sh = New-Object -ComObject WScript.Shell",
+  "$out = @()",
+  "foreach ($p in $paths) {",
+  "  if (Test-Path -LiteralPath $p) {",
+  "    try {",
+  "      $sc = $sh.CreateShortcut($p)",
+  "      $out += [PSCustomObject]@{ path = $p; targetPath = [string]$sc.TargetPath; arguments = [string]$sc.Arguments }",
+  "    } catch {}",
+  "  }",
+  "}",
+  "$out | ConvertTo-Json -Compress"
+].join("\n");
+var WRITE_SHORTCUTS_PS = [
+  "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
+  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+  "$items = [Console]::In.ReadToEnd() | ConvertFrom-Json",
+  "$sh = New-Object -ComObject WScript.Shell",
+  "foreach ($item in $items) {",
+  "  $sc = $sh.CreateShortcut($item.path)",
+  "  if ($item.targetPath) { $sc.TargetPath = [string]$item.targetPath }",
+  "  $sc.Arguments = [string]$item.arguments",
+  "  $sc.Save()",
+  "}"
+].join("\n");
 
 // src/lifecycle/installer.ts
 var IDE_DEBUG_ARGS = [

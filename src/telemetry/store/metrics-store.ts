@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type { AccountsResponse, MetricsRequestInput, SwitchAccountResponse } from '../../contracts/ipc.ts';
 import type {
@@ -9,9 +10,17 @@ import type {
   TaskUsageSummary,
 } from '../../contracts/metrics.ts';
 import type { ClearTimelineResult } from '../../contracts/timeline.ts';
-import type { SessionDescriptorInput, SnapshotDiffOutput } from '../../platform/native-bridge.ts';
-import { AntigravityClient } from '../client/index.ts';
+import {
+  isNativeAccelAvailable,
+  type SessionDescriptorInput,
+  type SnapshotDiffOutput,
+} from '../../platform/native-bridge.ts';
+import { AntigravityClient, isNoLocalCredentialsError } from '../client/index.ts';
 import { DelegatedUsage, type DelegatedClientLike } from '../delegation/delegated-usage.ts';
+import {
+  readLocalConversationSummaries,
+  resolveLocalAntigravityDir,
+} from '../reader/local-summaries.ts';
 import { TranscriptReader } from '../reader/transcript.ts';
 import { diffSessionSnapshotsWithFallback, parseSummaryMtimeMs } from '../snapshot-diff.ts';
 import { TimelineStore } from '../timeline/store.ts';
@@ -45,6 +54,27 @@ export type { MetricsStoreOptions } from './types.ts';
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+const QUOTA_IDLE_TTL_MS = 30_000;
+const QUOTA_IDLE_FORCE_TTL_MS = 90_000;
+const QUOTA_ACTIVE_TTL_MS = 12_000;
+const QUOTA_SETTLE_COOLDOWN_MS = 5_000;
+const QUOTA_EXPIRED_RETRY_MS = 10_000;
+export const LOCAL_SQLITE_MODE_NOTICE = '当前版本已切换为本地 SQLite 直读模式（云端额度暂不可用）';
+
+function hasExpiredQuotaWindow(groups: QuotaGroup[] | null, now: number): boolean {
+  if (!Array.isArray(groups)) return false;
+  for (const group of groups) {
+    const windows = group?.windows;
+    if (!windows || typeof windows !== 'object') continue;
+    for (const win of Object.values(windows)) {
+      if (!win || !win.available || typeof win.resetAt !== 'string') continue;
+      const resetMs = Date.parse(win.resetAt);
+      if (Number.isFinite(resetMs) && resetMs <= now) return true;
+    }
+  }
+  return false;
+}
+
 export class MetricsStore {
   client: StoreClientLike;
   history: StoreHistoryLike;
@@ -55,9 +85,18 @@ export class MetricsStore {
   transcripts: StoreTranscriptsLike | null;
   delegated: StoreDelegatedLike | null;
   owns: () => boolean;
+  resolveLocalIdentityFn: ((recentConversationIds: readonly string[]) => Promise<string | null> | string | null) | null;
+  localFallbackActive = false;
   quota: QuotaGroup[] | null = null;
   quotaAt = 0;
+  quotaForceAt = 0;
+  quotaDirtyAt = 0;
+  quotaSettledAt = 0;
   quotaPending: Promise<void> | null = null;
+  quotaPendingForce = false;
+  quotaRequestSeq = 0;
+  quotaCommittedSeq = 0;
+  supportsForceQuotaRefresh = true;
   identity: string | null = null;
   registeredAccount: { identity: string; email: string; name: string } | null = null;
   serverPid: number | null = null;
@@ -89,6 +128,7 @@ export class MetricsStore {
       transcripts = new TranscriptReader(),
       delegated = null,
       owns = () => true,
+      resolveLocalIdentity = null,
     }: MetricsStoreOptions = {},
   ) {
     this.client = client;
@@ -105,6 +145,7 @@ export class MetricsStore {
     this.onAccount = onAccount;
     this.transcripts = transcripts;
     this.owns = owns;
+    this.resolveLocalIdentityFn = typeof resolveLocalIdentity === 'function' ? resolveLocalIdentity : null;
     this.client?.setModelTimelineEnabled?.(this.modelTimelineEnabled);
     this.delegated =
       delegated ||
@@ -197,11 +238,50 @@ export class MetricsStore {
     return loadCachedSession(this, id, GUID);
   }
 
+  private quotaRefreshPlan(force: boolean, now = Date.now()): { refresh: boolean; forceUpstream: boolean } {
+    if (force) return { refresh: true, forceUpstream: true };
+    if (!this.quota) return { refresh: true, forceUpstream: true };
+
+    const age = now - this.quotaAt;
+    const forceAge = now - this.quotaForceAt;
+    if (hasExpiredQuotaWindow(this.quota, now) && age >= QUOTA_EXPIRED_RETRY_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (this.quotaSettledAt > this.quotaForceAt && forceAge >= QUOTA_SETTLE_COOLDOWN_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    const active = this.runningSessionIds.size > 0 || this.quotaDirtyAt > this.quotaForceAt;
+    if (active && forceAge >= QUOTA_ACTIVE_TTL_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (forceAge >= QUOTA_IDLE_FORCE_TTL_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (age >= QUOTA_IDLE_TTL_MS) {
+      return { refresh: true, forceUpstream: false };
+    }
+    return { refresh: false, forceUpstream: false };
+  }
+
   async refreshQuota(force = false): Promise<void> {
-    if (!force && this.quota && Date.now() - this.quotaAt < 60000) return;
-    if (this.quotaPending) return this.quotaPending;
-    this.quotaPending = executeQuotaRefresh(this).finally(() => { this.quotaPending = null; });
-    return this.quotaPending;
+    const plan = this.quotaRefreshPlan(force);
+    if (!plan.refresh) return;
+    if (this.quotaPending) {
+      if (!plan.forceUpstream || this.quotaPendingForce) return this.quotaPending;
+    }
+    const seq = ++this.quotaRequestSeq;
+    const pending = executeQuotaRefresh(this, {
+      forceRefresh: plan.forceUpstream,
+      requestSeq: seq,
+    }).finally(() => {
+      if (this.quotaPending === pending) {
+        this.quotaPending = null;
+        this.quotaPendingForce = false;
+      }
+    });
+    this.quotaPending = pending;
+    this.quotaPendingForce = plan.forceUpstream;
+    return pending;
   }
 
   getSummaryDiff(): SnapshotDiffOutput | null {
@@ -216,17 +296,64 @@ export class MetricsStore {
     this.lastSummaryDiff = null;
   }
 
-  async listConversations(force = false): Promise<ConversationSummary[]> {
-    if (!force && Date.now() - this.summariesAt < 5000) return this.summaries;
-    const scope = this.identity;
+  private resetForServerPid(pid: number): void {
+    this.epoch++;
+    this.delegated?.reset?.();
+    this.transcripts?.reset();
+    this.quota = null;
+    this.quotaAt = 0;
+    this.quotaForceAt = 0;
+    this.quotaDirtyAt = 0;
+    this.quotaSettledAt = 0;
+    this.quotaPending = null;
+    this.quotaPendingForce = false;
+    this.quotaCommittedSeq = 0;
+    this.quotaRequestSeq++;
+    this.supportsForceQuotaRefresh = true;
+    this.sessions.clear();
+    this.ancestorPending.clear();
+    this.ancestorRaws.clear();
+    this.identity = null;
+    this.registeredAccount = null;
+    this.summaries = [];
+    this.rawSummaries = null;
+    this.summariesAt = 0;
+    this.clearSummaryDiffState();
+    this.serverPid = pid;
+    this.lastActiveConversationId = null;
+  }
+
+  private async ensureLocalIdentity(
+    localDir: { rootDir: string; conversationsDir: string },
+    recentConversationIds: readonly string[],
+  ): Promise<string | null> {
+    if (this.identity && HASH.test(this.identity)) return this.identity;
     const epoch = this.epoch;
-    const response = await this.client.call('GetAllCascadeTrajectories');
-    if (scope !== this.identity || epoch !== this.epoch) throw new Error('后台已重新连接，请等待刷新');
-    const rawSummaries: Record<string, RawSummaryRecord> = response.trajectorySummaries || {};
+    let resolved: string | null = null;
+    if (this.resolveLocalIdentityFn) {
+      try {
+        const candidate = await this.resolveLocalIdentityFn(recentConversationIds);
+        if (typeof candidate === 'string' && HASH.test(candidate)) resolved = candidate;
+      } catch {
+        // Fall through to deterministic profile scope hash.
+      }
+    }
+    if (epoch !== this.epoch) return this.identity;
+    if (!resolved) {
+      const pathInfo = this.client.paths?.();
+      const profileKey = pathInfo?.profile || localDir.rootDir;
+      const prefix = /antigravity-vertex/i.test(profileKey) ? 'vertex:' : 'local:';
+      resolved = createHash('sha256').update(`${prefix}${profileKey}`).digest('hex');
+    }
+    this.identity = resolved;
+    return resolved;
+  }
+
+  private commitSummaries(rawSummaries: Record<string, RawSummaryRecord>, mapped?: ConversationSummary[]): ConversationSummary[] {
     this.rawSummaries = rawSummaries;
     const now = Date.now();
     this.client?.reader?.seedSummaries?.(rawSummaries, now, this.client?.server);
-    this.summaries = mapConversationSummaries(rawSummaries);
+    this.summaries = mapped ?? mapConversationSummaries(rawSummaries);
     this.summariesAt = now;
 
     const descriptors: SessionDescriptorInput[] = new Array(this.summaries.length);
@@ -252,6 +379,13 @@ export class MetricsStore {
     this.dirtySessionIds = new Set(diff.dirtyIds);
     this.newlySettledSessionIds = new Set(diff.newlySettledIds);
     this.runningSessionIds = new Set(diff.runningIds);
+    if (this.runningSessionIds.size > 0 || this.dirtySessionIds.size > 0) {
+      this.quotaDirtyAt = now;
+    }
+    if (this.newlySettledSessionIds.size > 0) {
+      this.quotaDirtyAt = now;
+      this.quotaSettledAt = now;
+    }
     const nextStates = new Map<string, SummarySnapshotState>();
     for (const item of diff.items) {
       const settled = item.statusKind === 'settled';
@@ -273,6 +407,44 @@ export class MetricsStore {
     return this.summaries;
   }
 
+  async listConversations(force = false): Promise<ConversationSummary[]> {
+    if (!force && Date.now() - this.summariesAt < 5000) return this.summaries;
+    const scope = this.identity;
+    const epoch = this.epoch;
+    if (this.localFallbackActive) {
+      const localDir = resolveLocalAntigravityDir(this.client);
+      if (localDir) {
+        const local = await readLocalConversationSummaries(localDir.rootDir, {
+          conversationsDir: localDir.conversationsDir,
+          force,
+        });
+        if (scope !== this.identity || epoch !== this.epoch) throw new Error('后台已重新连接，请等待刷新');
+        return this.commitSummaries(local.rawSummaries, local.summaries);
+      }
+    }
+    let response: { trajectorySummaries?: Record<string, RawSummaryRecord> };
+    try {
+      response = await this.client.call('GetAllCascadeTrajectories');
+    } catch (err) {
+      if (isNoLocalCredentialsError(err)) {
+        const localDir = resolveLocalAntigravityDir(this.client);
+        if (localDir && isNativeAccelAvailable()) {
+          this.localFallbackActive = true;
+          const local = await readLocalConversationSummaries(localDir.rootDir, {
+            conversationsDir: localDir.conversationsDir,
+            force,
+          });
+          if (scope !== this.identity || epoch !== this.epoch) throw new Error('后台已重新连接，请等待刷新');
+          return this.commitSummaries(local.rawSummaries, local.summaries);
+        }
+      }
+      throw err;
+    }
+    if (scope !== this.identity || epoch !== this.epoch) throw new Error('后台已重新连接，请等待刷新');
+    const rawSummaries: Record<string, RawSummaryRecord> = response.trajectorySummaries || {};
+    return this.commitSummaries(rawSummaries);
+  }
+
   async session(id: string, force = false): Promise<SpeedMetrics> {
     if (!GUID.test(id)) throw new Error('会话标识无效');
     let entry = this.sessions.get(id);
@@ -289,33 +461,145 @@ export class MetricsStore {
     return entry.pending;
   }
 
+  private async runLocalSqliteSnapshot(
+    localDir: { rootDir: string; conversationsDir: string },
+    pidHint: number,
+    conversationId: string | null | undefined,
+    force: boolean,
+  ): Promise<{
+    connection: ConnectionStatus;
+    error: string | null;
+    speed: SpeedMetrics | null;
+    sessionError: string | null;
+    source: string;
+  }> {
+    const pid = Number.isSafeInteger(pidHint) && pidHint > 0 ? pidHint : -1;
+    if (pid !== this.serverPid) {
+      this.resetForServerPid(pid);
+    }
+    this.localFallbackActive = true;
+    this.quota = null;
+    this.quotaAt = 0;
+    let sessionError: string | null = null;
+    let speed: SpeedMetrics | null = null;
+    if (conversationId && GUID.test(conversationId)) this.lastActiveConversationId = conversationId;
+    let summaries = this.summaries;
+    if (!conversationId) {
+      try {
+        summaries = await this.listConversations(force);
+      } catch (e) {
+        sessionError ||= errorMessage(e);
+      }
+    }
+    const recentIds = [
+      ...(conversationId && GUID.test(conversationId) ? [conversationId] : []),
+      ...summaries.slice(0, 8).map((s) => s.id),
+    ];
+    await this.ensureLocalIdentity(localDir, recentIds);
+    const selected = conversationId || this.selectRootConversation(summaries, this.lastActiveConversationId);
+    if (selected) {
+      try {
+        speed = await this.session(selected, force);
+      } catch (e) {
+        sessionError = errorMessage(e);
+      }
+    }
+    return {
+      connection: 'live',
+      error: LOCAL_SQLITE_MODE_NOTICE,
+      speed,
+      sessionError,
+      source: 'Antigravity local SQLite',
+    };
+  }
+
   async snapshot({ conversationId, force = false }: MetricsRequestInput = {}): Promise<MetricsSnapshot> {
     let connection: ConnectionStatus = 'live';
     let error: string | null = null;
     let speed: SpeedMetrics | null = null;
     let sessionError: string | null = null;
+    let source = 'Antigravity local API';
     try {
-      const server = await this.client.discover();
-      if (server.pid !== this.serverPid) {
-        this.epoch++; this.delegated?.reset?.(); this.transcripts?.reset();
-        this.quota = null; this.quotaAt = 0; this.sessions.clear(); this.ancestorPending.clear(); this.ancestorRaws.clear();
-        this.identity = null; this.registeredAccount = null; this.summaries = []; this.rawSummaries = null; this.summariesAt = 0;
-        this.clearSummaryDiffState();
-        this.serverPid = server.pid; this.lastActiveConversationId = null;
+      const localDir = resolveLocalAntigravityDir(this.client);
+      const canUseLocalSqlite = Boolean(localDir && isNativeAccelAvailable());
+      let localDiscoverErr: ReturnType<typeof isNoLocalCredentialsError> extends boolean
+        ? ({ pid?: number; port?: number } & Error) | null
+        : null = null;
+      let server: { pid: number; [key: string]: unknown } | null = null;
+      try {
+        server = await this.client.discover();
+        this.localFallbackActive = false;
+      } catch (discoverErr) {
+        if (isNoLocalCredentialsError(discoverErr) && canUseLocalSqlite) {
+          localDiscoverErr = discoverErr;
+          this.localFallbackActive = true;
+        } else {
+          throw discoverErr;
+        }
       }
-      try { await this.refreshQuota(force); } catch (e) { connection = this.quota ? 'stale' : 'offline'; error = errorMessage(e); }
-      if (conversationId && GUID.test(conversationId)) this.lastActiveConversationId = conversationId;
-      let summaries = this.summaries;
-      // The inline composer already supplies its exact ID. Enumerating every
-      // conversation first adds unrelated RPC latency to a route transition.
-      if (!conversationId) {
-        try { summaries = await this.listConversations(force); } catch (e) { connection = this.quota ? 'stale' : 'offline'; error ||= errorMessage(e); }
-      }
-      const selected = conversationId || this.selectRootConversation(summaries, this.lastActiveConversationId);
-      if (selected) {
-        try { speed = await this.session(selected, force); } catch (e) { sessionError = errorMessage(e); }
+
+      if (localDiscoverErr && localDir) {
+        const localResult = await this.runLocalSqliteSnapshot(
+          localDir,
+          typeof localDiscoverErr.pid === 'number' ? localDiscoverErr.pid : -1,
+          conversationId,
+          force,
+        );
+        ({ connection, error, speed, sessionError, source } = localResult);
+      } else {
+        if (server!.pid !== this.serverPid) {
+          this.resetForServerPid(server!.pid);
+        }
+        let fallbackToSqlite = false;
+        try {
+          await this.refreshQuota(force);
+        } catch (e) {
+          if (isNoLocalCredentialsError(e) && canUseLocalSqlite) {
+            fallbackToSqlite = true;
+          } else {
+            connection = this.quota ? 'stale' : 'offline';
+            error = errorMessage(e);
+          }
+        }
+        if (!fallbackToSqlite) {
+          if (conversationId && GUID.test(conversationId)) this.lastActiveConversationId = conversationId;
+          let summaries = this.summaries;
+          // The inline composer already supplies its exact ID. Enumerating every
+          // conversation first adds unrelated RPC latency to a route transition.
+          if (!conversationId) {
+            try {
+              summaries = await this.listConversations(force);
+            } catch (e) {
+              connection = this.quota ? 'stale' : 'offline';
+              error ||= errorMessage(e);
+            }
+          }
+          if (this.localFallbackActive && canUseLocalSqlite) {
+            fallbackToSqlite = true;
+          } else {
+            const selected = conversationId || this.selectRootConversation(summaries, this.lastActiveConversationId);
+            if (selected) {
+              try {
+                speed = await this.session(selected, force);
+              } catch (e) {
+                if (isNoLocalCredentialsError(e) && canUseLocalSqlite) {
+                  fallbackToSqlite = true;
+                } else {
+                  sessionError = errorMessage(e);
+                }
+              }
+            }
+          }
+        }
+        if (fallbackToSqlite && localDir) {
+          const localResult = await this.runLocalSqliteSnapshot(localDir, server!.pid, conversationId, force);
+          ({ connection, error, speed, sessionError, source } = localResult);
+        } else if (!force && connection === 'live' && this.quotaRefreshPlan(false).refresh) {
+          void this.refreshQuota(false).catch(() => {});
+        }
       }
     } catch (e) {
+      this.localFallbackActive = false;
       connection = this.quota ? 'stale' : 'offline';
       error = errorMessage(e);
       const fallbackId = conversationId || this.selectRootConversation(this.summaries, this.lastActiveConversationId);
@@ -326,13 +610,30 @@ export class MetricsStore {
       serverTime: new Date().toISOString(),
       quotaUpdatedAt: this.quotaAt ? new Date(this.quotaAt).toISOString() : null,
       groups: this.quota || [], speed, conversations: this.summaries,
-      persistenceError: this.persistenceError, source: 'Antigravity local API',
+      persistenceError: this.persistenceError, source,
     };
   }
 
   switchAccount(identity: string): SwitchAccountResponse {
     if (!identity || (identity !== 'all' && !HASH.test(identity))) throw new Error('Invalid account scope');
     return { success: true, active: identity, activeAccount: this.identity || identity };
+  }
+
+  setLocalIdentity(scope: string | null): boolean {
+    if (scope !== null && (!scope || !HASH.test(scope))) {
+      throw new Error('Invalid account scope');
+    }
+    if (scope === this.identity) return false;
+    this.epoch++;
+    this.delegated?.reset?.();
+    this.transcripts?.reset();
+    this.client.resetTrajectories?.();
+    this.sessions.clear();
+    this.ancestorPending.clear();
+    this.ancestorRaws.clear();
+    this.registeredAccount = null;
+    this.identity = scope;
+    return true;
   }
 
   async getAccounts(): Promise<AccountsResponse> {
@@ -344,6 +645,10 @@ export class MetricsStore {
 
   dispose(): void {
     this.epoch++;
+    this.quotaPending = null;
+    this.quotaPendingForce = false;
+    this.quotaDirtyAt = 0;
+    this.quotaSettledAt = 0;
     this.delegated?.dispose?.();
     this.transcripts?.dispose?.();
     this.sessions.clear();

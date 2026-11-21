@@ -97,15 +97,15 @@ function getAddon() {
 function isNativeAccelAvailable() {
   return getAddon() !== null;
 }
-function readSqliteTrajectory(dbPath, conversationId, options) {
-  if (!dbPath || !conversationId) return null;
+function readSqliteTrajectory(dbPath, conversationId2, options) {
+  if (!dbPath || !conversationId2) return null;
   const addon = getAddon();
   if (!addon) return null;
   let parsed;
   try {
     const json = addon.readSqliteTrajectoryJson(
       dbPath,
-      conversationId,
+      conversationId2,
       options?.modelTimelineEnabled === true,
       options?.maxOutputBytes
     );
@@ -119,12 +119,12 @@ function readSqliteTrajectory(dbPath, conversationId, options) {
   }
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
 }
-function readSqliteConversationMeta(dbPath, conversationId) {
-  if (!dbPath || !conversationId) return null;
+function readSqliteConversationMeta(dbPath, conversationId2) {
+  if (!dbPath || !conversationId2) return null;
   const addon = getAddon();
   if (!addon) return null;
   try {
-    const json = addon.readSqliteConversationMetaJson(dbPath, conversationId);
+    const json = addon.readSqliteConversationMetaJson(dbPath, conversationId2);
     if (typeof json !== "string" || !json) return null;
     const parsed = JSON.parse(json);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
@@ -133,11 +133,72 @@ function readSqliteConversationMeta(dbPath, conversationId) {
   }
 }
 
+// src/telemetry/client/server-discovery.ts
+import { open, readFile, stat } from "node:fs/promises";
+var NO_LOCAL_CREDENTIALS_CODE = "NO_LOCAL_CREDENTIALS";
+var NO_LOCAL_CREDENTIALS_MESSAGE = "\u5F53\u524D\u7248\u672C\u672A\u63D0\u4F9B\u53EF\u7528\u7684\u672C\u5730\u68C0\u6D4B\u51ED\u636E";
+function isNoLocalCredentialsError(error) {
+  if (!error || typeof error !== "object") return false;
+  const e = error;
+  return e.code === NO_LOCAL_CREDENTIALS_CODE || e.message === NO_LOCAL_CREDENTIALS_MESSAGE;
+}
+var LOG_TAIL_BYTES = 256 * 1024;
+
 // src/telemetry/reader/trajectory-reader.ts
 import {
-  defaultConversationsDir,
+  defaultConversationsDir as defaultConversationsDir2,
   resolveLocalConversationDbPath
 } from "./local-conversations.mjs";
+
+// src/telemetry/reader/local-summaries.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { readdir, stat as stat2 } from "node:fs/promises";
+import { createRequire as createRequire2 } from "node:module";
+import { dirname as dirname2, join as join2 } from "node:path";
+import { conversationId, defaultConversationsDir } from "./local-conversations.mjs";
+async function statSqliteDbStamp(dbPath) {
+  if (!dbPath) return null;
+  let mainStat;
+  try {
+    const info = await stat2(dbPath);
+    if (!info.isFile()) return null;
+    mainStat = { size: info.size, mtimeMs: info.mtimeMs };
+  } catch {
+    return null;
+  }
+  let walPart = "0:0";
+  try {
+    const wal = await stat2(`${dbPath}-wal`);
+    if (wal.isFile()) walPart = `${wal.size}:${Math.trunc(wal.mtimeMs)}`;
+  } catch {
+  }
+  return `${mainStat.size}:${Math.trunc(mainStat.mtimeMs)}|${walPart}`;
+}
+function resolveLocalAntigravityDir(client) {
+  if (!client || typeof client !== "object") return null;
+  const c = client;
+  const explicitDir = c.conversationsDir ?? c.reader?.conversationsDir ?? null;
+  if (typeof explicitDir === "string" && explicitDir.length > 0) {
+    return { rootDir: dirname2(explicitDir), conversationsDir: explicitDir };
+  }
+  if (Object.hasOwn(c, "call") || typeof c.paths !== "function") {
+    return null;
+  }
+  try {
+    const p = c.paths();
+    if (typeof p?.conversationsDir === "string" && p.conversationsDir.length > 0) {
+      return { rootDir: dirname2(p.conversationsDir), conversationsDir: p.conversationsDir };
+    }
+    if (typeof p?.home === "string" && p.home.length > 0) {
+      const host = typeof c.profile === "string" && c.profile.length > 0 ? "ide" : "app";
+      const conversationsDir = defaultConversationsDir(host, p.home);
+      return { rootDir: dirname2(conversationsDir), conversationsDir };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 // src/telemetry/reader/remote-snapshot.ts
 import { formatModelName } from "./context.mjs";
@@ -546,6 +607,14 @@ function scheduleRemoteBackfill(host, id, entry) {
 }
 
 // src/telemetry/reader/trajectory-reader.ts
+function normalizeSqliteStatus(rawStatus, summaryStatus) {
+  if (typeof summaryStatus === "string" && summaryStatus.trim()) return summaryStatus.trim();
+  const s = typeof rawStatus === "string" ? rawStatus.trim() : "";
+  if (!s) return "CASCADE_RUN_STATUS_IDLE";
+  if (/^CASCADE_RUN_STATUS_/.test(s)) return s;
+  if (/RUNNING|GENERATING|PENDING|WAITING|QUEUED/i.test(s)) return "CASCADE_RUN_STATUS_RUNNING";
+  return "CASCADE_RUN_STATUS_IDLE";
+}
 var TrajectoryReader = class {
   // Serialized statistics budget, not transcript/response size. Local resource
   // experiments cover 1K/8K/32K records; 8 MiB bounds retained objects well below
@@ -641,7 +710,17 @@ var TrajectoryReader = class {
   } = {}) {
     if (!isCurrent()) throw unavailable();
     const wantTimeline = this.isTimelineEnabled({ modelTimelineEnabled });
-    const endpoint = await this.client.discover();
+    let endpoint;
+    let localSqliteOnly = false;
+    try {
+      endpoint = await this.client.discover();
+    } catch (discoverErr) {
+      if (!isNoLocalCredentialsError(discoverErr)) throw discoverErr;
+      const hasLocalRoot = Boolean(conversationsDir || resolveLocalAntigravityDir(this.client));
+      if (!hasLocalRoot || !isNativeAccelAvailable()) throw discoverErr;
+      endpoint = { pid: discoverErr.pid, port: discoverErr.port, csrf: "__local_sqlite__" };
+      localSqliteOnly = true;
+    }
     if (!this.endpoint) this.endpoint = endpoint;
     else if (["pid", "port", "csrf"].some((k) => this.endpoint[k] !== endpoint[k])) {
       this.reset();
@@ -659,15 +738,7 @@ var TrajectoryReader = class {
       if (!current()) throw unavailable();
     };
     const activeEntry = entry;
-    activeEntry.pending = this.loadEntry(
-      id,
-      activeEntry,
-      provided,
-      force,
-      wantTimeline,
-      assertCurrent,
-      conversationsDir
-    ).finally(() => {
+    activeEntry.pending = (localSqliteOnly ? this.loadLocalDirectEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent, conversationsDir) : this.loadEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent, conversationsDir)).finally(() => {
       activeEntry.pending = null;
       if (!activeEntry.data && current()) this.entries.delete(id);
       if (current()) this.trim(id);
@@ -692,7 +763,7 @@ var TrajectoryReader = class {
       if (typeof p?.home === "string" && p.home) {
         const profile = this.client.profile;
         const host = typeof profile === "string" && profile.length > 0 ? "ide" : "app";
-        return resolveLocalConversationDbPath(id, defaultConversationsDir(host, p.home));
+        return resolveLocalConversationDbPath(id, defaultConversationsDir2(host, p.home));
       }
     } catch {
       return null;
@@ -722,7 +793,7 @@ var TrajectoryReader = class {
       return null;
     }
     const meta = readSqliteConversationMeta(dbPath, id);
-    const status = resolvedSummary?.status || raw.status || "CASCADE_RUN_STATUS_IDLE";
+    const status = normalizeSqliteStatus(raw.status, resolvedSummary?.status);
     return {
       ...raw,
       status,
@@ -730,6 +801,29 @@ var TrajectoryReader = class {
       numTotalGeneratorMetadata: numGens,
       ...meta ? { trajectoryMetadata: meta } : {}
     };
+  }
+  async loadLocalDirectEntry(id, entry, provided, force, wantTimeline, assertCurrent, conversationsDir) {
+    const dbPath = this.resolveDbPath(id, conversationsDir);
+    if (!dbPath || !isNativeAccelAvailable()) throw new Error("\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1");
+    const stamp = await statSqliteDbStamp(dbPath);
+    assertCurrent();
+    if (!stamp) throw new Error("\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1");
+    const mark = `sqlite:${stamp}`;
+    if (!force && entry.data && entry.withTimeline === wantTimeline && entry.mark === mark) {
+      entry.verifiedAt = this.client.now();
+      this.entries.delete(id);
+      this.entries.set(id, entry);
+      return entry.data;
+    }
+    const sqliteVal = this.readFromSqlite(id, dbPath, provided ?? null, wantTimeline, true);
+    assertCurrent();
+    if (!sqliteVal) throw new Error("\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1");
+    const resolvedSummary = {
+      ...provided || {},
+      stepCount: sqliteVal.numTotalSteps,
+      status: sqliteVal.status
+    };
+    return this.commitSqliteEntry(id, entry, sqliteVal, resolvedSummary, mark, wantTimeline);
   }
   commitSqliteEntry(id, entry, value, resolvedSummary, mark, wantTimeline) {
     const steps = value.trajectory.steps;

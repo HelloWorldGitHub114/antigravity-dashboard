@@ -21,6 +21,8 @@ export interface SessionRunnerHost extends AncestorResolutionHost {
   transcripts: StoreTranscriptsLike | null;
   persistenceError: string | null;
   usagePersistenceError: boolean;
+  quotaDirtyAt?: number;
+  quotaSettledAt?: number;
   onTrajectory: ((scope: string, id: string, raw: unknown) => Promise<unknown> | unknown) | null;
 }
 
@@ -41,10 +43,20 @@ export interface QuotaRefreshHost {
   lastSummaryDiff?: SnapshotDiffOutput | null;
   quota: ReturnType<typeof quotaMetrics> | null;
   quotaAt: number;
+  quotaForceAt?: number;
+  quotaDirtyAt?: number;
+  quotaSettledAt?: number;
+  quotaCommittedSeq?: number;
+  supportsForceQuotaRefresh?: boolean;
   identity: string | null;
   registeredAccount: { identity: string; email: string; name: string } | null;
   epoch: number;
   onAccount: ((scope: string, meta: { email: string; name: string }) => Promise<unknown> | unknown) | null;
+}
+
+export interface ExecuteQuotaRefreshOptions {
+  forceRefresh?: boolean;
+  requestSeq?: number;
 }
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -116,11 +128,30 @@ export async function loadCachedSession(host: SessionRunnerHost, id: string, gui
   return { ...restored, transcriptRestoredFromHistory: !!saved.metrics.transcriptStats, restoredFromHistory: true, savedAt: saved.savedAt };
 }
 
-export async function executeQuotaRefresh(host: QuotaRefreshHost): Promise<void> {
+async function callRetrieveUserQuota(host: QuotaRefreshHost, forceRefresh: boolean): Promise<unknown> {
+  if (!forceRefresh || host.supportsForceQuotaRefresh === false) {
+    return host.client.call('RetrieveUserQuotaSummary');
+  }
+  try {
+    return await host.client.call('RetrieveUserQuotaSummary', { forceRefresh: true });
+  } catch (error) {
+    const status = (error as { status?: unknown } | null | undefined)?.status;
+    if (status === 400) {
+      host.supportsForceQuotaRefresh = false;
+      return host.client.call('RetrieveUserQuotaSummary');
+    }
+    throw error;
+  }
+}
+
+export async function executeQuotaRefresh(
+  host: QuotaRefreshHost,
+  { forceRefresh = false, requestSeq }: ExecuteQuotaRefreshOptions = {},
+): Promise<void> {
   const epoch = host.epoch;
   const [userRes, quotaRes] = await Promise.allSettled([
     host.client.call('GetUserStatus'),
-    host.client.call('RetrieveUserQuotaSummary'),
+    callRetrieveUserQuota(host, forceRefresh),
   ]);
   if (epoch !== host.epoch) throw new Error('后台已重新连接，请等待刷新');
   if (userRes.status === 'rejected') throw userRes.reason;
@@ -132,6 +163,7 @@ export async function executeQuotaRefresh(host: QuotaRefreshHost): Promise<void>
   if (identity !== host.identity) {
     host.delegated?.reset?.(); host.transcripts?.reset(); host.client.resetTrajectories?.();
     host.quota = null; host.quotaAt = 0;
+    host.quotaForceAt = 0; host.quotaDirtyAt = 0; host.quotaSettledAt = 0;
     host.sessions.clear(); host.ancestorPending.clear(); host.ancestorRaws.clear();
     host.summaries = []; host.rawSummaries = null; host.summariesAt = 0; host.registeredAccount = null;
     host.summaryStates?.clear(); host.dirtySessionIds?.clear(); host.newlySettledSessionIds?.clear(); host.runningSessionIds?.clear();
@@ -152,8 +184,14 @@ export async function executeQuotaRefresh(host: QuotaRefreshHost): Promise<void>
   if (quotaRes.status === 'rejected') { if (accountPromise) await accountPromise; throw quotaRes.reason; }
   if (accountPromise) await accountPromise;
   if (epoch !== host.epoch || identity !== host.identity) throw new Error('后台已重新连接，请等待刷新');
+  if (requestSeq !== undefined && host.quotaCommittedSeq !== undefined && requestSeq < host.quotaCommittedSeq) {
+    return;
+  }
   host.quota = quotaMetrics(quotaRes.value);
-  host.quotaAt = Date.now();
+  const completedAt = Date.now();
+  host.quotaAt = completedAt;
+  if (forceRefresh) host.quotaForceAt = completedAt;
+  if (requestSeq !== undefined) host.quotaCommittedSeq = requestSeq;
 }
 
 async function saveSessionTimeline(
@@ -267,7 +305,19 @@ export async function runSessionPoll(
     if (delegatedConversations) fresh.delegatedConversations = delegatedConversations;
     const modelTimeline = await saveSessionTimeline(host, scope, id, raw, baseMetrics);
     if (!current()) throw new Error('后台已重新连接，请等待刷新');
+    const prevRequests = entry.data?.requests ?? 0;
+    const prevOutput = entry.data?.counts?.output ?? 0;
+    const prevRunning = entry.data?.status === 'CASCADE_RUN_STATUS_RUNNING';
     entry.data = { ...reconcileMetrics(entry.data, fresh, entry.savedAt || null), conversationId: id, modelTimeline };
+    const nextRequests = entry.data.requests ?? 0;
+    const nextOutput = entry.data.counts?.output ?? 0;
+    const nextRunning = entry.data.status === 'CASCADE_RUN_STATUS_RUNNING';
+    if (nextRequests > prevRequests || nextOutput > prevOutput || nextRunning) {
+      host.quotaDirtyAt = Date.now();
+    }
+    if ((prevRunning && !nextRunning) || (nextRequests > prevRequests && !nextRunning)) {
+      host.quotaSettledAt = Date.now();
+    }
     entry.updatedAt = Date.now();
     entry.rawWeak = readerRev !== null && raw && typeof raw === 'object' ? new WeakRef(raw) : null;
     entry.rawRev = readerRev;

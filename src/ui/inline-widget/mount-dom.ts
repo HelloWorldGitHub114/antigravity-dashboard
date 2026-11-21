@@ -216,6 +216,43 @@ export function renderWidgetTree(params: {
   return activeGroup;
 }
 
+const LAYOUT_RELEVANT_SELECTOR =
+  'button,[role="button"],a[href],input,select,[contenteditable="true"],[data-cascade-id],[data-testid="model-selector-trigger"],[id="antigravity.agentSidePanelInputBox"]';
+
+function isLayoutRelevantNode(candidate: Node): boolean {
+  if (candidate.nodeType !== 1) return false;
+  const el = candidate as Element;
+  return el.matches(LAYOUT_RELEVANT_SELECTOR) || Boolean(el.querySelector(LAYOUT_RELEVANT_SELECTOR));
+}
+
+function isRelevantMutation(record: MutationRecord, node: HTMLElement | null): boolean {
+  const target = record.target;
+  if (target === node || node?.contains(target)) return false;
+  if (!node?.isConnected) return true;
+  if (target.contains(node) || node.parentElement?.contains(target)) return true;
+  if (record.type === 'attributes') {
+    const attr = record.attributeName;
+    if (
+      attr === 'data-cascade-id' ||
+      attr === 'data-testid' ||
+      attr === 'hidden' ||
+      attr === 'inert' ||
+      attr === 'contenteditable'
+    ) {
+      return true;
+    }
+    return isLayoutRelevantNode(target);
+  }
+  for (const added of record.addedNodes) {
+    if (isLayoutRelevantNode(added)) return true;
+  }
+  for (const removed of record.removedNodes) {
+    if (removed === node || (removed.nodeType === 1 && (removed as Element).contains(node))) return true;
+    if (isLayoutRelevantNode(removed)) return true;
+  }
+  return false;
+}
+
 export function bindHostLifecycleListeners(params: {
   getNode: () => HTMLElement | null;
   scheduleLayout: () => void;
@@ -224,7 +261,7 @@ export function bindHostLifecycleListeners(params: {
   const { getNode, scheduleLayout, hideCards } = params;
   const observer = new MutationObserver((records) => {
     const node = getNode();
-    if (records.some((record) => record.target !== node && !node?.contains(record.target))) {
+    if (records.some((record) => isRelevantMutation(record, node))) {
       scheduleLayout();
     }
   });
@@ -255,8 +292,8 @@ export function bindHostLifecycleListeners(params: {
   };
   document.addEventListener('keydown', onKey);
   document.addEventListener('pointerdown', onPointer);
-  window.addEventListener('resize', scheduleLayout);
-  document.addEventListener('scroll', scheduleLayout, true);
+  window.addEventListener('resize', scheduleLayout, { passive: true });
+  document.addEventListener('scroll', scheduleLayout, { capture: true, passive: true });
 
   return () => {
     observer.disconnect();

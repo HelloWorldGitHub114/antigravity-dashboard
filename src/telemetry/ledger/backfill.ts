@@ -364,11 +364,13 @@ export class DesktopUsage {
     if (this.store?.identity && this.now() - this.lastSync > 60000 && !this.continuation) void this.sync();
     const scope = targetScope;
     const [value, accounts] = await Promise.all([this.ledger.summary(scope), this.ledger.getAccounts(scope)]);
-    return value
+        return value
       ? {
           ...value,
           viewScope: scope,
           activeAccount: this.store?.identity || scope,
+          recordingAccount: this.store?.identity || null,
+          localAccountMode: Boolean((this.store as { localFallbackActive?: boolean } | null)?.localFallbackActive),
           accounts,
           syncing: this.syncing || !!this.continuation,
           status: this.status,
@@ -383,6 +385,88 @@ export class DesktopUsage {
   async addManualUsage(scope: string, data?: ManualUsageInput): Promise<ManualUsageRecord> { return await this.ledger.addManualUsage(scope, data); }
   async deleteManualUsage(scope: string, id: string): Promise<boolean> { return await this.ledger.deleteManualUsage(scope, id); }
   async getAccounts(): Promise<UsageAccountsResult> { return await this.ledger.getAccounts(this.viewScope || 'all'); }
+
+  async getRecordingAccountState(): Promise<{
+    active: string | null;
+    selected: string | null;
+    localMode: boolean;
+    accounts: UsageAccountsResult;
+  }> {
+    const [selected, accounts] = await Promise.all([
+      this.ledger.getActiveLocalAccount(),
+      this.ledger.getAccounts(this.store?.identity || null),
+    ]);
+    return {
+      active: this.store?.identity || selected || null,
+      selected,
+      localMode: Boolean((this.store as { localFallbackActive?: boolean } | null)?.localFallbackActive),
+      accounts,
+    };
+  }
+
+  async setRecordingAccount(
+    target: string | { scope?: string | null; account?: string | null; id?: string | null } | null | undefined,
+  ): Promise<{
+    active: string | null;
+    selected: string | null;
+    localMode: boolean;
+    accounts: UsageAccountsResult;
+  }> {
+    const raw =
+      typeof target === 'string'
+        ? target
+        : target && typeof target === 'object'
+          ? (target.scope ?? target.account ?? target.id ?? null)
+          : null;
+    const scope = raw === '' || raw === 'auto' ? null : raw;
+    if (scope !== null && !HASH_RE.test(scope)) throw new Error('Invalid account scope');
+    const saved = await this.ledger.setActiveLocalAccount(scope);
+    const storeMut = this.store as { setLocalIdentity?: (next: string | null) => boolean } | null;
+    if (saved) {
+      storeMut?.setLocalIdentity?.(saved);
+    } else if (scope === null) {
+      storeMut?.setLocalIdentity?.(null);
+    }
+    this.lastSync = 0;
+    return this.getRecordingAccountState();
+  }
+
+  async addLocalAccount(input: { email?: string; name?: string; identifier?: string; activate?: boolean }): Promise<{
+    success: true;
+    account: { id: string; name: string; email?: string | null; primary?: boolean; active: boolean };
+    active: string | null;
+    selected: string | null;
+    accounts: UsageAccountsResult;
+  }> {
+    const created = await this.ledger.createLocalAccount(input);
+    const activate = input?.activate !== false;
+    if (activate) {
+      const storeMut = this.store as { setLocalIdentity?: (next: string | null) => boolean } | null;
+      storeMut?.setLocalIdentity?.(created.id);
+      this.lastSync = 0;
+    }
+    const state = await this.getRecordingAccountState();
+    return {
+      success: true,
+      account: created,
+      active: state.active,
+      selected: state.selected,
+      accounts: state.accounts,
+    };
+  }
+
+  async reassignConversation(input: {
+    conversationId?: string;
+    conversationIds?: string[];
+    targetScope: string;
+  }): Promise<{ success: true; reassigned: number; targetScope: string; conversationIds: string[] }> {
+    const ids = [
+      ...(Array.isArray(input?.conversationIds) ? input.conversationIds : []),
+      ...(typeof input?.conversationId === 'string' ? [input.conversationId] : []),
+    ];
+    const result = await this.ledger.reassignConversationOwnership(ids, input?.targetScope || '');
+    return { success: true, ...result };
+  }
 
   async switchAccount(
     target: string | { account?: string; id?: string; accountKey?: string } | null | undefined,

@@ -4,11 +4,16 @@ import type { PanelCardName, PanelDomContext } from './types.ts';
 interface MotionEntry {
   anim: Animation;
   expanding: boolean;
+  fullHeight: number;
 }
 
 export const panelMotion = new WeakMap<Element, MotionEntry>();
 
 const reducedMotionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+const MOTION_EASE = 'cubic-bezier(.2, .9, .3, 1)';
+const EXPAND_DURATION_MS = 150;
+const COLLAPSE_DURATION_MS = 120;
+const CARD_SWAP_DURATION_MS = 140;
 
 export function isMotionReduced(): boolean {
   return Boolean(
@@ -26,36 +31,66 @@ function clearMotionProps(el: HTMLElement): void {
   el.style.overflow = '';
 }
 
-export function setExpandedState(el: HTMLElement | null, expanded: boolean, animate = true): void {
-  if (!el) return;
+export function setExpandedState(
+  el: HTMLElement | null,
+  expanded: boolean,
+  animate = true,
+  onSettled?: (cancelled: boolean) => void,
+): void {
+  if (!el) {
+    onSettled?.(false);
+    return;
+  }
   const prev = panelMotion.get(el);
   const isVisible = !el.hidden && !(prev && !prev.expanding);
-  if (!prev && isVisible === expanded) return;
+  if (!prev && isVisible === expanded) {
+    onSettled?.(false);
+    return;
+  }
 
+  // Batch all DOM geometry/style reads before any writes to avoid forced reflows.
   let fromHeight: number | null = null;
   let fromOpacity: number | null = null;
+  let measuredHeight: number | null = null;
   if (prev) {
     fromHeight = el.getBoundingClientRect().height;
     fromOpacity = parseFloat(getComputedStyle(el).opacity);
-    prev.anim?.cancel();
+  } else if (!expanded && !el.hidden) {
+    measuredHeight = el.getBoundingClientRect().height;
+  }
+
+  if (prev) {
+    prev.anim.cancel();
     clearMotionProps(el);
     panelMotion.delete(el);
     if (isVisible === expanded) {
       el.hidden = !expanded;
+      onSettled?.(false);
       return;
     }
   }
+
   if (!animate || isMotionReduced() || typeof el.animate !== 'function') {
     el.hidden = !expanded;
+    onSettled?.(false);
     return;
   }
-  el.hidden = false;
-  const cssMax = parseFloat(getComputedStyle(el).maxHeight);
-  const fullHeight = Number.isFinite(cssMax) && cssMax > 0 ? Math.min(el.scrollHeight, cssMax) : el.scrollHeight;
+
+  if (el.hidden) {
+    el.hidden = false;
+  }
+  const fullHeight =
+    measuredHeight !== null && measuredHeight > 0
+      ? measuredHeight
+      : expanded
+        ? el.scrollHeight
+        : (fromHeight ?? el.scrollHeight);
   if (fullHeight <= 0) {
     el.hidden = !expanded;
+    onSettled?.(false);
     return;
   }
+
   const startHeight = fromHeight !== null ? fromHeight : expanded ? 0 : fullHeight;
   const endHeight = expanded ? fullHeight : 0;
   const startOpacity = fromOpacity !== null && Number.isFinite(fromOpacity) ? fromOpacity : expanded ? 0 : 1;
@@ -66,15 +101,16 @@ export function setExpandedState(el: HTMLElement | null, expanded: boolean, anim
       { maxHeight: `${startHeight}px`, opacity: startOpacity },
       { maxHeight: `${endHeight}px`, opacity: endOpacity },
     ],
-    { duration: expanded ? 220 : 180, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' },
+    { duration: expanded ? EXPAND_DURATION_MS : COLLAPSE_DURATION_MS, easing: MOTION_EASE, fill: 'forwards' },
   );
-  panelMotion.set(el, { anim, expanding: expanded });
+  panelMotion.set(el, { anim, expanding: expanded, fullHeight });
   const settle = (cancelled: boolean) => {
     if (panelMotion.get(el)?.anim !== anim) return;
     panelMotion.delete(el);
     if (!cancelled && !expanded) el.hidden = true;
     clearMotionProps(el);
     if (!cancelled) anim.cancel();
+    onSettled?.(cancelled);
   };
   anim.onfinish = () => settle(false);
   anim.oncancel = () => settle(true);
@@ -83,13 +119,18 @@ export function setExpandedState(el: HTMLElement | null, expanded: boolean, anim
 export function syncPinBottom(ctx: PanelDomContext): void {
   const widget = document.querySelector<HTMLElement>('.widget');
   if (!widget) return;
+  const cardStage = ctx.$('card-stage');
+  const stageClosing = cardStage ? panelMotion.get(cardStage)?.expanding === false : false;
   const subSection = ctx.$('subagents-section');
   const subToggle = ctx.$('subagents-toggle');
+  const subContainer = ctx.$('subagents-container');
+  const subClosing = subContainer ? panelMotion.get(subContainer)?.expanding === false : false;
   const subagentsOpen = Boolean(
-    subSection && !subSection.hidden && subToggle?.getAttribute('aria-expanded') === 'true',
+    subSection && !subSection.hidden && (subToggle?.getAttribute('aria-expanded') === 'true' || subClosing),
   );
-  const shouldPin = Boolean(ctx.state.selectedCard) && !subagentsOpen && !ctx.state.timelineEnabled;
-  widget.dataset.pinBottom = String(shouldPin);
+  const shouldPin = (Boolean(ctx.state.selectedCard) || stageClosing) && !subagentsOpen && !ctx.state.timelineEnabled;
+  const nextVal = String(shouldPin);
+  if (widget.dataset.pinBottom !== nextVal) widget.dataset.pinBottom = nextVal;
 }
 
 export function createDomLookup(): <T extends HTMLElement = HTMLElement>(id: string) => T | null {
@@ -117,20 +158,26 @@ export function createCardSwitcher(
     const prev = ctx.state.selectedCard;
     const nextName: PanelCardName | null = allowToggle && prev === name ? null : name;
     const changed = prev !== nextName;
-    if (changed && prev) {
-      const prevEl = ctx.$(`${prev}-card`);
-      if (prevEl) cardScroll.set(prev, prevEl.scrollTop);
-    }
 
-    ctx.state.selectedCard = nextName;
-    syncPinBottom(ctx);
-
+    // Batch all DOM reads BEFORE any writes to avoid forced synchronous layouts.
+    const prevEl = changed && prev ? ctx.$(`${prev}-card`) : null;
+    const prevScrollTop = prevEl ? prevEl.scrollTop : null;
     const cardStage = ctx.$('card-stage');
     const prevStageMotion = cardStage ? panelMotion.get(cardStage) : undefined;
     const wasHidden = !cardStage || cardStage.hidden || Boolean(prevStageMotion && !prevStageMotion.expanding);
-    const startH = !cardStage || wasHidden ? 0 : cardStage.getBoundingClientRect().height;
+    const shouldAnimate = Boolean(animate && !isMotionReduced() && typeof cardStage?.animate === 'function');
+    const startH =
+      cardStage && !wasHidden && shouldAnimate && nextName !== null && changed
+        ? cardStage.getBoundingClientRect().height
+        : 0;
 
-    if (cardStage && prevStageMotion) {
+    if (prev && prevScrollTop !== null) {
+      cardScroll.set(prev, prevScrollTop);
+    }
+
+    ctx.state.selectedCard = nextName;
+
+    if (cardStage && prevStageMotion && nextName !== null && !wasHidden) {
       prevStageMotion.anim.cancel();
       clearMotionProps(cardStage);
       panelMotion.delete(cardStage);
@@ -147,9 +194,16 @@ export function createCardSwitcher(
     }
 
     if (!nextName) {
-      if (cardStage) setExpandedState(cardStage, false, animate);
+      if (cardStage) {
+        // Defer flipping data-pin-bottom until collapse settles so lower sections don't snap upward on frame 0.
+        setExpandedState(cardStage, false, animate, () => syncPinBottom(ctx));
+      } else {
+        syncPinBottom(ctx);
+      }
       return;
     }
+
+    syncPinBottom(ctx);
 
     for (const key of ['speed', 'cache', 'context'] as const) {
       setHidden(ctx.$(`${key}-card`), nextName !== key);
@@ -159,21 +213,23 @@ export function createCardSwitcher(
 
     if (cardStage) {
       if (wasHidden) {
-        setExpandedState(cardStage, true, animate);
+        setExpandedState(cardStage, true, animate, () => syncPinBottom(ctx));
       } else {
         cardStage.hidden = false;
-        const endH = cardStage.getBoundingClientRect().height;
-        if (animate && !isMotionReduced() && typeof cardStage.animate === 'function' && Math.abs(endH - startH) > 1) {
-          cardStage.style.overflow = 'hidden';
-          stageMorphAnim = cardStage.animate(
-            [{ height: `${startH}px` }, { height: `${endH}px` }],
-            { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' },
-          );
-          stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
-            cardStage.style.overflow = '';
-            cardStage.style.height = '';
-            stageMorphAnim = null;
-          };
+        if (shouldAnimate && changed && startH > 0) {
+          const endH = cardStage.getBoundingClientRect().height;
+          if (Math.abs(endH - startH) > 1) {
+            cardStage.style.overflow = 'hidden';
+            stageMorphAnim = cardStage.animate(
+              [{ height: `${startH}px` }, { height: `${endH}px` }],
+              { duration: EXPAND_DURATION_MS, easing: MOTION_EASE },
+            );
+            stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
+              cardStage.style.overflow = '';
+              cardStage.style.height = '';
+              stageMorphAnim = null;
+            };
+          }
         }
       }
     }
@@ -181,11 +237,14 @@ export function createCardSwitcher(
     if (changed && animate && !isMotionReduced() && card?.animate) {
       cardMotion = card.animate(
         [
-          { opacity: 0.45, transform: 'translateY(5px)' },
+          { opacity: 0.25, transform: 'translateY(4px)' },
           { opacity: 1, transform: 'translateY(0)' },
         ],
-        { duration: 180, easing: 'cubic-bezier(.22,1,.36,1)' },
+        { duration: CARD_SWAP_DURATION_MS, easing: MOTION_EASE },
       );
+      cardMotion.onfinish = cardMotion.oncancel = () => {
+        cardMotion = null;
+      };
     }
   };
 

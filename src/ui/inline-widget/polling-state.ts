@@ -32,9 +32,12 @@ export class WidgetPollingState {
   data: WidgetMetricsSnapshot | null = null;
   lastConversation: string | null = null;
   private pending = false;
+  private pendingForce = false;
   private refreshRequest: Promise<void> | null = null;
+  private queuedForceRequest: Promise<void> | null = null;
   private manualRequest: ManualRefreshState | null = null;
   private requestEpoch = 0;
+  private refreshSeq = 0;
   private lastFetch = 0;
   private lastExpiredRefresh = 0;
   private disposed = false;
@@ -72,8 +75,11 @@ export class WidgetPollingState {
 
   invalidateEpoch(): void {
     this.requestEpoch++;
+    this.refreshSeq++;
     this.pending = false;
+    this.pendingForce = false;
     this.refreshRequest = null;
+    this.queuedForceRequest = null;
     this.manualRequest = null;
     this.lastFetch = 0;
   }
@@ -100,8 +106,11 @@ export class WidgetPollingState {
     if (id === this.lastConversation) return false;
     this.lastConversation = id;
     this.requestEpoch++;
+    this.refreshSeq++;
     this.pending = false;
+    this.pendingForce = false;
     this.refreshRequest = null;
+    this.queuedForceRequest = null;
     this.lastFetch = 0;
     this.callbacks.onConversationReset();
     this.manualRequest = null;
@@ -119,22 +128,38 @@ export class WidgetPollingState {
   refresh(force = false): Promise<void> | undefined {
     if (this.disposed) return undefined;
     if (this.syncConversation()) this.callbacks.onRender();
-    if (this.pending && this.refreshRequest) return this.refreshRequest;
+    if (this.pending && this.refreshRequest) {
+      if (!force || this.pendingForce) return this.refreshRequest;
+      if (this.queuedForceRequest) return this.queuedForceRequest;
+      const queuedEpoch = this.requestEpoch;
+      const nextForced = this.refreshRequest
+        .catch(() => {})
+        .then(() => {
+          this.queuedForceRequest = null;
+          if (this.disposed || queuedEpoch !== this.requestEpoch) return;
+          return this.refresh(true);
+        });
+      this.queuedForceRequest = nextForced;
+      return nextForced;
+    }
     const node = this.callbacks.getNode();
     if (!node?.isConnected) return undefined;
 
     const conversation = this.callbacks.getConversationId();
     const epoch = this.requestEpoch;
+    const seq = ++this.refreshSeq;
     const current = (): boolean =>
       !this.disposed &&
       epoch === this.requestEpoch &&
+      seq === this.refreshSeq &&
       conversation === this.callbacks.getConversationId() &&
       conversation === this.lastConversation &&
       Boolean(this.callbacks.getNode()?.isConnected);
 
     this.pending = true;
+    this.pendingForce = force;
     this.lastFetch = Date.now();
-    this.refreshRequest = (async () => {
+    const reqPromise = (async () => {
       try {
         const result = (await this.host.getMetrics({
           conversationId: conversation,
@@ -167,13 +192,15 @@ export class WidgetPollingState {
           this.callbacks.onRender();
         }
       } finally {
-        if (epoch === this.requestEpoch) {
+        if (epoch === this.requestEpoch && seq === this.refreshSeq) {
           this.pending = false;
+          this.pendingForce = false;
           this.refreshRequest = null;
         }
       }
     })();
-    return this.refreshRequest;
+    this.refreshRequest = reqPromise;
+    return reqPromise;
   }
 
   refreshManually(onBeforeRefresh: () => void): Promise<void> {
@@ -188,7 +215,6 @@ export class WidgetPollingState {
     this.manualRequest = request;
     request.promise = (async () => {
       try {
-        if (this.pending && this.refreshRequest) await this.refreshRequest;
         if (!this.disposed && epoch === this.requestEpoch) await this.refresh(true);
       } finally {
         // A fast cached response still needs visible press feedback. This does

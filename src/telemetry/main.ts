@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
@@ -13,16 +14,19 @@ import {
   type RuntimePreferencesBridge,
 } from '../ui/runtime-ui/index.ts';
 import type {
+  AddAccountRequest,
   DeleteManualUsageRequest,
   IntegrationHealth,
   ManualUsageInput,
   MetricsRequestInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  ReassignConversationRequest,
+  SetRecordingAccountRequest,
   SwitchAccountRequest,
 } from '../contracts/index.ts';
 import {
-  applyDebugLaunch,
+  applyDebugLaunchAsync,
   getDebugLaunchStatus,
   resolveHostAppVersion,
 } from '../lifecycle/debug-launch.ts';
@@ -73,10 +77,51 @@ const themeCss = (): string => createTheme().css(':root');
 const preferences = new PreferencesStore();
 const initialPrefs = await preferences.snapshot().catch(() => null);
 const initialTimeline = Boolean(initialPrefs && 'modelTimelineEnabled' in initialPrefs && initialPrefs.modelTimelineEnabled === true);
+const SCOPE_HASH = /^[a-f0-9]{64}$/;
+const createLocalIdentityResolver =
+  (ledger: UsageLedger, profileKey: string, isVertex = false) =>
+  async (recentConversationIds: readonly string[]): Promise<string | null> => {
+    const [explicitSelected, meta, ownership, dirs] = await Promise.all([
+      ledger.getActiveLocalAccount().catch(() => null),
+      ledger.accountsMeta().catch(() => ({} as Record<string, { primary?: boolean; updatedAt?: unknown }>)),
+      ledger.ownership().catch(() => ({} as Record<string, string>)),
+      ledger.scopeDirectories().catch(() => [] as string[]),
+    ]);
+    if (explicitSelected && SCOPE_HASH.test(explicitSelected)) {
+      return explicitSelected;
+    }
+    const known = new Set<string>([
+      ...Object.keys(meta).filter((k) => SCOPE_HASH.test(k)),
+      ...dirs.filter((k) => SCOPE_HASH.test(k)),
+    ]);
+    for (const cid of recentConversationIds) {
+      const owner = ownership[String(cid || '').toLowerCase()];
+      if (owner && SCOPE_HASH.test(owner) && (known.size === 0 || known.has(owner))) {
+        return owner;
+      }
+    }
+    const metaEntries = Object.entries(meta).filter(([k]) => SCOPE_HASH.test(k));
+    const primary = metaEntries.find(([, info]) => info?.primary === true);
+    if (primary) return primary[0];
+    const newest = [...metaEntries].sort((a, b) => {
+      const ta = typeof a[1]?.updatedAt === 'string' ? Date.parse(a[1].updatedAt) || 0 : 0;
+      const tb = typeof b[1]?.updatedAt === 'string' ? Date.parse(b[1].updatedAt) || 0 : 0;
+      return tb - ta;
+    })[0];
+    if (newest) return newest[0];
+    const firstDir = dirs.find((k) => SCOPE_HASH.test(k));
+    if (firstDir) return firstDir;
+    const prefix = isVertex ? 'vertex:' : 'local:';
+    return createHash('sha256').update(`${prefix}${profileKey}`).digest('hex');
+  };
+
+const proLedger = new UsageLedger(join(paths.data, 'usage-v1'));
+const proConversationsDir = defaultConversationsDir('app', paths.home);
 const store = new MetricsStore(undefined, {
   dataDir: paths.data,
   modelTimelineEnabled: initialTimeline,
   owns: () => !ownership || ownership.running,
+  resolveLocalIdentity: createLocalIdentityResolver(proLedger, paths.profile, paths.isIsolatedVertex),
 });
 let timelineEnabled = initialTimeline;
 let vertexController: LazyVertexController<MetricsStore, DesktopUsage, RuntimeUi> | null = null;
@@ -114,13 +159,30 @@ const isEnabled = (): boolean => {
   const s = runtimeSettings();
   return s.enabled !== false && s.inline !== false && s.mode !== 'legacy';
 };
-const usage = new DesktopUsage(store, undefined, {
+const usage = new DesktopUsage(store, proLedger, {
   host: 'app',
+  conversationsDir: proConversationsDir,
   owns: () => (!ownership || ownership.running) && runtimeSettings().enabled !== false,
 });
 store.onTrajectory = (scope, id, raw) => usage.ingest(scope, id, raw);
 store.onAccount = (scope, meta) => usage.ledger.registerAccount(scope, meta);
 const updater = new AppUpdater({ pluginDir: join(HERE, '..', '..'), dataDir: paths.data });
+
+type PanelMetricsRequestInput = MetricsRequestInput & { includeUsage?: boolean };
+
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const parseIncludeUsage = (value: unknown): boolean =>
+  value !== '0' && value !== 0 && value !== false;
+const staticCacheControl = (path: string, data: unknown): string => {
+  if (path === '/') return 'no-cache';
+  const version =
+    data && typeof data === 'object' && 'v' in data
+      ? (data as { v?: unknown }).v
+      : undefined;
+  return typeof version === 'string' && version.length > 0
+    ? IMMUTABLE_CACHE_CONTROL
+    : 'no-cache';
+};
 
 const hostVersion = resolveHostAppVersion(paths.appAsar);
 const createMetrics = (
@@ -128,7 +190,7 @@ const createMetrics = (
   targetUsage: DesktopUsage,
   getHealth: () => IntegrationHealth,
   targetProfile: string,
-) => async (input?: MetricsRequestInput): Promise<MetricsSnapshot> => {
+) => async (input?: PanelMetricsRequestInput): Promise<MetricsSnapshot> => {
   const [prefs, theme] = await Promise.all([livePreferences.snapshot(), readHostTheme()]);
   targetStore.setModelTimelineEnabled(Boolean(prefs && 'modelTimelineEnabled' in prefs && prefs.modelTimelineEnabled === true));
   const base = await targetStore.snapshot(input);
@@ -142,6 +204,10 @@ const createMetrics = (
       prefs && !('error' in prefs) ? prefs.debugLaunchEnabled === true : debugStatus.enabled,
     debugLaunchConfigured: debugStatus.configured,
   };
+  if (input?.includeUsage === false) {
+    const { conversations: _omitted, ...compactBase } = base;
+    return { ...compactBase, preferences: prefs, theme, integration };
+  }
   return { ...base, usage: await targetUsage.snapshot(), preferences: prefs, theme, integration };
 };
 
@@ -183,6 +249,10 @@ const proUsageBridge = {
     ),
   getAccounts: () => usage.getAccounts(),
   switchAccount: (input?: SwitchAccountRequest) => usage.switchAccount(input || { account: '' }),
+  getRecordingAccount: () => usage.getRecordingAccountState(),
+  setRecordingAccount: (input?: SetRecordingAccountRequest) => usage.setRecordingAccount(input),
+  addAccount: (input?: AddAccountRequest) => usage.addLocalAccount(input || {}),
+  reassignConversation: (input: ReassignConversationRequest) => usage.reassignConversation(input),
   getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) =>
     queryProjectUsageOverview({
       ledger: usage.ledger,
@@ -216,6 +286,10 @@ const integration = new RuntimeUi({
   deleteManualUsage: proUsageBridge.deleteManualUsage,
   getAccounts: proUsageBridge.getAccounts,
   switchAccount: proUsageBridge.switchAccount,
+  getRecordingAccount: proUsageBridge.getRecordingAccount,
+  setRecordingAccount: proUsageBridge.setRecordingAccount,
+  addAccount: proUsageBridge.addAccount,
+  reassignConversation: proUsageBridge.reassignConversation,
   getProjectUsage: proUsageBridge.getProjectUsage,
   getProjectDetail: proUsageBridge.getProjectDetail,
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
@@ -233,16 +307,20 @@ const createVertexInstance = () => {
     home: vertexHome,
     env: { ...process.env, USERPROFILE: vertexHome, HOME: vertexHome, AG_PULSE_PROFILE: vertexProfile, ANTIGRAVITY_EXECUTABLE_DATA_DIR: vDataDir },
   });
-  const vClient = new AntigravityClient({ paths: () => vPathsValue });
+  const vClient = new AntigravityClient({ paths: () => vPathsValue, env: {} });
+  const vLedger = new UsageLedger(join(vDataDir, 'usage-v1'));
+  const vConversationsDir = defaultConversationsDir('app', vertexHome);
   const vStore = new MetricsStore(vClient, {
     dataDir: vDataDir,
     modelTimelineEnabled: timelineEnabled,
     owns: () => !ownership || ownership.running,
     history: new SessionHistory(join(vDataDir, 'history-v1')),
     transcripts: new TranscriptReader({ root: join(vertexHome, '.gemini', 'antigravity', 'brain') }),
+    resolveLocalIdentity: createLocalIdentityResolver(vLedger, vertexProfile, true),
   });
-  const vertexUsage = new DesktopUsage(vStore, new UsageLedger(join(vDataDir, 'usage-v1')), {
+  const vertexUsage = new DesktopUsage(vStore, vLedger, {
     host: 'app',
+    conversationsDir: vConversationsDir,
     discoverLocal: () => discoverLocalConversations({ host: 'app', home: vertexHome }),
     owns: () => (!ownership || ownership.running) && runtimeSettings().enabled !== false,
   });
@@ -282,6 +360,22 @@ const createVertexInstance = () => {
     switchAccount: (input) => {
       vertexController?.recordActivity('runtime-ui-switch');
       return vertexUsage.switchAccount(input);
+    },
+    getRecordingAccount: () => {
+      vertexController?.recordActivity('runtime-ui-accounts');
+      return vertexUsage.getRecordingAccountState();
+    },
+    setRecordingAccount: (input) => {
+      vertexController?.recordActivity('runtime-ui-switch');
+      return vertexUsage.setRecordingAccount(input);
+    },
+    addAccount: (input) => {
+      vertexController?.recordActivity('runtime-ui-accounts');
+      return vertexUsage.addLocalAccount(input || {});
+    },
+    reassignConversation: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return vertexUsage.reassignConversation(input);
     },
     getProjectUsage: (input) => {
       vertexController?.recordActivity('runtime-ui-usage');
@@ -330,7 +424,7 @@ vertexController = new LazyVertexController({
   probeActive: probeVertexActive,
 });
 
-const runVertexMetrics = async (input?: MetricsRequestInput): Promise<MetricsSnapshot | null> => {
+const runVertexMetrics = async (input?: PanelMetricsRequestInput): Promise<MetricsSnapshot | null> => {
   const instance = await vertexController?.ensureStarted('http-metrics');
   if (!instance) return null;
   return createMetrics(instance.store, instance.usage, () => instance.integration.health, vertexProfile)(input);
@@ -356,14 +450,38 @@ if (isSidecar) {
   const cachedCss = themeCss();
   for (const [path, [file, type]] of Object.entries(staticFiles)) {
     const content = path === '/' ? cachedPage : readFileSync(join(HERE, file), 'utf8');
-    app.api(path, () => new Response(content, { contentType: type, headers: { 'Cache-Control': 'no-store' } }), 'GET');
+    app.api(
+      path,
+      (data) => new Response(content, { contentType: type, headers: { 'Cache-Control': staticCacheControl(path, data) } }),
+      'GET',
+    );
   }
-  app.page('/app.js', () => new Response(cachedApp, { contentType: 'application/javascript', headers: { 'Cache-Control': 'no-store' } }));
+  app.api(
+    '/app.js',
+    (data) =>
+      new Response(cachedApp, {
+        contentType: 'application/javascript',
+        headers: { 'Cache-Control': staticCacheControl('/app.js', data) },
+      }),
+    'GET',
+  );
   app.page('/i18n.js', () => cachedI18n);
   app.page('/theme.js', () => cachedTheme);
-  app.api('/theme.css', () => new Response(cachedCss, { contentType: 'text/css' }), 'GET');
+  app.api(
+    '/theme.css',
+    (data) =>
+      new Response(cachedCss, {
+        contentType: 'text/css',
+        headers: { 'Cache-Control': staticCacheControl('/theme.css', data) },
+      }),
+    'GET',
+  );
   app.api('/api/metrics', async (data) => {
-    const input = { conversationId: typeof data.conversationId === 'string' ? data.conversationId : null, force: data.force === true || data.force === '1' };
+    const input: PanelMetricsRequestInput = {
+      conversationId: typeof data.conversationId === 'string' ? data.conversationId : null,
+      force: data.force === true || data.force === '1' || data.force === 'true',
+      includeUsage: parseIncludeUsage(data.includeUsage),
+    };
     if (data.vertex === true || data.vertex === '1' || data.instance === 'vertex') {
       const snap = await runVertexMetrics(input);
       return snap ?? new Response(JSON.stringify({ error: 'Vertex integration unavailable', state: 'disabled' }), { status: 503, contentType: 'application/json' });
@@ -371,7 +489,11 @@ if (isSidecar) {
     return metrics(input);
   }, 'GET');
   app.api('/api/vertex/metrics', async (data) => {
-    const snap = await runVertexMetrics({ conversationId: typeof data.conversationId === 'string' ? data.conversationId : null, force: data.force === true || data.force === '1' });
+    const snap = await runVertexMetrics({
+      conversationId: typeof data.conversationId === 'string' ? data.conversationId : null,
+      force: data.force === true || data.force === '1' || data.force === 'true',
+      includeUsage: parseIncludeUsage(data.includeUsage),
+    });
     return snap ?? new Response(JSON.stringify({ error: 'Vertex integration unavailable', state: 'disabled' }), { status: 503, contentType: 'application/json' });
   }, 'GET');
   app.api('/api/vertex/integration', async () => {
@@ -393,7 +515,7 @@ if (isSidecar) {
     try {
       const enabled = (data as { enabled?: unknown } | null)?.enabled;
       if (typeof enabled !== 'boolean') throw new Error('Invalid debug launch preference');
-      const outcome = applyDebugLaunch(enabled);
+      const outcome = await applyDebugLaunchAsync(enabled);
       const saved = await livePreferences.set({ debugLaunchEnabled: enabled });
       return {
         ...outcome,
@@ -414,6 +536,37 @@ if (isSidecar) {
   }, 'POST');
   app.api('/api/usage/accounts', () => proUsageBridge.getAccounts(), 'POST');
   app.api('/api/usage/switch-account', (data) => proUsageBridge.switchAccount(data as SwitchAccountRequest), 'POST');
+  app.api('/api/usage/recording-account', () => proUsageBridge.getRecordingAccount(), 'GET');
+  app.api('/api/usage/recording-account', async (data) => {
+    try {
+      return await proUsageBridge.setRecordingAccount(data as SetRecordingAccountRequest);
+    } catch (error) {
+      return new Response(JSON.stringify({ error: errorMessage(error) || 'Failed to switch recording account' }), {
+        status: 400,
+        contentType: 'application/json',
+      });
+    }
+  }, 'POST');
+  app.api('/api/usage/accounts/add', async (data) => {
+    try {
+      return await proUsageBridge.addAccount(data as AddAccountRequest);
+    } catch (error) {
+      return new Response(JSON.stringify({ error: errorMessage(error) || 'Failed to add account' }), {
+        status: 400,
+        contentType: 'application/json',
+      });
+    }
+  }, 'POST');
+  app.api('/api/usage/reassign-conversation', async (data) => {
+    try {
+      return await proUsageBridge.reassignConversation(data as ReassignConversationRequest);
+    } catch (error) {
+      return new Response(JSON.stringify({ error: errorMessage(error) || 'Failed to reassign conversation' }), {
+        status: 400,
+        contentType: 'application/json',
+      });
+    }
+  }, 'POST');
   app.api('/api/usage/manual/add', (data) => proUsageBridge.addManualUsage(data as { scope?: string; data?: ManualUsageInput }), 'POST');
   app.api('/api/usage/manual/delete', (data) => proUsageBridge.deleteManualUsage(data as DeleteManualUsageRequest), 'POST');
   app.api('/api/usage/project-overview', (data) => proUsageBridge.getProjectUsage(data as { scope?: string | null; from?: string; to?: string }), 'POST');

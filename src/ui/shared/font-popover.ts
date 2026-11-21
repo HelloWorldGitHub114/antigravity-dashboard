@@ -31,19 +31,22 @@ export const FONT_CONTROL_CSS = `
 .font-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .font-row-label{font-size:12px;font-weight:600;color:var(--pulse-foreground);white-space:nowrap}
 .font-stepper{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--pulse-border);border-radius:8px;background:var(--pulse-control,transparent)}
-.font-step-btn{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pulse-foreground);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
-.font-step-btn:hover:not(:disabled){background:var(--pulse-surface)}
+.font-step-btn{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pulse-foreground);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;scale:1;transition:background-color 110ms ease,color 110ms ease}
+.font-step-btn:hover:not(:disabled){background:var(--pulse-hover,var(--pulse-surface))}
 .font-step-btn:disabled{opacity:.4;cursor:default}
+@media (prefers-reduced-motion: no-preference){.font-step-btn{transition:background-color 110ms ease,color 110ms ease,scale 100ms cubic-bezier(.2,.9,.3,1)}.font-step-btn:active:not(:disabled){scale:.92}}
 .font-input-wrap{display:inline-flex;align-items:center;gap:1px;padding:0 3px}
-.font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none}
+.font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none;transition:border-color 120ms ease,background-color 120ms ease}
 .font-pct-input:focus{border-color:var(--pulse-focus,var(--pulse-border));background:var(--pulse-background)}
 .font-pct-unit{font:600 11px/1 var(--pulse-mono,ui-monospace,monospace);color:var(--pulse-muted)}
 `.trim();
 
 export const FONT_POPOVER_CSS = `
 .font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
-.font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
-.font-popover:not(:popover-open){display:none}
+[popover].font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box;pointer-events:none;opacity:0;transform-origin:top right;transition:opacity 90ms ease,display 90ms,overlay 90ms;transition-behavior:allow-discrete}
+[popover].font-popover:is(:popover-open,.\\:popover-open){pointer-events:auto;opacity:1}
+@starting-style{[popover].font-popover:popover-open{opacity:0}}
+@media (prefers-reduced-motion: no-preference){[popover].font-popover{translate:0 -4px;scale:.97;transition:opacity 140ms ease,translate 150ms cubic-bezier(.2,.9,.3,1),scale 150ms cubic-bezier(.2,.9,.3,1),display 150ms,overlay 150ms;transition-behavior:allow-discrete}[popover].font-popover:is(:popover-open,.\\:popover-open){translate:0 0;scale:1}@starting-style{[popover].font-popover:popover-open{opacity:0;translate:0 -6px;scale:.96}}}
 ${FONT_CONTROL_CSS}
 `.trim();
 

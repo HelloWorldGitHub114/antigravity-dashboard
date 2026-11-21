@@ -5,7 +5,7 @@ import {
   partitionModelSlices,
   type PartitionedModelSlice,
 } from '../shared/model-donut.ts';
-import { createDomNode } from './dom-shell.ts';
+import { createDomNode, resolveUsageBridge } from './dom-shell.ts';
 import type { UsagePalette } from './palette.ts';
 import { createPopoverListbox, type PopoverListboxHandle } from './picker.ts';
 import type { TooltipController } from './tooltip.ts';
@@ -152,6 +152,8 @@ export function createProjectDetailController(
   let lastDetailIdentity = '';
   let expandAllSubagents = false;
   let showAllMain = false;
+  let reassignOpenId: string | null = null;
+  let reassignBusy = false;
   const expandedMainIds = new Set<string>();
   let renderedGroups: MergedSessionGroup[] = [];
   let renderedSlices: PartitionedModelSlice[] = [];
@@ -323,6 +325,12 @@ export function createProjectDetailController(
 
     const barsWrap = createDomNode('div', `proj-bars${showAllMain ? ' is-all' : ''}`);
     const shown = showAllMain ? renderedGroups : renderedGroups.slice(0, INITIAL_VISIBLE_MAIN);
+    const bridge = resolveUsageBridge(options);
+    const realAccounts = (state.value?.accounts || []).filter(
+      (a): a is { id: string; name: string; email?: string | null; active: boolean } =>
+        Boolean(a && typeof a === 'object' && typeof a.id === 'string' && a.id !== 'all'),
+    );
+    const canReassign = Boolean(bridge?.reassignConversation && realAccounts.length >= 2);
 
     const toggleMainRow = (groupId: string): void => {
       if (expandAllSubagents) {
@@ -361,6 +369,18 @@ export function createProjectDetailController(
         titleWrap.append(createDomNode('span', 'proj-badge', w(`含 ${group.subagents.length} 子代理`, `${group.subagents.length} sub`)));
       }
       if (group.isRemote) titleWrap.append(createDomNode('span', 'proj-badge', w('远程', 'Remote')));
+      if (canReassign) {
+        const moveBtn = createDomNode('button', 'proj-reassign-btn', w('改归属', 'Move'));
+        moveBtn.type = 'button';
+        moveBtn.title = w('将该会话（含子代理）迁移到其他账号', 'Move this conversation (and subagents) to another account');
+        moveBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          reassignOpenId = reassignOpenId === group.id ? null : group.id;
+          renderLoaded(body);
+        });
+        moveBtn.addEventListener('keydown', (e) => e.stopPropagation());
+        titleWrap.append(moveBtn);
+      }
 
       metaRow.append(titleWrap, createDomNode('span', 'proj-bar-val', `${compactNum(group.total)} (${(group.share * 100).toFixed(1)}%)`));
       const track = createDomNode('div', 'proj-bar-track');
@@ -396,6 +416,55 @@ export function createProjectDetailController(
         });
       }
       wrap.append(row);
+
+      if (canReassign && reassignOpenId === group.id) {
+        const bar = createDomNode('div', 'proj-reassign-bar');
+        bar.append(createDomNode('span', 'muted', w('迁移至账号：', 'Move to account:')));
+        const selectEl = createDomNode('select', 'proj-reassign-select');
+        const currentViewScope = state.value?.viewScope || '';
+        const defaultTarget =
+          realAccounts.find((a) => a.id !== currentViewScope)?.id || realAccounts[0]?.id || '';
+        for (const acc of realAccounts) {
+          const opt = document.createElement('option');
+          opt.value = acc.id;
+          opt.textContent = acc.email || acc.name || acc.id.slice(0, 10);
+          opt.selected = acc.id === defaultTarget;
+          selectEl.append(opt);
+        }
+        const confirmBtn = createDomNode(
+          'button',
+          'proj-action-btn is-primary',
+          reassignBusy ? w('迁移中…', 'Moving…') : w('确认迁移', 'Confirm'),
+        );
+        confirmBtn.type = 'button';
+        confirmBtn.disabled = reassignBusy;
+        const cancelBtn = createDomNode('button', 'proj-action-btn', w('取消', 'Cancel'));
+        cancelBtn.type = 'button';
+        cancelBtn.disabled = reassignBusy;
+        cancelBtn.addEventListener('click', () => {
+          reassignOpenId = null;
+          renderLoaded(body);
+        });
+        confirmBtn.addEventListener('click', () => {
+          if (reassignBusy || !selectEl.value || !bridge?.reassignConversation) return;
+          reassignBusy = true;
+          renderLoaded(body);
+          const allIds = [group.id, ...group.subagents.map((s) => s.id)];
+          void bridge
+            .reassignConversation({ conversationIds: allIds, targetScope: selectEl.value })
+            .then(async () => {
+              reassignOpenId = null;
+              await options.onRefresh();
+              if (state.selectedProjectKey) onSelectProject(state.selectedProjectKey);
+            })
+            .finally(() => {
+              reassignBusy = false;
+              renderLoaded(body);
+            });
+        });
+        bar.append(selectEl, confirmBtn, cancelBtn);
+        wrap.append(bar);
+      }
 
       if (isExpanded) {
         const subList = createDomNode('div', 'proj-subagent-list');

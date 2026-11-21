@@ -256,13 +256,19 @@ export default function installAgPulseInlineWidget(): void {
     scheduleLayout,
     hideCards: () => cards.hide(),
   });
-  const timerId = setInterval(() => {
+  const runHeartbeat = (): void => {
+    if (document.hidden) return;
     mount();
     fit();
     polling.tick(group);
     cards.position();
     polling.pollIfDue();
-  }, 1000);
+  };
+  const onVisibilityChange = (): void => {
+    if (!document.hidden) runHeartbeat();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  const timerId = setInterval(runHeartbeat, 1000);
 
   win.__agPulseOpenUsage = () => {
     if (!usageDashboard || !polling.data?.usage) return false;
@@ -275,6 +281,7 @@ export default function installAgPulseInlineWidget(): void {
     polling.dispose();
     density.dispose(node);
     clearInterval(timerId);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     cards.disposeTimers();
     if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
     unbindHost();

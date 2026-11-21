@@ -1,7 +1,54 @@
 import type { TimelineNode } from '../../contracts/index.ts';
 import { setHidden, setText } from '../../shared/dom.ts';
 import { roleLabel } from './model-mix.ts';
-import type { PanelDomContext } from './types.ts';
+import type { PanelDomContext, PanelState } from './types.ts';
+
+interface SwimlaneTipState {
+  activeSeg: HTMLElement | null;
+  lastIdx: number;
+  segByIdx: HTMLElement[];
+}
+
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+const swimlaneTipStates = new WeakMap<PanelState, SwimlaneTipState>();
+
+function getSwimlaneTipState(state: PanelState): SwimlaneTipState {
+  let entry = swimlaneTipStates.get(state);
+  if (!entry) {
+    entry = { activeSeg: null, lastIdx: -2, segByIdx: [] };
+    swimlaneTipStates.set(state, entry);
+  }
+  return entry;
+}
+
+export function registerSwimlaneSegments(state: PanelState, segments: HTMLElement[]): void {
+  const entry = getSwimlaneTipState(state);
+  entry.segByIdx = segments;
+  if (entry.activeSeg && !entry.activeSeg.isConnected) {
+    entry.activeSeg = null;
+    entry.lastIdx = -2;
+  }
+}
+
+export function resetSwimlaneTipState(state: PanelState): void {
+  const entry = getSwimlaneTipState(state);
+  entry.activeSeg?.classList.remove('is-active');
+  entry.activeSeg = null;
+  entry.lastIdx = -2;
+  entry.segByIdx = [];
+}
+
+/**
+ * Yields to the browser main thread using `scheduler.yield()` when available,
+ * falling back to `setTimeout(..., 0)` so long renders keep INP responsive.
+ */
+export function yieldToMain(): Promise<void> {
+  const win = typeof window !== 'undefined' ? (window as Window & { scheduler?: { yield?: () => Promise<void> } }) : null;
+  if (win?.scheduler && typeof win.scheduler.yield === 'function') {
+    return win.scheduler.yield();
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 export function renderTimelineStatus(ctx: PanelDomContext): void {
   const { $, state, language } = ctx;
@@ -26,7 +73,19 @@ export function formatDurationMs(ms: number | null | undefined): string {
 export function formatClock(ctx: PanelDomContext, iso: string | null | undefined): string {
   if (!iso) return '';
   const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString(ctx.language.language, { hour12: false }) : '';
+  if (!Number.isFinite(ms)) return '';
+  const lang = ctx.language.language;
+  let fmt = clockFormatters.get(lang);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(lang, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    clockFormatters.set(lang, fmt);
+  }
+  return fmt.format(ms);
 }
 
 export function timelineEventLabel(ctx: PanelDomContext, node: TimelineNode): string {
@@ -77,19 +136,30 @@ export function timelineNodeSummary(ctx: PanelDomContext, node: TimelineNode): s
 export function showSwimlaneTip(ctx: PanelDomContext, idx: number): void {
   const { $, state, language } = ctx;
   const tip = $('timeline-lane-tip');
-  const swimHost = $('timeline-swimlanes');
-  if (swimHost) {
-    for (const segEl of swimHost.querySelectorAll<HTMLElement>('.timeline-seg')) {
-      segEl.classList.toggle('is-active', Number(segEl.dataset.segIdx) === idx);
-    }
+  const tipState = getSwimlaneTipState(state);
+  const validIdx = idx >= 0 && idx < state.lastTimelineRender.length ? idx : -1;
+  let nextSeg: HTMLElement | null = validIdx >= 0 ? tipState.segByIdx[validIdx] ?? null : null;
+  if (validIdx >= 0 && (!nextSeg || !nextSeg.isConnected)) {
+    const swimHost = $('timeline-swimlanes');
+    nextSeg = swimHost?.querySelector<HTMLElement>(`.timeline-seg[data-seg-idx="${validIdx}"]`) ?? null;
   }
+
+  if (tipState.activeSeg !== nextSeg) {
+    tipState.activeSeg?.classList.remove('is-active');
+    nextSeg?.classList.add('is-active');
+    tipState.activeSeg = nextSeg;
+  }
+
+  if (validIdx === tipState.lastIdx && (validIdx < 0 || !tip?.hidden)) return;
+  tipState.lastIdx = validIdx;
+
   if (!tip) return;
-  if (idx < 0 || idx >= state.lastTimelineRender.length) {
+  if (validIdx < 0) {
     setHidden(tip, true);
     setText(tip, '');
     return;
   }
-  const seg = state.lastTimelineRender[idx];
+  const seg = state.lastTimelineRender[validIdx];
   const stepLabel = seg.stepStart != null
     ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `–${seg.stepEnd}` : ''}`
     : '';

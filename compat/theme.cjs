@@ -187,50 +187,180 @@ module.exports = function createAgPulseTheme(...args) {
     }
 
     // src/ui/theme/index.ts
+    var HEX3_RE = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
+    var HEX4_RE = /^#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])$/i;
+    var HEX6_RE = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+    var HEX8_RE = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+    var RGB_COMMA_RE = /^rgba?\(\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)(?:\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?))?\s*\)$/i;
+    var RGB_SPACE_RE = /^rgba?\(\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s+([+-]?(?:\d+\.?\d*|\.\d+)%?)\s+([+-]?(?:\d+\.?\d*|\.\d+)%?)(?:\s*\/\s*([+-]?(?:\d+\.?\d*|\.\d+)%?))?\s*\)$/i;
+    var MAX_RGB_CACHE = 256;
+    var FALLBACK_POLL_MS = 4e3;
+    var WATCHED_STYLE_PROPS = [
+      "--background",
+      "--color-background",
+      "--popover",
+      "--card",
+      "--color-card",
+      "--foreground",
+      "--color-foreground",
+      "--primary",
+      "--color-primary",
+      "background",
+      "background-color",
+      "color-scheme"
+    ];
+    function parseAlphaByte(token) {
+      if (token === void 0) return 255;
+      const isPct = token.endsWith("%");
+      const raw = parseFloat(token);
+      if (!Number.isFinite(raw)) return -1;
+      const scaled = isPct ? raw / 100 * 255 : raw * 255;
+      return Math.max(0, Math.min(255, Math.round(scaled)));
+    }
+    function parseRgbChannel(token, isPercent) {
+      const raw = parseFloat(token);
+      if (!Number.isFinite(raw)) return -1;
+      const scaled = isPercent ? raw / 100 * 255 : raw;
+      return Math.max(0, Math.min(255, Math.round(scaled)));
+    }
+    function parseFastColor(trimmed) {
+      if (trimmed.toLowerCase() === "transparent") return null;
+      const c0 = trimmed.charCodeAt(0);
+      if (c0 === 35) {
+        const len = trimmed.length;
+        if (len === 7) {
+          const m = HEX6_RE.exec(trimmed);
+          if (!m) return void 0;
+          return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+        }
+        if (len === 4) {
+          const m = HEX3_RE.exec(trimmed);
+          if (!m) return void 0;
+          return [parseInt(m[1], 16) * 17, parseInt(m[2], 16) * 17, parseInt(m[3], 16) * 17];
+        }
+        if (len === 9) {
+          const m = HEX8_RE.exec(trimmed);
+          if (!m) return void 0;
+          if (parseInt(m[4], 16) < 250) return null;
+          return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+        }
+        if (len === 5) {
+          const m = HEX4_RE.exec(trimmed);
+          if (!m) return void 0;
+          if (parseInt(m[4], 16) * 17 < 250) return null;
+          return [parseInt(m[1], 16) * 17, parseInt(m[2], 16) * 17, parseInt(m[3], 16) * 17];
+        }
+        return void 0;
+      }
+      if (c0 === 114 || c0 === 82) {
+        const m = RGB_COMMA_RE.exec(trimmed) || RGB_SPACE_RE.exec(trimmed);
+        if (!m) return void 0;
+        const p1 = m[1].endsWith("%");
+        const p2 = m[2].endsWith("%");
+        const p3 = m[3].endsWith("%");
+        if (p1 !== p2 || p2 !== p3) return void 0;
+        const alpha = parseAlphaByte(m[4]);
+        if (alpha < 0) return void 0;
+        if (alpha < 250) return null;
+        const r = parseRgbChannel(m[1], p1);
+        const g = parseRgbChannel(m[2], p2);
+        const b = parseRgbChannel(m[3], p3);
+        if (r < 0 || g < 0 || b < 0) return void 0;
+        return [r, g, b];
+      }
+      return void 0;
+    }
+    function rgbKey(color) {
+      return color ? `${color[0]},${color[1]},${color[2]}` : "";
+    }
+    function readWatchedInlineStyle(el) {
+      const style = el.style;
+      let out = "";
+      for (let i = 0; i < WATCHED_STYLE_PROPS.length; i++) {
+        out += `${style.getPropertyValue(WATCHED_STYLE_PROPS[i])}\0`;
+      }
+      return out;
+    }
     function createAgPulseTheme() {
       function attach(target, { embedded = false } = {}) {
         const media = window.matchMedia("(prefers-color-scheme: dark)");
-        const canvas = document.createElement("canvas");
-        canvas.width = 1;
-        canvas.height = 1;
-        const context = canvas.getContext("2d", { willReadFrequently: true });
+        const rgbCache = /* @__PURE__ */ new Map();
+        let context;
         let stopped = false;
         let hostTheme = {};
+        let lastSignature = null;
+        let lastTargetWatchedStyle = readWatchedInlineStyle(target);
+        let timer = null;
+        let scheduledRaf = null;
+        let scheduledMicrotask = false;
+        function getCanvasContext() {
+          if (context !== void 0) return context;
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            context = canvas.getContext("2d", { willReadFrequently: true });
+          } catch {
+            context = null;
+          }
+          return context;
+        }
+        function cacheRgb(key, value) {
+          if (rgbCache.size >= MAX_RGB_CACHE) rgbCache.clear();
+          rgbCache.set(key, value);
+          return value;
+        }
         function rgb(color) {
-          if (!color || !context || !CSS.supports("color", color)) return null;
-          context.clearRect(0, 0, 1, 1);
-          context.fillStyle = "transparent";
-          context.fillStyle = color;
-          context.fillRect(0, 0, 1, 1);
-          const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
-          if (a < 250) return null;
-          return [r, g, b];
+          if (!color) return null;
+          const trimmed = color.trim();
+          if (!trimmed) return null;
+          if (rgbCache.has(trimmed)) return rgbCache.get(trimmed) ?? null;
+          const fast = parseFastColor(trimmed);
+          if (fast !== void 0) return cacheRgb(trimmed, fast);
+          if (typeof CSS === "undefined" || typeof CSS.supports !== "function" || !CSS.supports("color", trimmed)) {
+            return cacheRgb(trimmed, null);
+          }
+          const ctx = getCanvasContext();
+          if (!ctx) return null;
+          ctx.clearRect(0, 0, 1, 1);
+          ctx.fillStyle = "transparent";
+          ctx.fillStyle = trimmed;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+          return cacheRgb(trimmed, a < 250 ? null : [r, g, b]);
         }
         function fromColor(color) {
           const values = rgb(color);
           return values ? 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2] >= 145 ? "light" : "dark" : null;
         }
-        function resolve() {
+        function collectStyles() {
+          return {
+            root: getComputedStyle(document.documentElement),
+            body: document.body ? getComputedStyle(document.body) : null,
+            parent: embedded && target.parentElement ? getComputedStyle(target.parentElement) : null
+          };
+        }
+        function resolve(styles) {
           const root = document.documentElement;
           const declared = explicitTheme(document.body) || explicitTheme(root);
           if (declared) return declared;
-          const sdk = fromColor(getComputedStyle(root).getPropertyValue("--background").trim());
+          const sdk = fromColor(styles.root.getPropertyValue("--background").trim());
           if (sdk) return sdk;
           if (embedded) {
             for (let element = target.parentElement; element; element = element.parentElement) {
               const theme = explicitTheme(element) || fromColor(getComputedStyle(element).backgroundColor);
               if (theme) return theme;
             }
-            const scheme = getComputedStyle(root).colorScheme;
+            const scheme = styles.root.colorScheme;
             if (scheme === "light" || scheme === "dark") return scheme;
           }
           if (hostTheme.mode === "light" || hostTheme.mode === "dark") return hostTheme.mode;
           return media.matches ? "dark" : "light";
         }
-        function hostColor(tokens) {
-          const elements2 = embedded ? [target.parentElement, document.body, document.documentElement] : [document.documentElement, document.body];
-          for (const element of elements2.filter((el) => Boolean(el))) {
-            const style = getComputedStyle(element);
+        function hostColor(tokens, styles) {
+          const ordered = embedded ? [styles.parent, styles.body, styles.root] : [styles.root, styles.body];
+          for (const style of ordered) {
+            if (!style) continue;
             for (const token of tokens) {
               const value = style.getPropertyValue(token).trim();
               if (!value) continue;
@@ -240,19 +370,11 @@ module.exports = function createAgPulseTheme(...args) {
           }
           return null;
         }
-        function surfaceColors(theme) {
-          let background = hostColor(["--background", "--color-background"]) || rgb(hostTheme[theme]?.background);
-          if (!background && embedded) {
-            for (let element = target.parentElement; element; element = element.parentElement) {
-              background = rgb(getComputedStyle(element).backgroundColor);
-              if (background) break;
-            }
-          }
-          if (!background) return {};
-          const bg = background;
+        function surfaceColors(bg, cardSeed, foregroundSeed) {
+          if (!bg) return {};
           const dark = luminance(bg) < 0.35;
           const end = dark ? [255, 255, 255] : [0, 0, 0];
-          let card = hostColor(["--popover", "--card", "--color-card"]) || mixRgb(bg, end, dark ? 0.05 : 0.015);
+          let card = cardSeed || mixRgb(bg, end, dark ? 0.05 : 0.015);
           const commonContrast = (candidate) => Math.max(
             ...[
               [255, 255, 255],
@@ -264,7 +386,7 @@ module.exports = function createAgPulseTheme(...args) {
           const control = mixRgb(card, end, 0.08);
           const selected = mixRgb(card, end, 0.12);
           const surfaces = [bg, card, hover, control, selected];
-          const foreground = hostColor(["--foreground", "--color-foreground"]) || rgb(hostTheme[theme]?.foregroundOverride) || rgb(PALETTES[dark ? "dark" : "light"].foreground);
+          const foreground = foregroundSeed || rgb(PALETTES[dark ? "dark" : "light"].foreground);
           const text = foreground ? rgb(readableColor(foreground, surfaces)) : null;
           const resolvedText = text ?? (dark ? [255, 255, 255] : [0, 0, 0]);
           const values = {
@@ -297,17 +419,56 @@ module.exports = function createAgPulseTheme(...args) {
             Object.entries(values).map(([key, value]) => [key, rgbToCss(value)])
           );
         }
+        function cancelScheduled() {
+          if (scheduledRaf !== null && typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(scheduledRaf);
+          }
+          scheduledRaf = null;
+          scheduledMicrotask = false;
+        }
+        function scheduleUpdate() {
+          if (stopped || scheduledRaf !== null || scheduledMicrotask) return;
+          if (typeof requestAnimationFrame === "function" && !document.hidden) {
+            scheduledRaf = requestAnimationFrame(() => {
+              scheduledRaf = null;
+              update();
+            });
+          } else {
+            scheduledMicrotask = true;
+            queueMicrotask(() => {
+              if (!scheduledMicrotask) return;
+              scheduledMicrotask = false;
+              update();
+            });
+          }
+        }
         function update() {
           if (stopped) return void 0;
-          const theme = resolve();
+          cancelScheduled();
+          const styles = collectStyles();
+          const theme = resolve(styles);
+          let bg = hostColor(["--background", "--color-background"], styles) || rgb(hostTheme[theme]?.background);
+          if (!bg && embedded) {
+            for (let element = target.parentElement; element; element = element.parentElement) {
+              bg = rgb(getComputedStyle(element).backgroundColor);
+              if (bg) break;
+            }
+          }
+          const cardSeed = bg ? hostColor(["--popover", "--card", "--color-card"], styles) : null;
+          const fgSeed = bg ? hostColor(["--foreground", "--color-foreground"], styles) || rgb(hostTheme[theme]?.foregroundOverride) : null;
+          const primary = hostColor(["--primary", "--color-primary"], styles) || rgb(hostTheme[theme]?.primary);
+          const signature = `${theme}|${rgbKey(bg)}|${rgbKey(cardSeed)}|${rgbKey(fgSeed)}|${rgbKey(primary)}`;
+          if (signature === lastSignature && target.dataset.pulseTheme === theme) {
+            return theme;
+          }
+          lastSignature = signature;
           if (target.dataset.pulseTheme !== theme) target.dataset.pulseTheme = theme;
-          const values = surfaceColors(theme);
+          const values = surfaceColors(bg, cardSeed, fgSeed);
           const surfaces = [
             values.card || PALETTES[theme].card,
             values.background || PALETTES[theme].background,
             values.control || PALETTES[theme].control
           ].map(rgb).filter((item) => item !== null);
-          const primary = hostColor(["--primary", "--color-primary"]) || rgb(hostTheme[theme]?.primary);
           if (primary) {
             values.accent = rgbToCss(primary);
             values.ring = rgbToCss(primary);
@@ -322,20 +483,45 @@ module.exports = function createAgPulseTheme(...args) {
               if (seed) values[key] = readableColor(seed, surfaces);
             }
           }
+          let wroteStyle = false;
           for (const key of Object.keys(PALETTES[theme])) {
             const property = `--pulse-${key}`;
             const value = values[key];
             if (value) {
               if (target.style.getPropertyValue(property) !== value) {
                 target.style.setProperty(property, value);
+                wroteStyle = true;
               }
             } else if (target.style.getPropertyValue(property)) {
               target.style.removeProperty(property);
+              wroteStyle = true;
             }
+          }
+          if (wroteStyle) {
+            lastTargetWatchedStyle = readWatchedInlineStyle(target);
+            observer.takeRecords();
           }
           return theme;
         }
-        const observer = new MutationObserver(update);
+        const observer = new MutationObserver((records) => {
+          if (stopped) return;
+          let relevant = false;
+          for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            if (record.type === "attributes" && record.attributeName === "style" && record.target === target) {
+              const nextWatched = readWatchedInlineStyle(target);
+              if (nextWatched !== lastTargetWatchedStyle) {
+                lastTargetWatchedStyle = nextWatched;
+                relevant = true;
+                break;
+              }
+              continue;
+            }
+            relevant = true;
+            break;
+          }
+          if (relevant) scheduleUpdate();
+        });
         const attributes = [
           "class",
           "style",
@@ -361,9 +547,33 @@ module.exports = function createAgPulseTheme(...args) {
             attributeFilter: ["href", "media", "disabled"]
           });
         }
-        media.addEventListener("change", update);
-        const timer = setInterval(update, 1500);
+        const onMediaChange = () => {
+          update();
+        };
+        const stopTimer = () => {
+          if (timer !== null) {
+            clearInterval(timer);
+            timer = null;
+          }
+        };
+        const startTimer = () => {
+          if (stopped || document.hidden || timer !== null) return;
+          timer = setInterval(update, FALLBACK_POLL_MS);
+        };
+        const onVisibilityChange = () => {
+          if (stopped) return;
+          if (document.hidden) {
+            stopTimer();
+            cancelScheduled();
+          } else {
+            update();
+            startTimer();
+          }
+        };
+        media.addEventListener("change", onMediaChange);
+        document.addEventListener("visibilitychange", onVisibilityChange);
         update();
+        startTimer();
         return {
           update,
           setHostTheme(value) {
@@ -372,9 +582,11 @@ module.exports = function createAgPulseTheme(...args) {
           },
           dispose() {
             stopped = true;
+            cancelScheduled();
             observer.disconnect();
-            media.removeEventListener("change", update);
-            clearInterval(timer);
+            media.removeEventListener("change", onMediaChange);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+            stopTimer();
           }
         };
       }

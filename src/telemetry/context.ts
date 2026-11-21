@@ -34,6 +34,7 @@ const aliases = new Map<string, string>([
   ['model_placeholder_m526', 'Gemini 4 Hydrogen (Medium)'],
   ['model_placeholder_m527', 'Gemini 4 Hydrogen (Low)'],
   ['model_placeholder_m528', 'Gemini 4 Hydrogen (XHigh)'],
+  ['model_placeholder_m532', 'Gemini 4 Neon (High)'],
   ['model_placeholder_m400', 'Claude Opus 5.5 (Low)'],
   ['model_placeholder_m401', 'Claude Opus 5.5 (Medium)'],
   ['model_placeholder_m402', 'Claude Opus 5.5 (High)'],
@@ -46,6 +47,7 @@ const aliases = new Map<string, string>([
   ['model_placeholder_m35', 'Claude Sonnet 4.6 (Thinking)'],
   ['model_placeholder_m26', 'Claude Opus 4.6 (Thinking)'],
   ['model_openai_gpt_oss_120b_medium', 'GPT-OSS 120B (Medium)'],
+  ['gemini-pro-orchestrator-neon', 'Orchestrator (Neon)'],
   ['gemini-pro-orchestrator-g1-pro', 'Orchestrator (Argon)'],
   ['gemini-flash-worker-agy', 'Gemini Flash'],
 ]);
@@ -79,7 +81,7 @@ function identify(model: unknown): { key: string | null; display: string } | nul
   if (normalized === 'gemini-flash') {
     return { key: 'gemini-flash', display: 'Gemini Flash' };
   }
-  let match = normalized.match(/^gemini-4-(argon|hydrogen|carbon)(?:-(xhigh|high|medium|low))?$/);
+  let match = normalized.match(/^gemini-4-(argon|hydrogen|carbon|neon)(?:-(xhigh|high|medium|low))?$/);
   if (match) {
     return {
       key: `gemini-4-${match[1]}`,

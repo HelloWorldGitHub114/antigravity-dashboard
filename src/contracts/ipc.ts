@@ -45,6 +45,10 @@ export type BridgeCallType =
   | 'deleteManualUsage'
   | 'getAccounts'
   | 'switchAccount'
+  | 'getRecordingAccount'
+  | 'setRecordingAccount'
+  | 'addAccount'
+  | 'reassignConversation'
   | 'getProjectUsage'
   | 'getProjectDetail';
 
@@ -182,6 +186,50 @@ export interface SwitchAccountResponse {
   error?: string;
 }
 
+export interface RecordingAccountState {
+  active: string | null;
+  selected: string | null;
+  localMode: boolean;
+  accounts: UsageAccountInfo[];
+  error?: string;
+}
+
+export interface SetRecordingAccountRequest {
+  scope?: string | null;
+  account?: string | null;
+  id?: string | null;
+}
+
+export interface AddAccountRequest {
+  email?: string;
+  name?: string;
+  identifier?: string;
+  activate?: boolean;
+}
+
+export interface AddAccountResponse {
+  success?: boolean;
+  account?: UsageAccountInfo;
+  active?: string | null;
+  selected?: string | null;
+  accounts?: UsageAccountInfo[];
+  error?: string;
+}
+
+export interface ReassignConversationRequest {
+  conversationId?: string;
+  conversationIds?: string[];
+  targetScope: string;
+}
+
+export interface ReassignConversationResponse {
+  success?: boolean;
+  reassigned?: number;
+  targetScope?: string;
+  conversationIds?: string[];
+  error?: string;
+}
+
 export interface OpenSidebarInput {
   sidecarId: string;
   uri: string;
@@ -201,6 +249,10 @@ export interface RuntimeBridgeApi {
   deleteManualUsage(input: DeleteManualUsageRequest): Promise<boolean | { error: string }>;
   getAccounts(input?: ManualUsageScopeInput): Promise<UsageAccountInfo[] | AccountsResponse>;
   switchAccount(input: SwitchAccountRequest): Promise<SwitchAccountResponse>;
+  getRecordingAccount?(): Promise<RecordingAccountState>;
+  setRecordingAccount?(input: SetRecordingAccountRequest): Promise<RecordingAccountState>;
+  addAccount?(input: AddAccountRequest): Promise<AddAccountResponse>;
+  reassignConversation?(input: ReassignConversationRequest): Promise<ReassignConversationResponse>;
   getProjectUsage?(input?: ProjectUsageRequest): Promise<ProjectUsageOverview | { error: string }>;
   getProjectDetail?(input: ProjectDetailRequest): Promise<ProjectConversationDetail | { error: string }>;
   openSidebar?(input: OpenSidebarInput): Promise<unknown> | void;

@@ -107,7 +107,9 @@ export function streamAgentStateSnapshot(
             const raw = (chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)).toString('utf8');
             const parsed = JSON.parse(raw) as { error?: { message?: string; code?: string } };
             if (parsed.error) {
-              finish(statusError(parsed.error.message || parsed.error.code || '远程会话访问受限', 403));
+              const err = statusError(parsed.error.message || parsed.error.code || '远程会话访问受限', 403);
+              Object.defineProperty(err, 'isConnectTrailer', { value: true });
+              finish(err);
             }
           } catch {
             // Ignore malformed Connect trailer frames without an error object.

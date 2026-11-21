@@ -1,5 +1,7 @@
 import type {
   AccountsResponse,
+  AddAccountRequest,
+  AddAccountResponse,
   AddManualUsageRequest,
   ClearTimelineRequest,
   ClearTimelineResult,
@@ -15,6 +17,10 @@ import type {
   ProjectDetailRequest,
   ProjectUsageOverview,
   ProjectUsageRequest,
+  ReassignConversationRequest,
+  ReassignConversationResponse,
+  RecordingAccountState,
+  SetRecordingAccountRequest,
   SwitchAccountRequest,
   SwitchAccountResponse,
   UpdatePluginRequest,
@@ -113,6 +119,10 @@ export interface RuntimeUiOptions {
     | ((input?: unknown) => Promise<UsageAccountInfo[] | AccountsResponse>)
     | null;
   switchAccount?: ((input?: SwitchAccountRequest) => Promise<SwitchAccountResponse>) | null;
+  getRecordingAccount?: (() => Promise<RecordingAccountState>) | null;
+  setRecordingAccount?: ((input?: SetRecordingAccountRequest) => Promise<RecordingAccountState>) | null;
+  addAccount?: ((input?: AddAccountRequest) => Promise<AddAccountResponse>) | null;
+  reassignConversation?: ((input: ReassignConversationRequest) => Promise<ReassignConversationResponse>) | null;
   getProjectUsage?:
     | ((input?: ProjectUsageRequest) => Promise<ProjectUsageOverview | { error: string }>)
     | null;

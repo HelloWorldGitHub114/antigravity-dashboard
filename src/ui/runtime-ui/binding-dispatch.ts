@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type {
+  AddAccountRequest,
   AddManualUsageRequest,
   ClearTimelineRequest,
   ClearTimelineResult,
@@ -11,6 +12,8 @@ import type {
   PreferencesUpdateInput,
   ProjectDetailRequest,
   ProjectUsageRequest,
+  ReassignConversationRequest,
+  SetRecordingAccountRequest,
   SwitchAccountRequest,
   UpdatePluginRequest,
 } from '../../contracts/index.ts';
@@ -26,6 +29,10 @@ const USAGE_OPERATIONS = new Set([
   'deleteManualUsage',
   'getAccounts',
   'switchAccount',
+  'getRecordingAccount',
+  'setRecordingAccount',
+  'addAccount',
+  'reassignConversation',
   'getProjectUsage',
   'getProjectDetail',
   'clearTimeline',
@@ -57,6 +64,10 @@ export interface RuntimeDispatchHost {
   deleteManualUsage?: RuntimeUiOptions['deleteManualUsage'];
   getAccounts?: RuntimeUiOptions['getAccounts'];
   switchAccount?: RuntimeUiOptions['switchAccount'];
+  getRecordingAccount?: RuntimeUiOptions['getRecordingAccount'];
+  setRecordingAccount?: RuntimeUiOptions['setRecordingAccount'];
+  addAccount?: RuntimeUiOptions['addAccount'];
+  reassignConversation?: RuntimeUiOptions['reassignConversation'];
   getProjectUsage?: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail?: RuntimeUiOptions['getProjectDetail'];
   clearTimeline?: RuntimeUiOptions['clearTimeline'];
@@ -161,6 +172,58 @@ export async function dispatchBindingCall(
       const raw = input.input as SwitchAccountRequest | undefined;
       const account = typeof raw === 'string' ? raw : raw?.account || raw?.id;
       result = { success: true, active: account, activeAccount: account };
+    }
+  } else if (input.type === 'getRecordingAccount') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    if (typeof host.getRecordingAccount === 'function') {
+      result = await host.getRecordingAccount();
+    } else {
+      const { UsageLedger } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      const [selected, accounts] = await Promise.all([
+        ledger.getActiveLocalAccount(),
+        ledger.getAccounts(null),
+      ]);
+      result = { active: selected, selected, localMode: true, accounts };
+    }
+  } else if (input.type === 'setRecordingAccount') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    if (typeof host.setRecordingAccount === 'function') {
+      result = await host.setRecordingAccount(input.input as SetRecordingAccountRequest);
+    } else {
+      const { UsageLedger } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      const raw = (input.input ?? {}) as SetRecordingAccountRequest;
+      const scope = raw.scope ?? raw.account ?? raw.id ?? null;
+      const saved = await ledger.setActiveLocalAccount(scope === 'auto' || scope === '' ? null : scope);
+      const accounts = await ledger.getAccounts(saved);
+      result = { active: saved, selected: saved, localMode: true, accounts };
+    }
+  } else if (input.type === 'addAccount') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    if (typeof host.addAccount === 'function') {
+      result = await host.addAccount(input.input as AddAccountRequest);
+    } else {
+      const { UsageLedger } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      const created = await ledger.createLocalAccount((input.input ?? {}) as AddAccountRequest);
+      const accounts = await ledger.getAccounts(created.id);
+      result = { success: true, account: created, active: created.id, selected: created.id, accounts };
+    }
+  } else if (input.type === 'reassignConversation') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    const req = (input.input ?? {}) as ReassignConversationRequest;
+    if (typeof host.reassignConversation === 'function') {
+      result = await host.reassignConversation(req);
+    } else {
+      const { UsageLedger } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      const ids = [
+        ...(Array.isArray(req.conversationIds) ? req.conversationIds : []),
+        ...(typeof req.conversationId === 'string' ? [req.conversationId] : []),
+      ];
+      const out = await ledger.reassignConversationOwnership(ids, req.targetScope || '');
+      result = { success: true, ...out };
     }
   } else if (input.type === 'getProjectUsage') {
     if (!(await host.enabled())) throw Error('Plugin disabled');

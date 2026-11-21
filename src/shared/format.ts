@@ -6,6 +6,44 @@ export interface CompactOptions {
   maxUnit?: 'B' | 'M';
 }
 
+const rateFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 1,
+});
+const countFormatters = new Map<string, Intl.NumberFormat>();
+const resetDateFormatters = new Map<FormatLanguage, Intl.DateTimeFormat>();
+
+function getCountFormatter(locale: string): Intl.NumberFormat | null {
+  let formatter = countFormatters.get(locale);
+  if (!formatter) {
+    try {
+      formatter = new Intl.NumberFormat(locale);
+      if (countFormatters.size >= 16) countFormatters.clear();
+      countFormatters.set(locale, formatter);
+    } catch {
+      return null;
+    }
+  }
+  return formatter;
+}
+
+function getResetDateFormatter(language: FormatLanguage): Intl.DateTimeFormat {
+  let formatter = resetDateFormatters.get(language);
+  if (!formatter) {
+    const locale = language === 'en' ? 'en-GB' : 'zh-CN';
+    formatter = new Intl.DateTimeFormat(locale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Shanghai',
+    });
+    resetDateFormatters.set(language, formatter);
+  }
+  return formatter;
+}
+
 /**
  * Formats a `0..1` fraction as a percentage string with 1 decimal place (or `'—'`).
  */
@@ -27,7 +65,7 @@ export function pct(fraction: number | null | undefined): string {
  */
 export function rate(value: number | null | undefined): string {
   return typeof value === 'number' && Number.isFinite(value)
-    ? value.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 })
+    ? rateFormatter.format(value)
     : '—';
 }
 
@@ -35,9 +73,9 @@ export function rate(value: number | null | undefined): string {
  * Formats an integer/count value using locale grouping (default `'en-US'`, or `'—'`).
  */
 export function count(value: number | null | undefined, locale = 'en-US'): string {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? value.toLocaleString(locale)
-    : '—';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const formatter = getCountFormatter(locale);
+  return formatter ? formatter.format(value) : value.toLocaleString(locale);
 }
 
 /**
@@ -98,16 +136,8 @@ export function resetDate(
 ): string {
   if (value === null || value === undefined) return '—';
   const date = value instanceof Date ? value : new Date(value);
-  const locale = language === 'en' ? 'en-GB' : 'zh-CN';
   return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat(locale, {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Shanghai',
-      }).format(date)
+    ? getResetDateFormatter(language).format(date)
     : '—';
 }
 
@@ -129,9 +159,11 @@ export function compact(
   if (value >= 1e3) {
     return `${(value / 1e3).toFixed(1).replace(/\.0$/, '')}K`;
   }
-  return options.localeFallback
-    ? value.toLocaleString(options.localeFallback)
-    : String(value);
+  if (options.localeFallback) {
+    const formatter = getCountFormatter(options.localeFallback);
+    return formatter ? formatter.format(value) : value.toLocaleString(options.localeFallback);
+  }
+  return String(value);
 }
 
 /**

@@ -216,6 +216,17 @@ export const EN_DICTIONARY = {
   debugLaunchFailed: 'Could not update debug launch setting',
   integrationRestartHint: 'Debug launch enabled — restart Antigravity to show the inline bottom bar; statistics remain available in this panel.',
   openUsageStats: 'Usage stats',
+  recordingAccountTitle: 'Recording account',
+  recordingAccountDesc: 'Attribute new local sessions and turns to the selected account; entering an email aligns with historical ledger hashes.',
+  recordingAccountAuto: 'Auto (by ownership / primary)',
+  recordingAccountAddBtn: '+ Add account',
+  recordingAccountInputPlaceholder: 'Enter account email (recommended) or label',
+  recordingAccountSaveBtn: 'Add & switch',
+  recordingAccountCancelBtn: 'Cancel',
+  recordingAccountStatusAuto: 'Active: Auto ({account})',
+  recordingAccountStatusPinned: 'Active: Pinned to {account}',
+  recordingAccountSaved: 'Switched recording account',
+  recordingAccountFailed: 'Could not update recording account',
 } as const;
 
 export type I18nKey = keyof typeof EN_DICTIONARY;

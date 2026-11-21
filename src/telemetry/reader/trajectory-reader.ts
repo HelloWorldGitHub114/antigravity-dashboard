@@ -3,12 +3,23 @@ import {
   readSqliteConversationMeta,
   readSqliteTrajectory,
 } from '../../platform/native-bridge.ts';
+import { isNoLocalCredentialsError } from '../client/server-discovery.ts';
 import {
   defaultConversationsDir,
   resolveLocalConversationDbPath,
 } from './local-conversations.ts';
+import { resolveLocalAntigravityDir, statSqliteDbStamp } from './local-summaries.ts';
 import { readRemoteTrajectory, scheduleRemoteBackfill } from './remote-reader.ts';
 import { extractPlanModelFromSteps, normalizeRemoteSnapshot, settled, TOOL_STEP, unavailable } from './remote-snapshot.ts';
+
+function normalizeSqliteStatus(rawStatus: unknown, summaryStatus?: unknown): string {
+  if (typeof summaryStatus === 'string' && summaryStatus.trim()) return summaryStatus.trim();
+  const s = typeof rawStatus === 'string' ? rawStatus.trim() : '';
+  if (!s) return 'CASCADE_RUN_STATUS_IDLE';
+  if (/^CASCADE_RUN_STATUS_/.test(s)) return s;
+  if (/RUNNING|GENERATING|PENDING|WAITING|QUEUED/i.test(s)) return 'CASCADE_RUN_STATUS_RUNNING';
+  return 'CASCADE_RUN_STATUS_IDLE';
+}
 
 export { normalizeRemoteSnapshot };
 import type {
@@ -159,7 +170,17 @@ export class TrajectoryReader implements RemoteReaderHost {
   ): Promise<TrajectoryResult> {
     if (!isCurrent()) throw unavailable();
     const wantTimeline = this.isTimelineEnabled({ modelTimelineEnabled });
-    const endpoint = await this.client.discover();
+    let endpoint: Record<string, unknown>;
+    let localSqliteOnly = false;
+    try {
+      endpoint = await this.client.discover();
+    } catch (discoverErr) {
+      if (!isNoLocalCredentialsError(discoverErr)) throw discoverErr;
+      const hasLocalRoot = Boolean(conversationsDir || resolveLocalAntigravityDir(this.client));
+      if (!hasLocalRoot || !isNativeAccelAvailable()) throw discoverErr;
+      endpoint = { pid: discoverErr.pid, port: discoverErr.port, csrf: '__local_sqlite__' };
+      localSqliteOnly = true;
+    }
     if (!this.endpoint) this.endpoint = endpoint;
     else if (['pid', 'port', 'csrf'].some((k) => this.endpoint![k] !== endpoint[k])) {
       this.reset();
@@ -175,14 +196,10 @@ export class TrajectoryReader implements RemoteReaderHost {
     const current = (): boolean => epoch === this.epoch && this.entries.get(id) === entry && isCurrent();
     const assertCurrent = (): void => { if (!current()) throw unavailable(); };
     const activeEntry = entry;
-    activeEntry.pending = this.loadEntry(
-      id,
-      activeEntry,
-      provided,
-      force,
-      wantTimeline,
-      assertCurrent,
-      conversationsDir,
+    activeEntry.pending = (
+      localSqliteOnly
+        ? this.loadLocalDirectEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent, conversationsDir)
+        : this.loadEntry(id, activeEntry, provided, force, wantTimeline, assertCurrent, conversationsDir)
     ).finally(() => {
       activeEntry.pending = null;
       if (!activeEntry.data && current()) this.entries.delete(id);
@@ -256,7 +273,7 @@ export class TrajectoryReader implements RemoteReaderHost {
       return null;
     }
     const meta = readSqliteConversationMeta(dbPath, id);
-    const status = resolvedSummary?.status || raw.status || 'CASCADE_RUN_STATUS_IDLE';
+    const status = normalizeSqliteStatus(raw.status, resolvedSummary?.status);
     return {
       ...raw,
       status,
@@ -264,6 +281,38 @@ export class TrajectoryReader implements RemoteReaderHost {
       numTotalGeneratorMetadata: numGens,
       ...(meta ? { trajectoryMetadata: meta } : {}),
     } as TrajectoryResult;
+  }
+
+  private async loadLocalDirectEntry(
+    id: string,
+    entry: TrajectoryCacheEntry,
+    provided: TrajectorySummaryLike | undefined,
+    force: boolean,
+    wantTimeline: boolean,
+    assertCurrent: () => void,
+    conversationsDir?: string | null,
+  ): Promise<TrajectoryResult> {
+    const dbPath = this.resolveDbPath(id, conversationsDir);
+    if (!dbPath || !isNativeAccelAvailable()) throw new Error('会话暂时没有可用统计');
+    const stamp = await statSqliteDbStamp(dbPath);
+    assertCurrent();
+    if (!stamp) throw new Error('会话暂时没有可用统计');
+    const mark = `sqlite:${stamp}`;
+    if (!force && entry.data && entry.withTimeline === wantTimeline && entry.mark === mark) {
+      entry.verifiedAt = this.client.now();
+      this.entries.delete(id);
+      this.entries.set(id, entry);
+      return entry.data;
+    }
+    const sqliteVal = this.readFromSqlite(id, dbPath, provided ?? null, wantTimeline, true);
+    assertCurrent();
+    if (!sqliteVal) throw new Error('会话暂时没有可用统计');
+    const resolvedSummary: TrajectorySummaryLike = {
+      ...(provided || {}),
+      stepCount: sqliteVal.numTotalSteps,
+      status: sqliteVal.status,
+    };
+    return this.commitSqliteEntry(id, entry, sqliteVal, resolvedSummary, mark, wantTimeline);
   }
 
   private commitSqliteEntry(

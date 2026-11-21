@@ -161,14 +161,51 @@
   }
 
   // src/shared/format.ts
+  var rateFormatter = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1
+  });
+  var countFormatters = /* @__PURE__ */ new Map();
+  var resetDateFormatters = /* @__PURE__ */ new Map();
+  function getCountFormatter(locale) {
+    let formatter = countFormatters.get(locale);
+    if (!formatter) {
+      try {
+        formatter = new Intl.NumberFormat(locale);
+        if (countFormatters.size >= 16) countFormatters.clear();
+        countFormatters.set(locale, formatter);
+      } catch {
+        return null;
+      }
+    }
+    return formatter;
+  }
+  function getResetDateFormatter(language) {
+    let formatter = resetDateFormatters.get(language);
+    if (!formatter) {
+      const locale = language === "en" ? "en-GB" : "zh-CN";
+      formatter = new Intl.DateTimeFormat(locale, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "Asia/Shanghai"
+      });
+      resetDateFormatters.set(language, formatter);
+    }
+    return formatter;
+  }
   function percent(fraction) {
     return typeof fraction === "number" && Number.isFinite(fraction) ? `${(fraction * 100).toFixed(1)}%` : "\u2014";
   }
   function rate(value) {
-    return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : "\u2014";
+    return typeof value === "number" && Number.isFinite(value) ? rateFormatter.format(value) : "\u2014";
   }
   function count(value, locale = "en-US") {
-    return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString(locale) : "\u2014";
+    if (typeof value !== "number" || !Number.isFinite(value)) return "\u2014";
+    const formatter = getCountFormatter(locale);
+    return formatter ? formatter.format(value) : value.toLocaleString(locale);
   }
   function elapsed(seconds, language = "zh-CN") {
     if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "\u2014";
@@ -197,15 +234,7 @@
   function resetDate(value, language = "zh-CN") {
     if (value === null || value === void 0) return "\u2014";
     const date = value instanceof Date ? value : new Date(value);
-    const locale = language === "en" ? "en-GB" : "zh-CN";
-    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(locale, {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: "Asia/Shanghai"
-    }).format(date) : "\u2014";
+    return Number.isFinite(date.getTime()) ? getResetDateFormatter(language).format(date) : "\u2014";
   }
   function compact(value, options = {}) {
     const fallback = options.fallback ?? "\u2014";
@@ -219,7 +248,11 @@
     if (value >= 1e3) {
       return `${(value / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
     }
-    return options.localeFallback ? value.toLocaleString(options.localeFallback) : String(value);
+    if (options.localeFallback) {
+      const formatter = getCountFormatter(options.localeFallback);
+      return formatter ? formatter.format(value) : value.toLocaleString(options.localeFallback);
+    }
+    return String(value);
   }
 
   // src/ui/i18n/dictionary-en.ts
@@ -432,7 +465,18 @@
     debugLaunchSaving: "Saving\u2026",
     debugLaunchFailed: "Could not update debug launch setting",
     integrationRestartHint: "Debug launch enabled \u2014 restart Antigravity to show the inline bottom bar; statistics remain available in this panel.",
-    openUsageStats: "Usage stats"
+    openUsageStats: "Usage stats",
+    recordingAccountTitle: "Recording account",
+    recordingAccountDesc: "Attribute new local sessions and turns to the selected account; entering an email aligns with historical ledger hashes.",
+    recordingAccountAuto: "Auto (by ownership / primary)",
+    recordingAccountAddBtn: "+ Add account",
+    recordingAccountInputPlaceholder: "Enter account email (recommended) or label",
+    recordingAccountSaveBtn: "Add & switch",
+    recordingAccountCancelBtn: "Cancel",
+    recordingAccountStatusAuto: "Active: Auto ({account})",
+    recordingAccountStatusPinned: "Active: Pinned to {account}",
+    recordingAccountSaved: "Switched recording account",
+    recordingAccountFailed: "Could not update recording account"
   };
 
   // src/ui/i18n/dictionary-zh.ts
@@ -645,7 +689,18 @@
     debugLaunchSaving: "\u6B63\u5728\u4FDD\u5B58\u2026",
     debugLaunchFailed: "\u66F4\u65B0\u8C03\u8BD5\u542F\u52A8\u8BBE\u7F6E\u5931\u8D25",
     integrationRestartHint: "\u5DF2\u5F00\u542F\u8C03\u8BD5\u542F\u52A8\uFF0C\u91CD\u542F Antigravity \u540E\u5373\u53EF\u663E\u793A\u8F93\u5165\u6846\u5E95\u680F\uFF1B\u5F53\u524D\u9762\u677F\u7EDF\u8BA1\u4ECD\u53EF\u6B63\u5E38\u4F7F\u7528\u3002",
-    openUsageStats: "\u7528\u91CF\u7EDF\u8BA1"
+    openUsageStats: "\u7528\u91CF\u7EDF\u8BA1",
+    recordingAccountTitle: "\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
+    recordingAccountDesc: "\u672C\u5730\u6A21\u5F0F\u4E0B\u65B0\u5BF9\u8BDD\u4E0E\u7EED\u804A\u8BF7\u6C42\u5F52\u5165\u6240\u9009\u8D26\u53F7\uFF1B\u8F93\u5165\u767B\u5F55\u90AE\u7BB1\u53EF\u4E0E\u5386\u53F2\u8D26\u672C\u54C8\u5E0C\u5B8C\u5168\u5BF9\u9F50\u3002",
+    recordingAccountAuto: "\u81EA\u52A8\uFF08\u6309\u4F1A\u8BDD\u5F52\u5C5E / \u4E3B\u8D26\u53F7\uFF09",
+    recordingAccountAddBtn: "+ \u6DFB\u52A0\u8D26\u53F7",
+    recordingAccountInputPlaceholder: "\u8F93\u5165\u767B\u5F55\u90AE\u7BB1\uFF08\u63A8\u8350\uFF09\u6216\u81EA\u5B9A\u4E49\u540D\u79F0",
+    recordingAccountSaveBtn: "\u6DFB\u52A0\u5E76\u5207\u6362",
+    recordingAccountCancelBtn: "\u53D6\u6D88",
+    recordingAccountStatusAuto: "\u5F53\u524D\uFF1A\u81EA\u52A8\u5339\u914D ({account})",
+    recordingAccountStatusPinned: "\u5F53\u524D\uFF1A\u5DF2\u9501\u5B9A\u81F3 {account}",
+    recordingAccountSaved: "\u5DF2\u5207\u6362\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
+    recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25"
   };
 
   // src/ui/i18n/index.ts
@@ -655,6 +710,7 @@
     "\u68C0\u6D4B\u5230\u591A\u4E2A Antigravity \u5B9E\u4F8B\uFF0C\u8BF7\u4FDD\u7559\u4E00\u4E2A": "Multiple Antigravity instances detected. Keep one open.",
     "\u672A\u627E\u5230 Antigravity \u684C\u9762\u540E\u53F0": "Antigravity desktop backend was not found.",
     "\u5F53\u524D\u7248\u672C\u672A\u63D0\u4F9B\u53EF\u7528\u7684\u672C\u5730\u68C0\u6D4B\u51ED\u636E": "Local metrics credentials are unavailable in this version.",
+    "\u5F53\u524D\u7248\u672C\u5DF2\u5207\u6362\u4E3A\u672C\u5730 SQLite \u76F4\u8BFB\u6A21\u5F0F\uFF08\u4E91\u7AEF\u989D\u5EA6\u6682\u4E0D\u53EF\u7528\uFF09": "Local SQLite mode active (cloud quota unavailable in this host version).",
     "\u7B49\u5F85 Antigravity \u672C\u5730\u63A5\u53E3\u542F\u52A8": "Waiting for the local Antigravity API.",
     "\u672A\u627E\u5230 Antigravity \u8BED\u8A00\u670D\u52A1\u65E5\u5FD7\uFF0C\u8BF7\u68C0\u67E5\u65E5\u5FD7\u8DEF\u5F84": "Antigravity language-server log was not found. Check the log path.",
     "\u4F1A\u8BDD\u6682\u65F6\u6CA1\u6709\u53EF\u7528\u7EDF\u8BA1": "No statistics are available for this conversation yet.",
@@ -864,18 +920,21 @@
 .font-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .font-row-label{font-size:12px;font-weight:600;color:var(--pulse-foreground);white-space:nowrap}
 .font-stepper{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--pulse-border);border-radius:8px;background:var(--pulse-control,transparent)}
-.font-step-btn{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pulse-foreground);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
-.font-step-btn:hover:not(:disabled){background:var(--pulse-surface)}
+.font-step-btn{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--pulse-foreground);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;scale:1;transition:background-color 110ms ease,color 110ms ease}
+.font-step-btn:hover:not(:disabled){background:var(--pulse-hover,var(--pulse-surface))}
 .font-step-btn:disabled{opacity:.4;cursor:default}
+@media (prefers-reduced-motion: no-preference){.font-step-btn{transition:background-color 110ms ease,color 110ms ease,scale 100ms cubic-bezier(.2,.9,.3,1)}.font-step-btn:active:not(:disabled){scale:.92}}
 .font-input-wrap{display:inline-flex;align-items:center;gap:1px;padding:0 3px}
-.font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none}
+.font-pct-input{width:34px;height:20px;padding:0 2px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--pulse-foreground);font:700 12px/1 var(--pulse-mono,ui-monospace,monospace);text-align:right;font-variant-numeric:tabular-nums;outline:none;transition:border-color 120ms ease,background-color 120ms ease}
 .font-pct-input:focus{border-color:var(--pulse-focus,var(--pulse-border));background:var(--pulse-background)}
 .font-pct-unit{font:600 11px/1 var(--pulse-mono,ui-monospace,monospace);color:var(--pulse-muted)}
 `.trim();
   var FONT_POPOVER_CSS = `
 .font-trigger{min-width:30px;padding:0 6px;font:700 12px/1 var(--pulse-font,system-ui,-apple-system,sans-serif);letter-spacing:-.02em}
-.font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box}
-.font-popover:not(:popover-open){display:none}
+[popover].font-popover{position:fixed;inset:auto;margin:0;padding:10px 12px;min-width:236px;max-width:calc(100vw - 16px);border:1px solid var(--pulse-border);border-radius:12px;background:var(--pulse-popover,var(--pulse-background));color:var(--pulse-foreground);box-shadow:0 12px 32px #0004;font:12px/1.35 var(--pulse-font,system-ui,-apple-system,sans-serif);z-index:20;box-sizing:border-box;pointer-events:none;opacity:0;transform-origin:top right;transition:opacity 90ms ease,display 90ms,overlay 90ms;transition-behavior:allow-discrete}
+[popover].font-popover:is(:popover-open,.\\:popover-open){pointer-events:auto;opacity:1}
+@starting-style{[popover].font-popover:popover-open{opacity:0}}
+@media (prefers-reduced-motion: no-preference){[popover].font-popover{translate:0 -4px;scale:.97;transition:opacity 140ms ease,translate 150ms cubic-bezier(.2,.9,.3,1),scale 150ms cubic-bezier(.2,.9,.3,1),display 150ms,overlay 150ms;transition-behavior:allow-discrete}[popover].font-popover:is(:popover-open,.\\:popover-open){translate:0 0;scale:1}@starting-style{[popover].font-popover:popover-open{opacity:0;translate:0 -6px;scale:.96}}}
 ${FONT_CONTROL_CSS}
 `.trim();
   function clampPct(raw) {
@@ -1329,50 +1388,180 @@ ${FONT_CONTROL_CSS}
   }
 
   // src/ui/theme/index.ts
+  var HEX3_RE = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
+  var HEX4_RE = /^#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])$/i;
+  var HEX6_RE = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+  var HEX8_RE = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+  var RGB_COMMA_RE = /^rgba?\(\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)(?:\s*,\s*([+-]?(?:\d+\.?\d*|\.\d+)%?))?\s*\)$/i;
+  var RGB_SPACE_RE = /^rgba?\(\s*([+-]?(?:\d+\.?\d*|\.\d+)%?)\s+([+-]?(?:\d+\.?\d*|\.\d+)%?)\s+([+-]?(?:\d+\.?\d*|\.\d+)%?)(?:\s*\/\s*([+-]?(?:\d+\.?\d*|\.\d+)%?))?\s*\)$/i;
+  var MAX_RGB_CACHE = 256;
+  var FALLBACK_POLL_MS = 4e3;
+  var WATCHED_STYLE_PROPS = [
+    "--background",
+    "--color-background",
+    "--popover",
+    "--card",
+    "--color-card",
+    "--foreground",
+    "--color-foreground",
+    "--primary",
+    "--color-primary",
+    "background",
+    "background-color",
+    "color-scheme"
+  ];
+  function parseAlphaByte(token) {
+    if (token === void 0) return 255;
+    const isPct = token.endsWith("%");
+    const raw = parseFloat(token);
+    if (!Number.isFinite(raw)) return -1;
+    const scaled = isPct ? raw / 100 * 255 : raw * 255;
+    return Math.max(0, Math.min(255, Math.round(scaled)));
+  }
+  function parseRgbChannel(token, isPercent) {
+    const raw = parseFloat(token);
+    if (!Number.isFinite(raw)) return -1;
+    const scaled = isPercent ? raw / 100 * 255 : raw;
+    return Math.max(0, Math.min(255, Math.round(scaled)));
+  }
+  function parseFastColor(trimmed) {
+    if (trimmed.toLowerCase() === "transparent") return null;
+    const c0 = trimmed.charCodeAt(0);
+    if (c0 === 35) {
+      const len = trimmed.length;
+      if (len === 7) {
+        const m = HEX6_RE.exec(trimmed);
+        if (!m) return void 0;
+        return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+      }
+      if (len === 4) {
+        const m = HEX3_RE.exec(trimmed);
+        if (!m) return void 0;
+        return [parseInt(m[1], 16) * 17, parseInt(m[2], 16) * 17, parseInt(m[3], 16) * 17];
+      }
+      if (len === 9) {
+        const m = HEX8_RE.exec(trimmed);
+        if (!m) return void 0;
+        if (parseInt(m[4], 16) < 250) return null;
+        return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+      }
+      if (len === 5) {
+        const m = HEX4_RE.exec(trimmed);
+        if (!m) return void 0;
+        if (parseInt(m[4], 16) * 17 < 250) return null;
+        return [parseInt(m[1], 16) * 17, parseInt(m[2], 16) * 17, parseInt(m[3], 16) * 17];
+      }
+      return void 0;
+    }
+    if (c0 === 114 || c0 === 82) {
+      const m = RGB_COMMA_RE.exec(trimmed) || RGB_SPACE_RE.exec(trimmed);
+      if (!m) return void 0;
+      const p1 = m[1].endsWith("%");
+      const p2 = m[2].endsWith("%");
+      const p3 = m[3].endsWith("%");
+      if (p1 !== p2 || p2 !== p3) return void 0;
+      const alpha = parseAlphaByte(m[4]);
+      if (alpha < 0) return void 0;
+      if (alpha < 250) return null;
+      const r = parseRgbChannel(m[1], p1);
+      const g = parseRgbChannel(m[2], p2);
+      const b = parseRgbChannel(m[3], p3);
+      if (r < 0 || g < 0 || b < 0) return void 0;
+      return [r, g, b];
+    }
+    return void 0;
+  }
+  function rgbKey(color) {
+    return color ? `${color[0]},${color[1]},${color[2]}` : "";
+  }
+  function readWatchedInlineStyle(el2) {
+    const style = el2.style;
+    let out = "";
+    for (let i = 0; i < WATCHED_STYLE_PROPS.length; i++) {
+      out += `${style.getPropertyValue(WATCHED_STYLE_PROPS[i])}\0`;
+    }
+    return out;
+  }
   function createAgPulseTheme() {
     function attach(target, { embedded = false } = {}) {
       const media = window.matchMedia("(prefers-color-scheme: dark)");
-      const canvas = document.createElement("canvas");
-      canvas.width = 1;
-      canvas.height = 1;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
+      const rgbCache = /* @__PURE__ */ new Map();
+      let context;
       let stopped = false;
       let hostTheme = {};
+      let lastSignature = null;
+      let lastTargetWatchedStyle = readWatchedInlineStyle(target);
+      let timer = null;
+      let scheduledRaf = null;
+      let scheduledMicrotask = false;
+      function getCanvasContext() {
+        if (context !== void 0) return context;
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 1;
+          canvas.height = 1;
+          context = canvas.getContext("2d", { willReadFrequently: true });
+        } catch {
+          context = null;
+        }
+        return context;
+      }
+      function cacheRgb(key, value) {
+        if (rgbCache.size >= MAX_RGB_CACHE) rgbCache.clear();
+        rgbCache.set(key, value);
+        return value;
+      }
       function rgb(color) {
-        if (!color || !context || !CSS.supports("color", color)) return null;
-        context.clearRect(0, 0, 1, 1);
-        context.fillStyle = "transparent";
-        context.fillStyle = color;
-        context.fillRect(0, 0, 1, 1);
-        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
-        if (a < 250) return null;
-        return [r, g, b];
+        if (!color) return null;
+        const trimmed = color.trim();
+        if (!trimmed) return null;
+        if (rgbCache.has(trimmed)) return rgbCache.get(trimmed) ?? null;
+        const fast = parseFastColor(trimmed);
+        if (fast !== void 0) return cacheRgb(trimmed, fast);
+        if (typeof CSS === "undefined" || typeof CSS.supports !== "function" || !CSS.supports("color", trimmed)) {
+          return cacheRgb(trimmed, null);
+        }
+        const ctx = getCanvasContext();
+        if (!ctx) return null;
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = "transparent";
+        ctx.fillStyle = trimmed;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return cacheRgb(trimmed, a < 250 ? null : [r, g, b]);
       }
       function fromColor(color) {
         const values = rgb(color);
         return values ? 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2] >= 145 ? "light" : "dark" : null;
       }
-      function resolve() {
+      function collectStyles() {
+        return {
+          root: getComputedStyle(document.documentElement),
+          body: document.body ? getComputedStyle(document.body) : null,
+          parent: embedded && target.parentElement ? getComputedStyle(target.parentElement) : null
+        };
+      }
+      function resolve(styles) {
         const root = document.documentElement;
         const declared = explicitTheme(document.body) || explicitTheme(root);
         if (declared) return declared;
-        const sdk = fromColor(getComputedStyle(root).getPropertyValue("--background").trim());
+        const sdk = fromColor(styles.root.getPropertyValue("--background").trim());
         if (sdk) return sdk;
         if (embedded) {
           for (let element = target.parentElement; element; element = element.parentElement) {
             const theme = explicitTheme(element) || fromColor(getComputedStyle(element).backgroundColor);
             if (theme) return theme;
           }
-          const scheme = getComputedStyle(root).colorScheme;
+          const scheme = styles.root.colorScheme;
           if (scheme === "light" || scheme === "dark") return scheme;
         }
         if (hostTheme.mode === "light" || hostTheme.mode === "dark") return hostTheme.mode;
         return media.matches ? "dark" : "light";
       }
-      function hostColor(tokens) {
-        const elements2 = embedded ? [target.parentElement, document.body, document.documentElement] : [document.documentElement, document.body];
-        for (const element of elements2.filter((el2) => Boolean(el2))) {
-          const style = getComputedStyle(element);
+      function hostColor(tokens, styles) {
+        const ordered = embedded ? [styles.parent, styles.body, styles.root] : [styles.root, styles.body];
+        for (const style of ordered) {
+          if (!style) continue;
           for (const token of tokens) {
             const value = style.getPropertyValue(token).trim();
             if (!value) continue;
@@ -1382,19 +1571,11 @@ ${FONT_CONTROL_CSS}
         }
         return null;
       }
-      function surfaceColors(theme) {
-        let background = hostColor(["--background", "--color-background"]) || rgb(hostTheme[theme]?.background);
-        if (!background && embedded) {
-          for (let element = target.parentElement; element; element = element.parentElement) {
-            background = rgb(getComputedStyle(element).backgroundColor);
-            if (background) break;
-          }
-        }
-        if (!background) return {};
-        const bg = background;
+      function surfaceColors(bg, cardSeed, foregroundSeed) {
+        if (!bg) return {};
         const dark = luminance(bg) < 0.35;
         const end = dark ? [255, 255, 255] : [0, 0, 0];
-        let card = hostColor(["--popover", "--card", "--color-card"]) || mixRgb(bg, end, dark ? 0.05 : 0.015);
+        let card = cardSeed || mixRgb(bg, end, dark ? 0.05 : 0.015);
         const commonContrast = (candidate) => Math.max(
           ...[
             [255, 255, 255],
@@ -1406,7 +1587,7 @@ ${FONT_CONTROL_CSS}
         const control = mixRgb(card, end, 0.08);
         const selected = mixRgb(card, end, 0.12);
         const surfaces = [bg, card, hover, control, selected];
-        const foreground = hostColor(["--foreground", "--color-foreground"]) || rgb(hostTheme[theme]?.foregroundOverride) || rgb(PALETTES[dark ? "dark" : "light"].foreground);
+        const foreground = foregroundSeed || rgb(PALETTES[dark ? "dark" : "light"].foreground);
         const text = foreground ? rgb(readableColor(foreground, surfaces)) : null;
         const resolvedText = text ?? (dark ? [255, 255, 255] : [0, 0, 0]);
         const values = {
@@ -1439,17 +1620,56 @@ ${FONT_CONTROL_CSS}
           Object.entries(values).map(([key, value]) => [key, rgbToCss(value)])
         );
       }
+      function cancelScheduled() {
+        if (scheduledRaf !== null && typeof cancelAnimationFrame === "function") {
+          cancelAnimationFrame(scheduledRaf);
+        }
+        scheduledRaf = null;
+        scheduledMicrotask = false;
+      }
+      function scheduleUpdate() {
+        if (stopped || scheduledRaf !== null || scheduledMicrotask) return;
+        if (typeof requestAnimationFrame === "function" && !document.hidden) {
+          scheduledRaf = requestAnimationFrame(() => {
+            scheduledRaf = null;
+            update();
+          });
+        } else {
+          scheduledMicrotask = true;
+          queueMicrotask(() => {
+            if (!scheduledMicrotask) return;
+            scheduledMicrotask = false;
+            update();
+          });
+        }
+      }
       function update() {
         if (stopped) return void 0;
-        const theme = resolve();
+        cancelScheduled();
+        const styles = collectStyles();
+        const theme = resolve(styles);
+        let bg = hostColor(["--background", "--color-background"], styles) || rgb(hostTheme[theme]?.background);
+        if (!bg && embedded) {
+          for (let element = target.parentElement; element; element = element.parentElement) {
+            bg = rgb(getComputedStyle(element).backgroundColor);
+            if (bg) break;
+          }
+        }
+        const cardSeed = bg ? hostColor(["--popover", "--card", "--color-card"], styles) : null;
+        const fgSeed = bg ? hostColor(["--foreground", "--color-foreground"], styles) || rgb(hostTheme[theme]?.foregroundOverride) : null;
+        const primary = hostColor(["--primary", "--color-primary"], styles) || rgb(hostTheme[theme]?.primary);
+        const signature = `${theme}|${rgbKey(bg)}|${rgbKey(cardSeed)}|${rgbKey(fgSeed)}|${rgbKey(primary)}`;
+        if (signature === lastSignature && target.dataset.pulseTheme === theme) {
+          return theme;
+        }
+        lastSignature = signature;
         if (target.dataset.pulseTheme !== theme) target.dataset.pulseTheme = theme;
-        const values = surfaceColors(theme);
+        const values = surfaceColors(bg, cardSeed, fgSeed);
         const surfaces = [
           values.card || PALETTES[theme].card,
           values.background || PALETTES[theme].background,
           values.control || PALETTES[theme].control
         ].map(rgb).filter((item) => item !== null);
-        const primary = hostColor(["--primary", "--color-primary"]) || rgb(hostTheme[theme]?.primary);
         if (primary) {
           values.accent = rgbToCss(primary);
           values.ring = rgbToCss(primary);
@@ -1464,20 +1684,45 @@ ${FONT_CONTROL_CSS}
             if (seed) values[key] = readableColor(seed, surfaces);
           }
         }
+        let wroteStyle = false;
         for (const key of Object.keys(PALETTES[theme])) {
           const property = `--pulse-${key}`;
           const value = values[key];
           if (value) {
             if (target.style.getPropertyValue(property) !== value) {
               target.style.setProperty(property, value);
+              wroteStyle = true;
             }
           } else if (target.style.getPropertyValue(property)) {
             target.style.removeProperty(property);
+            wroteStyle = true;
           }
+        }
+        if (wroteStyle) {
+          lastTargetWatchedStyle = readWatchedInlineStyle(target);
+          observer.takeRecords();
         }
         return theme;
       }
-      const observer = new MutationObserver(update);
+      const observer = new MutationObserver((records) => {
+        if (stopped) return;
+        let relevant = false;
+        for (let i = 0; i < records.length; i++) {
+          const record = records[i];
+          if (record.type === "attributes" && record.attributeName === "style" && record.target === target) {
+            const nextWatched = readWatchedInlineStyle(target);
+            if (nextWatched !== lastTargetWatchedStyle) {
+              lastTargetWatchedStyle = nextWatched;
+              relevant = true;
+              break;
+            }
+            continue;
+          }
+          relevant = true;
+          break;
+        }
+        if (relevant) scheduleUpdate();
+      });
       const attributes = [
         "class",
         "style",
@@ -1503,9 +1748,33 @@ ${FONT_CONTROL_CSS}
           attributeFilter: ["href", "media", "disabled"]
         });
       }
-      media.addEventListener("change", update);
-      const timer = setInterval(update, 1500);
+      const onMediaChange = () => {
+        update();
+      };
+      const stopTimer = () => {
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+        }
+      };
+      const startTimer = () => {
+        if (stopped || document.hidden || timer !== null) return;
+        timer = setInterval(update, FALLBACK_POLL_MS);
+      };
+      const onVisibilityChange = () => {
+        if (stopped) return;
+        if (document.hidden) {
+          stopTimer();
+          cancelScheduled();
+        } else {
+          update();
+          startTimer();
+        }
+      };
+      media.addEventListener("change", onMediaChange);
+      document.addEventListener("visibilitychange", onVisibilityChange);
       update();
+      startTimer();
       return {
         update,
         setHostTheme(value) {
@@ -1514,9 +1783,11 @@ ${FONT_CONTROL_CSS}
         },
         dispose() {
           stopped = true;
+          cancelScheduled();
           observer.disconnect();
-          media.removeEventListener("change", update);
-          clearInterval(timer);
+          media.removeEventListener("change", onMediaChange);
+          document.removeEventListener("visibilitychange", onVisibilityChange);
+          stopTimer();
         }
       };
     }
@@ -1524,7 +1795,7 @@ ${FONT_CONTROL_CSS}
   }
 
   // src/ui/usage-modal/usage.css
-  var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { transition: none !important; animation: none !important; }\n  button:active, .heat button:not(:disabled):hover, .heat button:not(:disabled):focus-visible { transform: none !important; }\n}\n';
+  var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-reassign-btn { flex: none; padding: 0 6px; height: 19px; line-height: 17px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); cursor: pointer; }\n.proj-reassign-btn:hover { color: var(--pulse-foreground); border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }\n.proj-reassign-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 7px 4px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-reassign-select { flex: 1; min-width: 120px; height: 24px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--pulse-border); background: var(--pulse-background); color: var(--pulse-foreground); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-action-btn.is-primary { background: var(--pulse-accent); border-color: var(--pulse-accent); color: #fff; }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .other-models:not([hidden]),\n  .hourly-content:not([hidden]) { animation: none !important; }\n  .bar-segment,\n  .proj-bar-fill,\n  .hourly-chevron,\n  .picker-chevron,\n  .year-chevron,\n  .proj-bar-caret,\n  .hourly-pt,\n  .proj-donut-seg { transition: opacity 100ms ease !important; }\n  .modal-layer,\n  .modal-card,\n  .tip { transition: opacity 90ms ease !important; }\n  .heat button { transition: background-color 140ms ease !important; }\n  button,\n  #usage-intro-done { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease !important; }\n  button:active,\n  #usage-intro-done:active,\n  .heat button:not(:disabled):hover,\n  .heat button:not(:disabled):focus-visible { transform: none !important; scale: none !important; }\n}\n';
 
   // src/ui/usage-modal/usage-sections.css
   var usage_sections_default = `:host {
@@ -1615,14 +1886,20 @@ select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 
 .year-trigger:hover, .year-trigger[aria-expanded=true] { background: var(--pulse-hover); }
 .year-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }
 .year-trigger[aria-expanded=true] .year-chevron { transform: rotate(180deg); }
-.year-menu { position: fixed; inset: auto; margin: 0; padding: 5px; width: 112px; max-height: 232px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); transform-origin: top right; opacity: 1; transform: scale(1); transition: opacity 140ms ease, transform 160ms cubic-bezier(.23, 1, .32, 1); }
+.year-menu { position: fixed; inset: auto; margin: 0; padding: 5px; width: 112px; max-height: 232px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); transform-origin: top right; pointer-events: none; opacity: 0; transition: opacity 90ms ease, display 90ms, overlay 90ms; transition-behavior: allow-discrete; }
+.year-menu:is(:popover-open, .\\:popover-open) { pointer-events: auto; opacity: 1; }
 .year-menu::backdrop { background: transparent; pointer-events: none; }
 .year-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); font-variant-numeric: tabular-nums; }
 .year-option:hover, .year-option:focus-visible { background: var(--pulse-hover); }
 .year-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }
 .year-check { color: var(--pulse-accent); width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
 .year-option[aria-selected=true] .year-check { opacity: 1; }
-@starting-style { .year-menu:popover-open { opacity: 0; transform: scale(.97); } }
+@starting-style { .year-menu:popover-open { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .year-menu { scale: .97; transition: opacity 130ms ease, scale 150ms cubic-bezier(.2, .9, .3, 1), display 150ms, overlay 150ms; transition-behavior: allow-discrete; }
+  .year-menu:is(:popover-open, .\\:popover-open) { scale: 1; }
+  @starting-style { .year-menu:popover-open { opacity: 0; scale: .96; } }
+}
 
 .usage-intro { margin: 18px 0 0; padding: 17px 20px 14px; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); }
 .usage-intro[hidden] { display: none; }
@@ -1649,8 +1926,8 @@ select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 
   function resolveUsageBridge(options) {
     return options?.bridge || window.agPulseBridge || window.agPulseHost;
   }
-  var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;border-radius:18px;opacity:1;transition:opacity 150ms cubic-bezier(.22,1,.36,1)}@media(max-width:640px){#usage-dashboard{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:12px}}@media(max-width:480px){#usage-dashboard{width:100vw;height:100dvh;border-radius:0;border-width:0}}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:auto;transition:opacity 150ms ease}@starting-style{#usage-dashboard:popover-open{opacity:.05}#usage-dashboard:popover-open::backdrop{opacity:0}}@media(prefers-reduced-motion:reduce){#usage-dashboard,#usage-dashboard::backdrop{transition:none}}";
-  var DIALOG_STYLE = "box-sizing:border-box;overflow:hidden;visibility:visible;pointer-events:auto;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
+  var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;border-radius:18px;pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0}}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open])::backdrop{pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open::backdrop,#usage-dashboard[open]::backdrop{opacity:0}}@media(prefers-reduced-motion:no-preference){#usage-dashboard{scale:.98;transition:opacity 140ms ease,scale 150ms cubic-bezier(.2,.9,.3,1),display 150ms,overlay 150ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){scale:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0;scale:.975}}#usage-dashboard::backdrop{transition:opacity 140ms ease,display 140ms,overlay 140ms;transition-behavior:allow-discrete}}@media(max-width:640px){#usage-dashboard{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:12px}}@media(max-width:480px){#usage-dashboard{width:100vw;height:100dvh;border-radius:0;border-width:0}}";
+  var DIALOG_STYLE = "box-sizing:border-box;overflow:hidden;visibility:visible;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
   var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
   var INTRO_MARKUP = '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
   function createDomNode(tag, className = "", content) {
@@ -3665,6 +3942,8 @@ ${FONT_POPOVER_CSS}`;
     let lastDetailIdentity = "";
     let expandAllSubagents = false;
     let showAllMain = false;
+    let reassignOpenId = null;
+    let reassignBusy = false;
     const expandedMainIds = /* @__PURE__ */ new Set();
     let renderedGroups = [];
     let renderedSlices = [];
@@ -3821,6 +4100,11 @@ ${FONT_POPOVER_CSS}`;
       barPanel.append(barHead);
       const barsWrap = createDomNode("div", `proj-bars${showAllMain ? " is-all" : ""}`);
       const shown = showAllMain ? renderedGroups : renderedGroups.slice(0, INITIAL_VISIBLE_MAIN);
+      const bridge = resolveUsageBridge(options);
+      const realAccounts = (state.value?.accounts || []).filter(
+        (a) => Boolean(a && typeof a === "object" && typeof a.id === "string" && a.id !== "all")
+      );
+      const canReassign = Boolean(bridge?.reassignConversation && realAccounts.length >= 2);
       const toggleMainRow = (groupId) => {
         if (expandAllSubagents) {
           expandAllSubagents = false;
@@ -3855,6 +4139,18 @@ ${FONT_POPOVER_CSS}`;
           titleWrap.append(createDomNode("span", "proj-badge", w(`\u542B ${group.subagents.length} \u5B50\u4EE3\u7406`, `${group.subagents.length} sub`)));
         }
         if (group.isRemote) titleWrap.append(createDomNode("span", "proj-badge", w("\u8FDC\u7A0B", "Remote")));
+        if (canReassign) {
+          const moveBtn = createDomNode("button", "proj-reassign-btn", w("\u6539\u5F52\u5C5E", "Move"));
+          moveBtn.type = "button";
+          moveBtn.title = w("\u5C06\u8BE5\u4F1A\u8BDD\uFF08\u542B\u5B50\u4EE3\u7406\uFF09\u8FC1\u79FB\u5230\u5176\u4ED6\u8D26\u53F7", "Move this conversation (and subagents) to another account");
+          moveBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            reassignOpenId = reassignOpenId === group.id ? null : group.id;
+            renderLoaded(body);
+          });
+          moveBtn.addEventListener("keydown", (e) => e.stopPropagation());
+          titleWrap.append(moveBtn);
+        }
         metaRow.append(titleWrap, createDomNode("span", "proj-bar-val", `${compactNum(group.total)} (${(group.share * 100).toFixed(1)}%)`));
         const track = createDomNode("div", "proj-bar-track");
         const fill = createDomNode("div", "proj-bar-fill");
@@ -3888,6 +4184,50 @@ ${FONT_POPOVER_CSS}`;
           });
         }
         wrap.append(row);
+        if (canReassign && reassignOpenId === group.id) {
+          const bar = createDomNode("div", "proj-reassign-bar");
+          bar.append(createDomNode("span", "muted", w("\u8FC1\u79FB\u81F3\u8D26\u53F7\uFF1A", "Move to account:")));
+          const selectEl = createDomNode("select", "proj-reassign-select");
+          const currentViewScope = state.value?.viewScope || "";
+          const defaultTarget = realAccounts.find((a) => a.id !== currentViewScope)?.id || realAccounts[0]?.id || "";
+          for (const acc of realAccounts) {
+            const opt = document.createElement("option");
+            opt.value = acc.id;
+            opt.textContent = acc.email || acc.name || acc.id.slice(0, 10);
+            opt.selected = acc.id === defaultTarget;
+            selectEl.append(opt);
+          }
+          const confirmBtn = createDomNode(
+            "button",
+            "proj-action-btn is-primary",
+            reassignBusy ? w("\u8FC1\u79FB\u4E2D\u2026", "Moving\u2026") : w("\u786E\u8BA4\u8FC1\u79FB", "Confirm")
+          );
+          confirmBtn.type = "button";
+          confirmBtn.disabled = reassignBusy;
+          const cancelBtn = createDomNode("button", "proj-action-btn", w("\u53D6\u6D88", "Cancel"));
+          cancelBtn.type = "button";
+          cancelBtn.disabled = reassignBusy;
+          cancelBtn.addEventListener("click", () => {
+            reassignOpenId = null;
+            renderLoaded(body);
+          });
+          confirmBtn.addEventListener("click", () => {
+            if (reassignBusy || !selectEl.value || !bridge?.reassignConversation) return;
+            reassignBusy = true;
+            renderLoaded(body);
+            const allIds = [group.id, ...group.subagents.map((s) => s.id)];
+            void bridge.reassignConversation({ conversationIds: allIds, targetScope: selectEl.value }).then(async () => {
+              reassignOpenId = null;
+              await options.onRefresh();
+              if (state.selectedProjectKey) onSelectProject(state.selectedProjectKey);
+            }).finally(() => {
+              reassignBusy = false;
+              renderLoaded(body);
+            });
+          });
+          bar.append(selectEl, confirmBtn, cancelBtn);
+          wrap.append(bar);
+        }
         if (isExpanded) {
           const subList = createDomNode("div", "proj-subagent-list");
           const subBase = group.total || 1;
@@ -5081,6 +5421,10 @@ ${FONT_POPOVER_CSS}`;
   // src/ui/panel-webview/dom-motion.ts
   var panelMotion = /* @__PURE__ */ new WeakMap();
   var reducedMotionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+  var MOTION_EASE = "cubic-bezier(.2, .9, .3, 1)";
+  var EXPAND_DURATION_MS = 150;
+  var COLLAPSE_DURATION_MS = 120;
+  var CARD_SWAP_DURATION_MS = 140;
   function isMotionReduced() {
     return Boolean(
       reducedMotionQuery?.matches || document.documentElement.classList.contains("motion-reduced") || document.body.classList.contains("motion-reduced") || document.querySelector(".widget")?.classList.contains("motion-reduced")
@@ -5092,33 +5436,48 @@ ${FONT_POPOVER_CSS}`;
     el2.style.opacity = "";
     el2.style.overflow = "";
   }
-  function setExpandedState(el2, expanded, animate = true) {
-    if (!el2) return;
+  function setExpandedState(el2, expanded, animate = true, onSettled) {
+    if (!el2) {
+      onSettled?.(false);
+      return;
+    }
     const prev = panelMotion.get(el2);
     const isVisible = !el2.hidden && !(prev && !prev.expanding);
-    if (!prev && isVisible === expanded) return;
+    if (!prev && isVisible === expanded) {
+      onSettled?.(false);
+      return;
+    }
     let fromHeight = null;
     let fromOpacity = null;
+    let measuredHeight = null;
     if (prev) {
       fromHeight = el2.getBoundingClientRect().height;
       fromOpacity = parseFloat(getComputedStyle(el2).opacity);
-      prev.anim?.cancel();
+    } else if (!expanded && !el2.hidden) {
+      measuredHeight = el2.getBoundingClientRect().height;
+    }
+    if (prev) {
+      prev.anim.cancel();
       clearMotionProps(el2);
       panelMotion.delete(el2);
       if (isVisible === expanded) {
         el2.hidden = !expanded;
+        onSettled?.(false);
         return;
       }
     }
     if (!animate || isMotionReduced() || typeof el2.animate !== "function") {
       el2.hidden = !expanded;
+      onSettled?.(false);
       return;
     }
-    el2.hidden = false;
-    const cssMax = parseFloat(getComputedStyle(el2).maxHeight);
-    const fullHeight = Number.isFinite(cssMax) && cssMax > 0 ? Math.min(el2.scrollHeight, cssMax) : el2.scrollHeight;
+    if (el2.hidden) {
+      el2.hidden = false;
+    }
+    const fullHeight = measuredHeight !== null && measuredHeight > 0 ? measuredHeight : expanded ? el2.scrollHeight : fromHeight ?? el2.scrollHeight;
     if (fullHeight <= 0) {
       el2.hidden = !expanded;
+      onSettled?.(false);
       return;
     }
     const startHeight = fromHeight !== null ? fromHeight : expanded ? 0 : fullHeight;
@@ -5131,15 +5490,16 @@ ${FONT_POPOVER_CSS}`;
         { maxHeight: `${startHeight}px`, opacity: startOpacity },
         { maxHeight: `${endHeight}px`, opacity: endOpacity }
       ],
-      { duration: expanded ? 220 : 180, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards" }
+      { duration: expanded ? EXPAND_DURATION_MS : COLLAPSE_DURATION_MS, easing: MOTION_EASE, fill: "forwards" }
     );
-    panelMotion.set(el2, { anim, expanding: expanded });
+    panelMotion.set(el2, { anim, expanding: expanded, fullHeight });
     const settle = (cancelled) => {
       if (panelMotion.get(el2)?.anim !== anim) return;
       panelMotion.delete(el2);
       if (!cancelled && !expanded) el2.hidden = true;
       clearMotionProps(el2);
       if (!cancelled) anim.cancel();
+      onSettled?.(cancelled);
     };
     anim.onfinish = () => settle(false);
     anim.oncancel = () => settle(true);
@@ -5147,13 +5507,18 @@ ${FONT_POPOVER_CSS}`;
   function syncPinBottom(ctx) {
     const widget = document.querySelector(".widget");
     if (!widget) return;
+    const cardStage = ctx.$("card-stage");
+    const stageClosing = cardStage ? panelMotion.get(cardStage)?.expanding === false : false;
     const subSection = ctx.$("subagents-section");
     const subToggle = ctx.$("subagents-toggle");
+    const subContainer = ctx.$("subagents-container");
+    const subClosing = subContainer ? panelMotion.get(subContainer)?.expanding === false : false;
     const subagentsOpen = Boolean(
-      subSection && !subSection.hidden && subToggle?.getAttribute("aria-expanded") === "true"
+      subSection && !subSection.hidden && (subToggle?.getAttribute("aria-expanded") === "true" || subClosing)
     );
-    const shouldPin = Boolean(ctx.state.selectedCard) && !subagentsOpen && !ctx.state.timelineEnabled;
-    widget.dataset.pinBottom = String(shouldPin);
+    const shouldPin = (Boolean(ctx.state.selectedCard) || stageClosing) && !subagentsOpen && !ctx.state.timelineEnabled;
+    const nextVal = String(shouldPin);
+    if (widget.dataset.pinBottom !== nextVal) widget.dataset.pinBottom = nextVal;
   }
   function createDomLookup() {
     const domCache = /* @__PURE__ */ new Map();
@@ -5176,17 +5541,18 @@ ${FONT_POPOVER_CSS}`;
       const prev = ctx.state.selectedCard;
       const nextName = allowToggle && prev === name ? null : name;
       const changed = prev !== nextName;
-      if (changed && prev) {
-        const prevEl = ctx.$(`${prev}-card`);
-        if (prevEl) cardScroll.set(prev, prevEl.scrollTop);
-      }
-      ctx.state.selectedCard = nextName;
-      syncPinBottom(ctx);
+      const prevEl = changed && prev ? ctx.$(`${prev}-card`) : null;
+      const prevScrollTop = prevEl ? prevEl.scrollTop : null;
       const cardStage = ctx.$("card-stage");
       const prevStageMotion = cardStage ? panelMotion.get(cardStage) : void 0;
       const wasHidden = !cardStage || cardStage.hidden || Boolean(prevStageMotion && !prevStageMotion.expanding);
-      const startH = !cardStage || wasHidden ? 0 : cardStage.getBoundingClientRect().height;
-      if (cardStage && prevStageMotion) {
+      const shouldAnimate = Boolean(animate && !isMotionReduced() && typeof cardStage?.animate === "function");
+      const startH = cardStage && !wasHidden && shouldAnimate && nextName !== null && changed ? cardStage.getBoundingClientRect().height : 0;
+      if (prev && prevScrollTop !== null) {
+        cardScroll.set(prev, prevScrollTop);
+      }
+      ctx.state.selectedCard = nextName;
+      if (cardStage && prevStageMotion && nextName !== null && !wasHidden) {
         prevStageMotion.anim.cancel();
         clearMotionProps(cardStage);
         panelMotion.delete(cardStage);
@@ -5201,9 +5567,14 @@ ${FONT_POPOVER_CSS}`;
         chip.tabIndex = selected || !nextName && chip.dataset.card === (name ?? "speed") ? 0 : -1;
       }
       if (!nextName) {
-        if (cardStage) setExpandedState(cardStage, false, animate);
+        if (cardStage) {
+          setExpandedState(cardStage, false, animate, () => syncPinBottom(ctx));
+        } else {
+          syncPinBottom(ctx);
+        }
         return;
       }
+      syncPinBottom(ctx);
       for (const key of ["speed", "cache", "context"]) {
         setHidden(ctx.$(`${key}-card`), nextName !== key);
       }
@@ -5211,32 +5582,37 @@ ${FONT_POPOVER_CSS}`;
       if (card && changed) card.scrollTop = cardScroll.get(nextName) ?? 0;
       if (cardStage) {
         if (wasHidden) {
-          setExpandedState(cardStage, true, animate);
+          setExpandedState(cardStage, true, animate, () => syncPinBottom(ctx));
         } else {
           cardStage.hidden = false;
-          const endH = cardStage.getBoundingClientRect().height;
-          if (animate && !isMotionReduced() && typeof cardStage.animate === "function" && Math.abs(endH - startH) > 1) {
-            cardStage.style.overflow = "hidden";
-            stageMorphAnim = cardStage.animate(
-              [{ height: `${startH}px` }, { height: `${endH}px` }],
-              { duration: 220, easing: "cubic-bezier(.22,1,.36,1)" }
-            );
-            stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
-              cardStage.style.overflow = "";
-              cardStage.style.height = "";
-              stageMorphAnim = null;
-            };
+          if (shouldAnimate && changed && startH > 0) {
+            const endH = cardStage.getBoundingClientRect().height;
+            if (Math.abs(endH - startH) > 1) {
+              cardStage.style.overflow = "hidden";
+              stageMorphAnim = cardStage.animate(
+                [{ height: `${startH}px` }, { height: `${endH}px` }],
+                { duration: EXPAND_DURATION_MS, easing: MOTION_EASE }
+              );
+              stageMorphAnim.onfinish = stageMorphAnim.oncancel = () => {
+                cardStage.style.overflow = "";
+                cardStage.style.height = "";
+                stageMorphAnim = null;
+              };
+            }
           }
         }
       }
       if (changed && animate && !isMotionReduced() && card?.animate) {
         cardMotion = card.animate(
           [
-            { opacity: 0.45, transform: "translateY(5px)" },
+            { opacity: 0.25, transform: "translateY(4px)" },
             { opacity: 1, transform: "translateY(0)" }
           ],
-          { duration: 180, easing: "cubic-bezier(.22,1,.36,1)" }
+          { duration: CARD_SWAP_DURATION_MS, easing: MOTION_EASE }
         );
+        cardMotion.onfinish = cardMotion.oncancel = () => {
+          cardMotion = null;
+        };
       }
     };
     for (const chip of chips) {
@@ -5258,6 +5634,42 @@ ${FONT_POPOVER_CSS}`;
   }
 
   // src/ui/panel-webview/model-mix.ts
+  var modelMixCaches = /* @__PURE__ */ new WeakMap();
+  function getModelMixCache(state) {
+    let cache = modelMixCaches.get(state);
+    if (!cache) {
+      cache = {
+        segments: /* @__PURE__ */ new Map(),
+        rows: /* @__PURE__ */ new Map(),
+        scopeBtns: null,
+        metricBtns: null,
+        activeSeg: null,
+        activeRow: null,
+        pressedRow: null,
+        lastCenterSig: null
+      };
+      modelMixCaches.set(state, cache);
+    }
+    return cache;
+  }
+  function createMixRow(modelId) {
+    const row = createEl("button", {
+      type: "button",
+      class: "model-mix-row",
+      "data-model-id": modelId
+    });
+    const top = createEl("div", { class: "model-mix-row-top" });
+    const left = createEl("span", { class: "model-mix-row-id" });
+    const dot = createEl("span", { class: "model-mix-dot" });
+    const name = createEl("span", { class: "model-mix-name" });
+    const badge = createEl("span", { class: "model-mix-role" });
+    left.append(dot, name, badge);
+    const share = createEl("span", { class: "model-mix-share" });
+    top.append(left, share);
+    const stats = createEl("div", { class: "model-mix-stats" });
+    row.append(top, stats);
+    return { row, dot, name, badge, share, stats };
+  }
   function roleLabel(ctx, role) {
     const t = ctx.language.t;
     if (role === "plan") return t("modelRolePlan");
@@ -5272,33 +5684,51 @@ ${FONT_POPOVER_CSS}`;
     const list = $("model-mix-list");
     const wrap = $("model-mix-ring-wrap");
     if (!svg || !list) return;
+    const cache = getModelMixCache(state);
     const focusId = state.mixHoverId || state.mixActiveId;
     const focused = focusId ? state.mixDisplayModels.find((m) => m.id === focusId) : null;
     svg.classList.toggle("has-focus", Boolean(focused));
-    for (const seg of svg.querySelectorAll(".model-mix-segment")) {
-      seg.classList.toggle("is-active", Boolean(focused && seg.dataset.modelId === focused.id));
+    const nextSeg = focused ? cache.segments.get(focused.id) ?? null : null;
+    if (cache.activeSeg !== nextSeg) {
+      cache.activeSeg?.classList.remove("is-active");
+      nextSeg?.classList.add("is-active");
+      cache.activeSeg = nextSeg;
     }
-    for (const row of list.querySelectorAll(".model-mix-row")) {
-      const active = Boolean(focused && row.dataset.modelId === focused.id);
-      row.classList.toggle("is-active", active);
-      setAttr(row, "aria-pressed", String(state.mixActiveId === row.dataset.modelId));
+    const nextRow = focused ? cache.rows.get(focused.id)?.row ?? null : null;
+    if (cache.activeRow !== nextRow) {
+      cache.activeRow?.classList.remove("is-active");
+      nextRow?.classList.add("is-active");
+      cache.activeRow = nextRow;
+    }
+    const nextPressedRow = state.mixActiveId ? cache.rows.get(state.mixActiveId)?.row ?? null : null;
+    if (cache.pressedRow !== nextPressedRow) {
+      if (cache.pressedRow) setAttr(cache.pressedRow, "aria-pressed", "false");
+      if (nextPressedRow) setAttr(nextPressedRow, "aria-pressed", "true");
+      cache.pressedRow = nextPressedRow;
     }
     if (focused) {
       const pctText = `${Math.round(focused.share * 100)}%`;
-      setText($("model-mix-center-value"), pctText);
-      setText(
-        $("model-mix-center-label"),
-        state.mixMetric === "calls" ? t("modelCallsCount", { count: focused.value }) : `${compact(focused.value)} \xB7 ${focused.name}`
-      );
-      setAttr(wrap, "title", `${focused.name} (${pctText})`);
+      const labelText = state.mixMetric === "calls" ? t("modelCallsCount", { count: focused.value }) : `${compact(focused.value)} \xB7 ${focused.name}`;
+      const titleText = `${focused.name} (${pctText})`;
+      const centerSig = `F|${pctText}|${labelText}|${titleText}`;
+      if (centerSig !== cache.lastCenterSig) {
+        cache.lastCenterSig = centerSig;
+        setText($("model-mix-center-value"), pctText);
+        setText($("model-mix-center-label"), labelText);
+        setAttr(wrap, "title", titleText);
+      }
     } else {
-      const total = state.mixDisplayModels.reduce((sum, item) => sum + item.value, 0);
-      setText($("model-mix-center-value"), state.mixMetric === "calls" ? count(total) : compact(total));
-      setText(
-        $("model-mix-center-label"),
-        state.mixMetric === "calls" ? t("modelCallsUnit") : t("modelMixModelsCount", { count: state.mixDisplayModels.length })
-      );
-      setAttr(wrap, "title", "");
+      let total = 0;
+      for (const item of state.mixDisplayModels) total += item.value;
+      const valText = state.mixMetric === "calls" ? count(total) : compact(total);
+      const labelText = state.mixMetric === "calls" ? t("modelCallsUnit") : t("modelMixModelsCount", { count: state.mixDisplayModels.length });
+      const centerSig = `T|${valText}|${labelText}`;
+      if (centerSig !== cache.lastCenterSig) {
+        cache.lastCenterSig = centerSig;
+        setText($("model-mix-center-value"), valText);
+        setText($("model-mix-center-label"), labelText);
+        setAttr(wrap, "title", "");
+      }
     }
   }
   function renderModelMix(ctx, speed) {
@@ -5314,16 +5744,23 @@ ${FONT_POPOVER_CSS}`;
       state.mixDisplayModels = [];
       return;
     }
+    const cache = getModelMixCache(state);
     setHidden(mixSection, false);
     const hasSubagents = Boolean((speed?.taskUsage?.subagents ?? 0) > 0 && taskModels.length > 0);
     const scopeGroup = $("model-mix-scope");
     setHidden(scopeGroup, !hasSubagents);
     const effectiveScope = !hasSubagents ? "session" : state.mixScopeManual ? state.mixScope : sessionModels.length < 2 && taskModels.length >= 2 ? "task" : state.mixScope;
     state.mixScope = effectiveScope;
-    for (const btn of mixSection.querySelectorAll("[data-mix-scope]")) {
+    if (!cache.scopeBtns || cache.scopeBtns.some((b) => !b.isConnected)) {
+      cache.scopeBtns = [...mixSection.querySelectorAll("[data-mix-scope]")];
+    }
+    if (!cache.metricBtns || cache.metricBtns.some((b) => !b.isConnected)) {
+      cache.metricBtns = [...mixSection.querySelectorAll("[data-mix-metric]")];
+    }
+    for (const btn of cache.scopeBtns) {
       setAttr(btn, "aria-pressed", String(btn.dataset.mixScope === effectiveScope));
     }
-    for (const btn of mixSection.querySelectorAll("[data-mix-metric]")) {
+    for (const btn of cache.metricBtns) {
       setAttr(btn, "aria-pressed", String(btn.dataset.mixMetric === state.mixMetric));
     }
     const rawModels = effectiveScope === "task" && taskModels.length ? taskModels : sessionModels;
@@ -5340,74 +5777,113 @@ ${FONT_POPOVER_CSS}`;
     }
     state.lastMixSig = sig;
     state.mixDisplayModels = display;
+    cache.lastCenterSig = null;
     if (state.mixActiveId && !display.some((m) => m.id === state.mixActiveId)) state.mixActiveId = null;
     if (state.mixHoverId && !display.some((m) => m.id === state.mixHoverId)) state.mixHoverId = null;
     const segHost = $("model-mix-segments");
     const listHost = $("model-mix-list");
     if (segHost) {
-      segHost.textContent = "";
+      const desiredSegIds = /* @__PURE__ */ new Set();
+      for (const item of display) {
+        if (item.share > 0) desiredSegIds.add(item.id);
+      }
+      for (const [id, circle] of cache.segments) {
+        if (!desiredSegIds.has(id)) {
+          if (cache.activeSeg === circle) cache.activeSeg = null;
+          circle.remove();
+          cache.segments.delete(id);
+        }
+      }
+      for (const child of [...segHost.children]) {
+        const mid = child.dataset?.modelId;
+        if (!mid || !cache.segments.has(mid)) child.remove();
+      }
       let offset = 0;
+      let cursor = segHost.firstElementChild;
       for (const item of display) {
         if (item.share <= 0) continue;
         const pct = item.share * 100;
-        segHost.appendChild(
-          createDonutSegment({
+        const dasharray = `${pct.toFixed(3)} ${Math.max(0, 100 - pct).toFixed(3)}`;
+        const dashoffset = String(100 - offset);
+        const ariaLabel = `${item.name} (${Math.round(pct)}%)`;
+        let circle = cache.segments.get(item.id);
+        if (!circle) {
+          circle = createDonutSegment({
             cx: 19,
             cy: 19,
             r: 15.9154943,
             pathLength: 100,
             className: "model-mix-segment",
             color: item.color,
-            dasharray: `${pct.toFixed(3)} ${Math.max(0, 100 - pct).toFixed(3)}`,
-            dashoffset: String(100 - offset),
+            dasharray,
+            dashoffset,
             modelId: item.id,
             tabIndex: 0,
             role: "button",
-            ariaLabel: `${item.name} (${Math.round(pct)}%)`
-          })
-        );
+            ariaLabel
+          });
+          cache.segments.set(item.id, circle);
+        } else {
+          setAttr(circle, "stroke-dasharray", dasharray);
+          setAttr(circle, "stroke-dashoffset", dashoffset);
+          setAttr(circle, "aria-label", ariaLabel);
+          setStyle(circle, "stroke", item.color);
+        }
+        if (circle !== cursor) {
+          segHost.insertBefore(circle, cursor);
+        } else {
+          cursor = cursor.nextElementSibling;
+        }
         offset += pct;
       }
     }
     if (listHost) {
-      listHost.textContent = "";
+      const desiredRowIds = new Set(display.map((m) => m.id));
+      for (const [id, ref] of cache.rows) {
+        if (!desiredRowIds.has(id)) {
+          if (cache.activeRow === ref.row) cache.activeRow = null;
+          if (cache.pressedRow === ref.row) cache.pressedRow = null;
+          ref.row.remove();
+          cache.rows.delete(id);
+        }
+      }
+      for (const child of [...listHost.children]) {
+        const mid = child.dataset?.modelId;
+        if (!mid || !cache.rows.has(mid)) child.remove();
+      }
+      let cursor = listHost.firstElementChild;
       for (const item of display) {
         const pctText = `${Math.round(item.share * 100)}%`;
-        const row = createEl("button", {
-          type: "button",
-          class: "model-mix-row",
-          "data-model-id": item.id
-        });
         const statTok = state.mixMetric === "output" ? item.outputTokens : item.totalTokens;
+        const roleText = roleLabel(ctx, item.role);
+        const roleAttr = item.role || "model";
+        let ref = cache.rows.get(item.id);
+        if (!ref) {
+          ref = createMixRow(item.id);
+          setAttr(ref.row, "aria-pressed", String(state.mixActiveId === item.id));
+          cache.rows.set(item.id, ref);
+        }
         setAttr(
-          row,
+          ref.row,
           "title",
-          `${item.name} \xB7 ${roleLabel(ctx, item.role)} \xB7 ${count(item.totalTokens)} tok / ${count(item.outputTokens)} out / ${t("modelCallsCount", { count: item.requests || 0 })}`
+          `${item.name} \xB7 ${roleText} \xB7 ${count(item.totalTokens)} tok / ${count(item.outputTokens)} out / ${t("modelCallsCount", { count: item.requests || 0 })}`
         );
-        const top = createEl("div", { class: "model-mix-row-top" });
-        const left = createEl("span", { class: "model-mix-row-id" });
-        const dot = createEl("span", { class: "model-mix-dot" });
-        dot.style.background = item.color;
-        const name = createEl("span", { class: "model-mix-name", text: item.name });
-        const badge = createEl("span", {
-          class: "model-mix-role",
-          "data-role": item.role || "model",
-          text: roleLabel(ctx, item.role)
-        });
-        left.append(dot, name, badge);
-        const share = createEl("span", { class: "model-mix-share", text: pctText });
-        top.append(left, share);
-        const stats = createEl("div", {
-          class: "model-mix-stats",
-          text: `${compact(statTok)} tok \xB7 ${t("modelCallsCount", { count: item.requests || 0 })}`
-        });
-        row.append(top, stats);
-        listHost.appendChild(row);
+        setStyle(ref.dot, "background", item.color);
+        setText(ref.name, item.name);
+        setAttr(ref.badge, "data-role", roleAttr);
+        setText(ref.badge, roleText);
+        setText(ref.share, pctText);
+        setText(ref.stats, `${compact(statTok)} tok \xB7 ${t("modelCallsCount", { count: item.requests || 0 })}`);
+        if (ref.row !== cursor) {
+          listHost.insertBefore(ref.row, cursor);
+        } else {
+          cursor = cursor.nextElementSibling;
+        }
       }
     }
     updateModelMixFocus(ctx);
   }
-  function bindModelMixEvents(ctx, rerender) {
+  function bindModelMixEvents(ctx, _rerender) {
     const { $, state } = ctx;
     const mixCard = $("panel-model-mix");
     mixCard?.addEventListener("click", (event) => {
@@ -5415,17 +5891,21 @@ ${FONT_POPOVER_CSS}`;
       if (!target) return;
       const scopeBtn = target.closest("[data-mix-scope]");
       if (scopeBtn) {
-        state.mixScope = scopeBtn.dataset.mixScope || "session";
+        const nextScope = scopeBtn.dataset.mixScope || "session";
+        if (state.mixScope === nextScope && state.mixScopeManual) return;
+        state.mixScope = nextScope;
         state.mixScopeManual = true;
         state.lastMixSig = null;
-        rerender();
+        renderModelMix(ctx, state.snapshot?.speed);
         return;
       }
       const metricBtn = target.closest("[data-mix-metric]");
       if (metricBtn) {
-        state.mixMetric = metricBtn.dataset.mixMetric || "total";
+        const nextMetric = metricBtn.dataset.mixMetric || "total";
+        if (state.mixMetric === nextMetric) return;
+        state.mixMetric = nextMetric;
         state.lastMixSig = null;
-        rerender();
+        renderModelMix(ctx, state.snapshot?.speed);
         return;
       }
       const modelTarget = target.closest("[data-model-id]");
@@ -5476,6 +5956,38 @@ ${FONT_POPOVER_CSS}`;
   }
 
   // src/ui/panel-webview/timeline-helpers.ts
+  var clockFormatters = /* @__PURE__ */ new Map();
+  var swimlaneTipStates = /* @__PURE__ */ new WeakMap();
+  function getSwimlaneTipState(state) {
+    let entry = swimlaneTipStates.get(state);
+    if (!entry) {
+      entry = { activeSeg: null, lastIdx: -2, segByIdx: [] };
+      swimlaneTipStates.set(state, entry);
+    }
+    return entry;
+  }
+  function registerSwimlaneSegments(state, segments) {
+    const entry = getSwimlaneTipState(state);
+    entry.segByIdx = segments;
+    if (entry.activeSeg && !entry.activeSeg.isConnected) {
+      entry.activeSeg = null;
+      entry.lastIdx = -2;
+    }
+  }
+  function resetSwimlaneTipState(state) {
+    const entry = getSwimlaneTipState(state);
+    entry.activeSeg?.classList.remove("is-active");
+    entry.activeSeg = null;
+    entry.lastIdx = -2;
+    entry.segByIdx = [];
+  }
+  function yieldToMain() {
+    const win = typeof window !== "undefined" ? window : null;
+    if (win?.scheduler && typeof win.scheduler.yield === "function") {
+      return win.scheduler.yield();
+    }
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
   function renderTimelineStatus(ctx) {
     const { $, state, language } = ctx;
     const el2 = $("timeline-status");
@@ -5497,7 +6009,19 @@ ${FONT_POPOVER_CSS}`;
   function formatClock(ctx, iso) {
     if (!iso) return "";
     const ms = Date.parse(iso);
-    return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString(ctx.language.language, { hour12: false }) : "";
+    if (!Number.isFinite(ms)) return "";
+    const lang = ctx.language.language;
+    let fmt = clockFormatters.get(lang);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat(lang, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      });
+      clockFormatters.set(lang, fmt);
+    }
+    return fmt.format(ms);
   }
   function timelineEventLabel(ctx, node) {
     const t = ctx.language.t;
@@ -5545,19 +6069,27 @@ ${FONT_POPOVER_CSS}`;
   function showSwimlaneTip(ctx, idx) {
     const { $, state, language } = ctx;
     const tip = $("timeline-lane-tip");
-    const swimHost = $("timeline-swimlanes");
-    if (swimHost) {
-      for (const segEl of swimHost.querySelectorAll(".timeline-seg")) {
-        segEl.classList.toggle("is-active", Number(segEl.dataset.segIdx) === idx);
-      }
+    const tipState = getSwimlaneTipState(state);
+    const validIdx = idx >= 0 && idx < state.lastTimelineRender.length ? idx : -1;
+    let nextSeg = validIdx >= 0 ? tipState.segByIdx[validIdx] ?? null : null;
+    if (validIdx >= 0 && (!nextSeg || !nextSeg.isConnected)) {
+      const swimHost = $("timeline-swimlanes");
+      nextSeg = swimHost?.querySelector(`.timeline-seg[data-seg-idx="${validIdx}"]`) ?? null;
     }
+    if (tipState.activeSeg !== nextSeg) {
+      tipState.activeSeg?.classList.remove("is-active");
+      nextSeg?.classList.add("is-active");
+      tipState.activeSeg = nextSeg;
+    }
+    if (validIdx === tipState.lastIdx && (validIdx < 0 || !tip?.hidden)) return;
+    tipState.lastIdx = validIdx;
     if (!tip) return;
-    if (idx < 0 || idx >= state.lastTimelineRender.length) {
+    if (validIdx < 0) {
       setHidden(tip, true);
       setText(tip, "");
       return;
     }
-    const seg = state.lastTimelineRender[idx];
+    const seg = state.lastTimelineRender[validIdx];
     const stepLabel = seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `\u2013${seg.stepEnd}` : ""}` : "";
     const durLabel = formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0));
     const callsLabel = (seg.calls ?? 0) > 0 ? language.t("modelCallsCount", { count: seg.calls ?? 0 }) : "";
@@ -5574,86 +6106,263 @@ ${FONT_POPOVER_CSS}`;
   }
 
   // src/ui/panel-webview/swimlane-timeline.ts
-  function buildTimelineTreeNode(ctx, node, depth) {
+  var timelineCaches = /* @__PURE__ */ new WeakMap();
+  var timelineNodeRefs = /* @__PURE__ */ new WeakMap();
+  function getTimelineCache(state) {
+    let cache = timelineCaches.get(state);
+    if (!cache) {
+      cache = { lanes: /* @__PURE__ */ new Map(), rootNodes: /* @__PURE__ */ new Map(), activeTreeRow: null, renderGen: 0 };
+      timelineCaches.set(state, cache);
+    }
+    return cache;
+  }
+  var Hasher = class {
+    h1 = 2166136261;
+    h2 = 2654435761;
+    str(value) {
+      const s = value ?? "";
+      for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        this.h1 = Math.imul(this.h1 ^ c, 16777619);
+        this.h2 = Math.imul(this.h2 ^ c + i, 2246822507);
+      }
+      this.h1 = Math.imul(this.h1 ^ 31, 16777619);
+      this.h2 = Math.imul(this.h2 ^ 31, 2246822507);
+    }
+    num(value) {
+      const n = typeof value === "number" && Number.isFinite(value) ? Math.round(value * 1e3) : -1;
+      this.h1 = Math.imul(this.h1 ^ n & 65535, 16777619);
+      this.h2 = Math.imul(this.h2 ^ n >>> 16, 2246822507);
+    }
+    digest() {
+      return `${(this.h1 >>> 0).toString(36)}:${(this.h2 >>> 0).toString(36)}`;
+    }
+  };
+  function hashTimelineNode(node, sigMap, hasher) {
+    const local = new Hasher();
+    local.str(node.id);
+    local.str(node.kind);
+    local.str(node.event);
+    local.str(node.role);
+    local.str(node.model);
+    local.str(node.time);
+    local.num(node.durationMs);
+    local.num(node.tokens?.totalTokens);
+    local.num(node.tokens?.outputTokens);
+    const meta = node.meta || null;
+    if (meta) {
+      local.num(typeof meta.turnIndex === "number" ? meta.turnIndex : null);
+      local.num(typeof meta.stepStart === "number" ? meta.stepStart : null);
+      local.num(typeof meta.stepEnd === "number" ? meta.stepEnd : null);
+      local.num(typeof meta.stepIndex === "number" ? meta.stepIndex : null);
+      local.num(typeof meta.calls === "number" ? meta.calls : null);
+      local.str(typeof meta.fromModel === "string" ? meta.fromModel : null);
+      local.str(typeof meta.toModel === "string" ? meta.toModel : null);
+      local.str(typeof meta.category === "string" ? meta.category : null);
+      local.str(typeof meta.role === "string" ? meta.role : null);
+      local.str(typeof meta.status === "string" ? meta.status : null);
+    }
+    const children = Array.isArray(node.children) ? node.children : [];
+    local.num(children.length);
+    let count2 = 1;
+    for (const child of children) {
+      count2 += hashTimelineNode(child, sigMap, local);
+    }
+    const digest = local.digest();
+    sigMap.set(node, digest);
+    hasher.str(digest);
+    return count2;
+  }
+  function fingerprintTimeline(lang, cascadeId, savedAt, truncated, swimlanes, nodes) {
+    const swimHasher = new Hasher();
+    for (const seg of swimlanes) {
+      swimHasher.str(seg.kind);
+      swimHasher.str(seg.model);
+      swimHasher.str(seg.label);
+      swimHasher.num(seg.startMs);
+      swimHasher.num(seg.endMs);
+      swimHasher.num(seg.startRatio);
+      swimHasher.num(seg.widthRatio);
+      swimHasher.num(seg.stepStart);
+      swimHasher.num(seg.stepEnd);
+      swimHasher.num(seg.calls);
+    }
+    const nodeHasher = new Hasher();
+    const nodeSigs = /* @__PURE__ */ new WeakMap();
+    let totalNodes = 0;
+    for (const node of nodes) {
+      totalNodes += hashTimelineNode(node, nodeSigs, nodeHasher);
+    }
+    return {
+      sig: `${lang}|${cascadeId}|${savedAt}|${truncated ? 1 : 0}|${swimlanes.length}:${swimHasher.digest()}|${totalNodes}:${nodeHasher.digest()}`,
+      nodeSigs,
+      totalNodes
+    };
+  }
+  function createTimelineNodeShell() {
     const el2 = document.createElement("div");
     el2.className = "timeline-node";
-    el2.dataset.kind = node.kind || "step";
-    el2.dataset.nodeId = node.id || "";
-    const meta = node.meta || {};
-    if (meta.stepStart != null) el2.dataset.stepStart = String(meta.stepStart);
-    if (meta.stepEnd != null) el2.dataset.stepEnd = String(meta.stepEnd);
-    if (meta.stepIndex != null) el2.dataset.stepIndex = String(meta.stepIndex);
-    const children = Array.isArray(node.children) ? node.children : [];
-    const hasChildren = children.length > 0;
-    const collapsed = hasChildren && (ctx.state.timelineToggled.has(node.id) ? Boolean(ctx.state.timelineToggled.get(node.id)) : depth >= 2);
     const row = document.createElement("div");
     row.className = "timeline-node-row";
-    if (hasChildren) {
-      const toggleBtn = document.createElement("button");
-      toggleBtn.type = "button";
-      toggleBtn.className = "timeline-toggle-btn";
-      toggleBtn.dataset.nodeId = node.id;
-      setAttr(toggleBtn, "aria-expanded", String(!collapsed));
-      setAttr(toggleBtn, "aria-label", timelineEventLabel(ctx, node));
-      toggleBtn.appendChild(createChevronSvg());
-      row.appendChild(toggleBtn);
-    } else {
-      const bullet = document.createElement("span");
-      bullet.className = "timeline-bullet";
-      bullet.textContent = "\xB7";
-      row.appendChild(bullet);
-    }
-    const eventBadge = document.createElement("span");
-    eventBadge.className = "timeline-event-badge";
-    eventBadge.textContent = timelineEventLabel(ctx, node);
+    const bullet = document.createElement("span");
+    bullet.className = "timeline-bullet";
+    bullet.textContent = "\xB7";
     const main = document.createElement("div");
     main.className = "timeline-node-main";
+    const eventBadge = document.createElement("span");
+    eventBadge.className = "timeline-event-badge";
     const summary = document.createElement("span");
     summary.className = "timeline-node-summary";
-    const summaryText = timelineNodeSummary(ctx, node);
-    summary.textContent = summaryText;
-    if (summaryText) setAttr(summary, "title", summaryText);
     main.append(eventBadge, summary);
     const badges = document.createElement("div");
     badges.className = "timeline-node-badges";
-    if (node.model && node.kind !== "handoff" && !summaryText.includes(node.model)) {
-      const mChip = document.createElement("span");
-      mChip.className = "timeline-chip";
-      mChip.textContent = node.model;
-      setAttr(mChip, "title", node.model);
-      badges.appendChild(mChip);
-    }
-    const tokTotal = node.tokens?.totalTokens || node.tokens?.outputTokens || 0;
-    if (tokTotal > 0) {
-      const tChip = document.createElement("span");
-      tChip.className = "timeline-chip";
-      tChip.textContent = `${compact(tokTotal)} tok`;
-      badges.appendChild(tChip);
-    }
-    const dur = formatDurationMs(node.durationMs);
-    if (dur) {
-      const dChip = document.createElement("span");
-      dChip.className = "timeline-chip";
-      dChip.textContent = dur;
-      badges.appendChild(dChip);
-    }
-    const clk = formatClock(ctx, node.time);
-    if (clk) {
-      const cChip = document.createElement("span");
-      cChip.className = "timeline-chip is-time";
-      cChip.textContent = clk;
-      badges.appendChild(cChip);
-    }
-    row.append(main, badges);
+    row.append(bullet, main, badges);
     el2.appendChild(row);
-    if (hasChildren) {
-      const kidsEl = document.createElement("div");
-      kidsEl.className = "timeline-children";
-      kidsEl.hidden = collapsed;
-      for (const child of children) kidsEl.appendChild(buildTimelineTreeNode(ctx, child, depth + 1));
-      el2.appendChild(kidsEl);
-    }
+    timelineNodeRefs.set(el2, {
+      el: el2,
+      row,
+      toggleBtn: null,
+      bullet,
+      eventBadge,
+      summary,
+      badges,
+      mChip: null,
+      tChip: null,
+      dChip: null,
+      cChip: null,
+      childrenEl: null,
+      childMap: /* @__PURE__ */ new Map(),
+      lastSig: ""
+    });
     return el2;
+  }
+  function syncChip(parent, existing, text, className, title) {
+    if (!text) {
+      existing?.remove();
+      return null;
+    }
+    let chip = existing;
+    if (!chip) {
+      chip = document.createElement("span");
+      chip.className = className;
+      parent.appendChild(chip);
+    } else if (chip.parentNode !== parent) {
+      parent.appendChild(chip);
+    }
+    setText(chip, text);
+    if (title !== void 0) setAttr(chip, "title", title || null);
+    return chip;
+  }
+  function syncTimelineNode(ctx, el2, node, depth, lang, nodeSigs) {
+    const ref = timelineNodeRefs.get(el2);
+    const fullSig = `${lang}|${nodeSigs.get(node) ?? ""}`;
+    if (ref.lastSig === fullSig) return;
+    ref.lastSig = fullSig;
+    setAttr(el2, "data-kind", node.kind || "step");
+    setAttr(el2, "data-node-id", node.id || "");
+    const meta = node.meta || {};
+    setAttr(el2, "data-step-start", meta.stepStart != null ? String(meta.stepStart) : null);
+    setAttr(el2, "data-step-end", meta.stepEnd != null ? String(meta.stepEnd) : null);
+    setAttr(el2, "data-step-index", meta.stepIndex != null ? String(meta.stepIndex) : null);
+    const children = Array.isArray(node.children) ? node.children : [];
+    const hasChildren = children.length > 0;
+    const collapsed = hasChildren && (ctx.state.timelineToggled.has(node.id) ? Boolean(ctx.state.timelineToggled.get(node.id)) : depth >= 2);
+    const eventLabel = timelineEventLabel(ctx, node);
+    if (hasChildren) {
+      if (!ref.toggleBtn) {
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "timeline-toggle-btn";
+        toggleBtn.appendChild(createChevronSvg());
+        if (ref.bullet) {
+          ref.bullet.replaceWith(toggleBtn);
+          ref.bullet = null;
+        } else {
+          ref.row.prepend(toggleBtn);
+        }
+        ref.toggleBtn = toggleBtn;
+      }
+      ref.toggleBtn.dataset.nodeId = node.id;
+      setAttr(ref.toggleBtn, "aria-expanded", String(!collapsed));
+      setAttr(ref.toggleBtn, "aria-label", eventLabel);
+    } else if (ref.toggleBtn) {
+      const bullet = document.createElement("span");
+      bullet.className = "timeline-bullet";
+      bullet.textContent = "\xB7";
+      ref.toggleBtn.replaceWith(bullet);
+      ref.toggleBtn = null;
+      ref.bullet = bullet;
+    }
+    setText(ref.eventBadge, eventLabel);
+    const summaryText = timelineNodeSummary(ctx, node);
+    setText(ref.summary, summaryText);
+    setAttr(ref.summary, "title", summaryText || null);
+    const modelChipText = node.model && node.kind !== "handoff" && !summaryText.includes(node.model) ? node.model : "";
+    const tokTotal = node.tokens?.totalTokens || node.tokens?.outputTokens || 0;
+    const tokChipText = tokTotal > 0 ? `${compact(tokTotal)} tok` : "";
+    const durChipText = formatDurationMs(node.durationMs);
+    const clkChipText = formatClock(ctx, node.time);
+    ref.mChip = syncChip(ref.badges, ref.mChip, modelChipText, "timeline-chip", modelChipText);
+    ref.tChip = syncChip(ref.badges, ref.tChip, tokChipText, "timeline-chip");
+    ref.dChip = syncChip(ref.badges, ref.dChip, durChipText, "timeline-chip");
+    ref.cChip = syncChip(ref.badges, ref.cChip, clkChipText, "timeline-chip is-time");
+    if (hasChildren) {
+      if (!ref.childrenEl) {
+        const kidsEl = document.createElement("div");
+        kidsEl.className = "timeline-children";
+        el2.appendChild(kidsEl);
+        ref.childrenEl = kidsEl;
+      }
+      if (!panelMotion.has(ref.childrenEl)) setHidden(ref.childrenEl, collapsed);
+      reconcileTimelineList(ctx, ref.childrenEl, ref.childMap, children, depth + 1, lang, nodeSigs);
+    } else if (ref.childrenEl) {
+      ref.childrenEl.remove();
+      ref.childrenEl = null;
+      ref.childMap.clear();
+    }
+  }
+  function nodeKey(node, depth, index) {
+    return node.id ? node.id : `__tl_${depth}_${index}`;
+  }
+  function reconcileTimelineList(ctx, container, existingMap, nodes, depth, lang, nodeSigs) {
+    const desiredKeys = /* @__PURE__ */ new Set();
+    for (let i = 0; i < nodes.length; i++) desiredKeys.add(nodeKey(nodes[i], depth, i));
+    for (const [key, nodeEl] of existingMap) {
+      if (!desiredKeys.has(key)) {
+        nodeEl.remove();
+        existingMap.delete(key);
+      }
+    }
+    if (container.children.length === 0 && nodes.length > 0) {
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < nodes.length; i++) {
+        const key = nodeKey(nodes[i], depth, i);
+        let nodeEl = existingMap.get(key);
+        if (!nodeEl) {
+          nodeEl = createTimelineNodeShell();
+          existingMap.set(key, nodeEl);
+        }
+        syncTimelineNode(ctx, nodeEl, nodes[i], depth, lang, nodeSigs);
+        frag.appendChild(nodeEl);
+      }
+      container.appendChild(frag);
+      return;
+    }
+    let cursor = container.firstElementChild;
+    for (let i = 0; i < nodes.length; i++) {
+      const key = nodeKey(nodes[i], depth, i);
+      let nodeEl = existingMap.get(key);
+      if (!nodeEl) {
+        nodeEl = createTimelineNodeShell();
+        existingMap.set(key, nodeEl);
+      }
+      syncTimelineNode(ctx, nodeEl, nodes[i], depth, lang, nodeSigs);
+      if (nodeEl !== cursor) {
+        container.insertBefore(nodeEl, cursor);
+      } else {
+        cursor = cursor.nextElementSibling;
+      }
+    }
   }
   function renderTimeline(ctx, speed) {
     const { $, state, language } = ctx;
@@ -5664,16 +6373,25 @@ ${FONT_POPOVER_CSS}`;
     const swimEl = $("timeline-swimlanes");
     const treeEl = $("timeline-tree");
     if (!offBar || !panel || !swimEl || !treeEl) return;
+    const cache = getTimelineCache(state);
     for (const btnId of ["timeline-enable-btn", "timeline-disable-btn", "timeline-clear-btn"]) {
       const btn = $(btnId);
-      if (btn) btn.disabled = state.timelineBusy;
+      if (btn) {
+        btn.disabled = state.timelineBusy;
+        setAttr(btn, "aria-busy", state.timelineBusy ? "true" : null);
+      }
     }
     renderTimelineStatus(ctx);
     if (!state.timelineEnabled) {
+      cache.renderGen++;
       setHidden(offBar, false);
       setHidden(panel, true);
       if (swimEl.children.length) swimEl.textContent = "";
       if (treeEl.children.length) treeEl.textContent = "";
+      cache.lanes.clear();
+      cache.rootNodes.clear();
+      cache.activeTreeRow = null;
+      resetSwimlaneTipState(state);
       state.lastTimelineRender = [];
       state.lastTimelineSig = null;
       syncPinBottom(ctx);
@@ -5691,9 +6409,18 @@ ${FONT_POPOVER_CSS}`;
     setHidden($("timeline-truncated"), !tl?.truncated);
     setHidden($("timeline-empty"), nodes.length > 0 || swimlanes.length > 0);
     setHidden(swimWrap, swimlanes.length === 0);
-    const sig = `${language.language}|${tl?.cascadeId || ""}|${tl?.savedAt || ""}|${Boolean(tl?.truncated)}|${JSON.stringify(swimlanes)}|${JSON.stringify(nodes)}`;
+    const lang = language.language;
+    const { sig, nodeSigs, totalNodes } = fingerprintTimeline(
+      lang,
+      tl?.cascadeId || "",
+      tl?.savedAt || "",
+      Boolean(tl?.truncated),
+      swimlanes,
+      nodes
+    );
     if (sig === state.lastTimelineSig) return;
     state.lastTimelineSig = sig;
+    const myGen = ++cache.renderGen;
     const colorModels = [
       ...speed?.modelUsage?.models || [],
       ...swimlanes.map((s) => ({
@@ -5702,61 +6429,132 @@ ${FONT_POPOVER_CSS}`;
       }))
     ];
     const colorMap = assignModelColors(colorModels);
-    swimEl.textContent = "";
     state.lastTimelineRender = [];
-    showSwimlaneTip(ctx, -1);
     if (swimlanes.length > 0) {
       const tracks = [
         { key: "plan", label: t("timelineLanePlan"), match: (s) => s.kind === "plan" },
         { key: "worker", label: t("timelineLaneWorker"), match: (s) => s.kind === "worker" },
         { key: "tools", label: t("timelineLaneToolsAgents"), match: (s) => s.kind === "tool" || s.kind === "subagent" || s.kind === "handoff" }
       ];
+      const orderedSegs = [];
+      const newLanesFrag = cache.lanes.size === 0 ? document.createDocumentFragment() : null;
       for (const trackDef of tracks) {
-        const lane = document.createElement("div");
-        lane.className = "timeline-lane";
-        lane.dataset.lane = trackDef.key;
-        const lbl = document.createElement("span");
-        lbl.className = "timeline-lane-label";
-        lbl.textContent = trackDef.label;
-        setAttr(lbl, "title", trackDef.label);
-        const track = document.createElement("div");
-        track.className = "timeline-track";
-        for (const seg of swimlanes.filter(trackDef.match)) {
+        let laneRef = cache.lanes.get(trackDef.key);
+        if (!laneRef || !laneRef.lane.isConnected) {
+          const lane = document.createElement("div");
+          lane.className = "timeline-lane";
+          lane.dataset.lane = trackDef.key;
+          const lbl = document.createElement("span");
+          lbl.className = "timeline-lane-label";
+          const track = document.createElement("div");
+          track.className = "timeline-track";
+          lane.append(lbl, track);
+          laneRef = { lane, label: lbl, track, segments: [] };
+          cache.lanes.set(trackDef.key, laneRef);
+          (newLanesFrag ?? swimEl).appendChild(lane);
+        }
+        setText(laneRef.label, trackDef.label);
+        setAttr(laneRef.label, "title", trackDef.label);
+        const matched = swimlanes.filter(trackDef.match);
+        const newSegFrag = matched.length > laneRef.segments.length ? document.createDocumentFragment() : null;
+        for (let i = 0; i < matched.length; i++) {
+          const seg = matched[i];
           const idx = state.lastTimelineRender.length;
           state.lastTimelineRender.push(seg);
           const leftPct = Math.min(98.5, Math.max(0, (Number(seg.startRatio) || 0) * 100));
           const widthPct = Math.min(100 - leftPct, Math.max(1.5, (Number(seg.widthRatio) || 0.02) * 100));
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "timeline-seg";
-          btn.dataset.segIdx = String(idx);
-          btn.dataset.kind = seg.kind || "step";
-          btn.style.left = `${leftPct.toFixed(2)}%`;
-          btn.style.width = `${widthPct.toFixed(2)}%`;
-          btn.style.background = seg.kind === "handoff" ? "var(--pulse-warning)" : colorMap.get(seg.model || seg.label) || PANEL_MIX_PALETTE[idx % PANEL_MIX_PALETTE.length];
+          const bg = seg.kind === "handoff" ? "var(--pulse-warning)" : colorMap.get(seg.model || seg.label) || PANEL_MIX_PALETTE[idx % PANEL_MIX_PALETTE.length];
           const tipLabel = [
             seg.model || seg.label,
             seg.stepStart != null ? `#${seg.stepStart}${seg.stepEnd != null && seg.stepEnd !== seg.stepStart ? `\u2013${seg.stepEnd}` : ""}` : "",
             formatDurationMs((seg.endMs ?? 0) - (seg.startMs ?? 0))
           ].filter(Boolean).join(" \xB7 ");
+          let btn = laneRef.segments[i];
+          if (!btn) {
+            btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "timeline-seg";
+            laneRef.segments.push(btn);
+            (newSegFrag ?? laneRef.track).appendChild(btn);
+          }
+          setAttr(btn, "data-seg-idx", String(idx));
+          setAttr(btn, "data-kind", seg.kind || "step");
+          setStyle(btn, "left", `${leftPct.toFixed(2)}%`);
+          setStyle(btn, "width", `${widthPct.toFixed(2)}%`);
+          setStyle(btn, "background", bg);
           setAttr(btn, "title", tipLabel);
           setAttr(btn, "aria-label", tipLabel);
-          track.appendChild(btn);
+          orderedSegs.push(btn);
         }
-        lane.append(lbl, track);
-        swimEl.appendChild(lane);
+        if (newSegFrag && newSegFrag.childNodes.length > 0) {
+          laneRef.track.appendChild(newSegFrag);
+        }
+        while (laneRef.segments.length > matched.length) {
+          laneRef.segments.pop()?.remove();
+        }
+      }
+      if (newLanesFrag && newLanesFrag.childNodes.length > 0) {
+        swimEl.appendChild(newLanesFrag);
+      }
+      registerSwimlaneSegments(state, orderedSegs);
+      if (state.pinnedSwimlaneIdx >= orderedSegs.length) state.pinnedSwimlaneIdx = -1;
+      showSwimlaneTip(ctx, state.pinnedSwimlaneIdx);
+    } else {
+      if (swimEl.children.length) swimEl.textContent = "";
+      cache.lanes.clear();
+      resetSwimlaneTipState(state);
+      state.pinnedSwimlaneIdx = -1;
+      showSwimlaneTip(ctx, -1);
+    }
+    if (nodes.length === 0) {
+      if (treeEl.children.length) treeEl.textContent = "";
+      cache.rootNodes.clear();
+      cache.activeTreeRow = null;
+      return;
+    }
+    const newRootCount = nodes.reduce((acc, n, i) => acc + (cache.rootNodes.has(nodeKey(n, 0, i)) ? 0 : 1), 0);
+    if (totalNodes > 80 && newRootCount > 24 && treeEl.children.length === 0) {
+      void renderLargeRootBurst(ctx, treeEl, cache, nodes, lang, nodeSigs, myGen);
+      return;
+    }
+    reconcileTimelineList(ctx, treeEl, cache.rootNodes, nodes, 0, lang, nodeSigs);
+  }
+  async function renderLargeRootBurst(ctx, treeEl, cache, nodes, lang, nodeSigs, gen) {
+    const BATCH_BUDGET_MS = 28;
+    let i = 0;
+    while (i < nodes.length) {
+      if (cache.renderGen !== gen || !ctx.state.timelineEnabled) return;
+      const deadline = performance.now() + BATCH_BUDGET_MS;
+      const frag = document.createDocumentFragment();
+      let count2 = 0;
+      while (i < nodes.length) {
+        const node = nodes[i];
+        const key = nodeKey(node, 0, i);
+        let nodeEl = cache.rootNodes.get(key);
+        if (!nodeEl) {
+          nodeEl = createTimelineNodeShell();
+          cache.rootNodes.set(key, nodeEl);
+        }
+        syncTimelineNode(ctx, nodeEl, node, 0, lang, nodeSigs);
+        frag.appendChild(nodeEl);
+        i++;
+        count2++;
+        if (count2 >= 16 && performance.now() >= deadline) break;
+      }
+      treeEl.appendChild(frag);
+      if (i < nodes.length) {
+        await yieldToMain();
       }
     }
-    treeEl.textContent = "";
-    for (const node of nodes) treeEl.appendChild(buildTimelineTreeNode(ctx, node, 0));
   }
   function focusTimelineNodeByStep(ctx, stepStart) {
     const treeEl = ctx.$("timeline-tree");
     if (!treeEl || stepStart == null) return;
+    const cache = getTimelineCache(ctx.state);
+    cache.activeTreeRow?.classList.remove("is-active");
+    cache.activeTreeRow = null;
     let targetNode = null;
     for (const el2 of treeEl.querySelectorAll(".timeline-node")) {
-      const row = el2.querySelector(":scope > .timeline-node-row");
-      if (row) row.classList.remove("is-active");
       const idx = el2.dataset.stepIndex != null ? Number(el2.dataset.stepIndex) : null;
       const s = el2.dataset.stepStart != null ? Number(el2.dataset.stepStart) : null;
       const e = el2.dataset.stepEnd != null ? Number(el2.dataset.stepEnd) : null;
@@ -5768,7 +6566,7 @@ ${FONT_POPOVER_CSS}`;
     let cur = targetNode.parentElement;
     while (cur && cur !== treeEl) {
       if (cur.classList.contains("timeline-children")) {
-        cur.hidden = false;
+        setExpandedState(cur, true, false);
         const parentNode = cur.closest(".timeline-node");
         if (parentNode?.dataset.nodeId) {
           ctx.state.timelineToggled.set(parentNode.dataset.nodeId, false);
@@ -5781,6 +6579,7 @@ ${FONT_POPOVER_CSS}`;
     const activeRow = targetNode.querySelector(":scope > .timeline-node-row");
     if (activeRow) {
       activeRow.classList.add("is-active");
+      cache.activeTreeRow = activeRow;
       activeRow.scrollIntoView({ block: "nearest" });
     }
   }
@@ -5792,6 +6591,65 @@ ${FONT_POPOVER_CSS}`;
     const i18nTextNodes = [...document.querySelectorAll("[data-i18n]")];
     const i18nAriaNodes = [...document.querySelectorAll("[data-i18n-aria]")];
     const i18nTitleNodes = [...document.querySelectorAll("[data-i18n-aria][title]")];
+    let disposed = false;
+    let pendingIncludesUsage = false;
+    let pendingForce = false;
+    let queuedForceRequest = null;
+    let queuedForceIncludesUsage = false;
+    let refreshSeq = 0;
+    let lastAppliedFontScale = resolveFontScale(ctx.localGet("ag-pulse-sidebar-font-scale"));
+    let hasConnectedPrefsOnce = false;
+    let resolveInitialPrefs = null;
+    let fallbackInitialPrefsTimer = null;
+    const scheduleNextPoll = () => {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      if (disposed) return;
+      state.timer = setTimeout(() => void refresh(), document.hidden ? 3e4 : 2200);
+    };
+    const stopTimers = () => {
+      disposed = true;
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      if (fallbackInitialPrefsTimer) {
+        clearTimeout(fallbackInitialPrefsTimer);
+        fallbackInitialPrefsTimer = null;
+      }
+    };
+    const resumeTimers = () => {
+      disposed = false;
+      scheduleNextPoll();
+    };
+    const settleInitialPrefsFromMetrics = (prefs) => {
+      if (!resolveInitialPrefs) return;
+      const resolve = resolveInitialPrefs;
+      resolveInitialPrefs = null;
+      if (fallbackInitialPrefsTimer) {
+        clearTimeout(fallbackInitialPrefsTimer);
+        fallbackInitialPrefsTimer = null;
+      }
+      if (prefs) {
+        resolve(prefs);
+      } else {
+        void preferenceRequest().then(resolve, () => resolve({ error: "Preferences unavailable" }));
+      }
+    };
+    const applySidebarFontScaleIfChanged = (rawScale) => {
+      const scale = resolveFontScale(rawScale);
+      if (scale === lastAppliedFontScale) return;
+      lastAppliedFontScale = scale;
+      const scaleStr = String(scale);
+      if (document.documentElement.style.getPropertyValue("--pulse-sidebar-font-scale") !== scaleStr) {
+        document.documentElement.style.setProperty("--pulse-sidebar-font-scale", scaleStr);
+      }
+      if (ctx.localGet("ag-pulse-sidebar-font-scale") !== scaleStr) {
+        ctx.localSet("ag-pulse-sidebar-font-scale", scaleStr);
+      }
+    };
     const apiJson = async (path, body) => {
       const transport = host?.fetch ? host.fetch.bind(host) : fetch;
       const response = await transport(
@@ -5845,18 +6703,35 @@ ${FONT_POPOVER_CSS}`;
       ctx.settingsPopover?.localize();
       ctx.settingsPopover?.syncLanguage(language.language, ctx.preferences.error);
     };
-    const connectPreferences = () => language.connectPreferences({
-      read: () => preferenceRequest(),
-      write: preferenceRequest,
-      cache: (value) => ctx.localSet("ag-pulse-language", value),
-      changed: () => {
-        localize();
-        if (!state.syncingFromRefresh) {
-          handlers.render();
-          handlers.updateCountdowns();
+    const connectPreferences = () => {
+      const useCoalescedStartup = !hasConnectedPrefsOnce && !state.snapshot;
+      hasConnectedPrefsOnce = true;
+      return language.connectPreferences({
+        read: () => {
+          if (!useCoalescedStartup) return preferenceRequest();
+          return new Promise((resolve) => {
+            resolveInitialPrefs = resolve;
+            fallbackInitialPrefsTimer = setTimeout(() => {
+              if (!resolveInitialPrefs) return;
+              const fn = resolveInitialPrefs;
+              resolveInitialPrefs = null;
+              fallbackInitialPrefsTimer = null;
+              void preferenceRequest().then(fn, () => fn({ error: "Preferences unavailable" }));
+            }, 1200);
+          });
+        },
+        write: preferenceRequest,
+        cache: (value) => ctx.localSet("ag-pulse-language", value),
+        changed: () => {
+          const prevLoc = state.lastLocalizedKey;
+          localize();
+          if (!state.syncingFromRefresh && state.lastLocalizedKey !== prevLoc) {
+            handlers.render();
+            handlers.updateCountdowns();
+          }
         }
-      }
-    });
+      });
+    };
     const refreshBusy = (busy) => {
       const button = $("refresh-button");
       if (!button) return;
@@ -5866,20 +6741,58 @@ ${FONT_POPOVER_CSS}`;
       button.title = t(button.dataset.i18nAria);
       setAttr(button, "aria-label", button.title);
     };
-    const refresh = (force = false) => {
-      if (state.pending && state.refreshRequest) return state.refreshRequest;
+    const refresh = (force = false, options = {}) => {
+      const wantUsage = options.includeUsage ?? Boolean(handlers.isUsageOpen?.());
+      if (state.pending && state.refreshRequest) {
+        if (!force) {
+          if (!wantUsage || pendingIncludesUsage) return state.refreshRequest;
+          return state.refreshRequest.catch(() => {
+          }).then(() => refresh(false, { includeUsage: true }));
+        }
+        if (pendingForce && (!wantUsage || pendingIncludesUsage)) return state.refreshRequest;
+        if (queuedForceRequest && (!wantUsage || queuedForceIncludesUsage)) return queuedForceRequest;
+        queuedForceIncludesUsage = queuedForceIncludesUsage || wantUsage;
+        const nextForced = state.refreshRequest.catch(() => {
+        }).then(() => {
+          const includeUsage = queuedForceIncludesUsage;
+          queuedForceRequest = null;
+          queuedForceIncludesUsage = false;
+          return refresh(true, { includeUsage });
+        });
+        queuedForceRequest = nextForced;
+        return nextForced;
+      }
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      const reqSeq = ++refreshSeq;
       state.pending = true;
+      pendingForce = force;
+      pendingIncludesUsage = wantUsage;
       const reqTimelineEpoch = state.timelineEpoch;
-      state.refreshRequest = (async () => {
+      const reqPromise = (async () => {
         try {
           const params = new URLSearchParams();
           if (host?.conversationId) params.set("conversationId", host.conversationId);
-          if (force) params.set("force", "1");
+          if (force) {
+            params.set("force", "1");
+            params.set("_ts", String(Date.now()));
+          }
+          if (!wantUsage) params.set("includeUsage", "0");
           const transport = host?.fetch ? host.fetch.bind(host) : fetch;
           const response = await transport(`/api/metrics?${params}`, { cache: "no-store" });
           if (!response.ok) throw new Error(t("panelUnavailable"));
           const value = await response.json();
           if (!["live", "stale", "offline"].includes(value.connection)) throw new Error(t("invalidData"));
+          if (reqSeq !== refreshSeq) return;
+          const prevSnapshot = state.snapshot;
+          if (value.usage === void 0 && prevSnapshot?.usage !== void 0) {
+            value.usage = prevSnapshot.usage;
+          }
+          if (reqTimelineEpoch !== state.timelineEpoch && value.speed && prevSnapshot?.speed) {
+            value.speed.modelTimeline = prevSnapshot.speed.modelTimeline;
+          }
           state.snapshot = value;
           if (Object.hasOwn(value, "theme")) {
             const themeKey = JSON.stringify(value.theme ?? null);
@@ -5901,14 +6814,15 @@ ${FONT_POPOVER_CSS}`;
             try {
               ctx.preferences.sync(value.preferences);
               if ("sidebarFontScale" in value.preferences) {
-                const scale = resolveFontScale(value.preferences.sidebarFontScale);
-                document.documentElement.style.setProperty("--pulse-sidebar-font-scale", String(scale));
-                ctx.localSet("ag-pulse-sidebar-font-scale", String(scale));
+                applySidebarFontScaleIfChanged(value.preferences.sidebarFontScale);
               }
               ctx.settingsPopover?.syncPreferences(value.preferences);
             } finally {
               state.syncingFromRefresh = false;
             }
+            settleInitialPrefsFromMetrics(value.preferences);
+          } else {
+            settleInitialPrefsFromMetrics(void 0);
           }
           if (value.integration) {
             ctx.settingsPopover?.syncDebugLaunch({
@@ -5925,8 +6839,12 @@ ${FONT_POPOVER_CSS}`;
           state.serverOffset = Date.parse(value.serverTime) - Date.now();
           if (!Number.isFinite(state.serverOffset)) state.serverOffset = 0;
           handlers.render();
-          handlers.onUsage?.(value.usage);
+          if (value.usage !== void 0 && handlers.isUsageOpen?.()) {
+            handlers.onUsage?.(value.usage);
+          }
         } catch (error) {
+          if (reqSeq !== refreshSeq) return;
+          settleInitialPrefsFromMetrics(void 0);
           const msg = error instanceof Error ? error.message : String(error);
           if (state.snapshot) {
             state.snapshot.connection = "stale";
@@ -5938,13 +6856,17 @@ ${FONT_POPOVER_CSS}`;
             note?.classList.add("warning");
           }
         } finally {
-          state.pending = false;
-          state.refreshRequest = null;
-          if (state.timer) clearTimeout(state.timer);
-          state.timer = setTimeout(() => void refresh(), document.hidden ? 1e4 : 2200);
+          if (reqSeq === refreshSeq) {
+            state.pending = false;
+            pendingForce = false;
+            pendingIncludesUsage = false;
+            state.refreshRequest = null;
+            scheduleNextPoll();
+          }
         }
       })();
-      return state.refreshRequest;
+      state.refreshRequest = reqPromise;
+      return reqPromise;
     };
     const refreshManually = () => {
       if (state.manualRequest) return;
@@ -5952,7 +6874,6 @@ ${FONT_POPOVER_CSS}`;
       const started = performance.now();
       state.manualRequest = (async () => {
         try {
-          if (state.pending && state.refreshRequest) await state.refreshRequest;
           await refresh(true);
         } finally {
           const remaining = 250 - (performance.now() - started);
@@ -5972,17 +6893,28 @@ ${FONT_POPOVER_CSS}`;
       try {
         const updated = await preferenceRequest({ modelTimelineEnabled: Boolean(next) });
         if (myEpoch !== state.timelineEpoch) return;
-        const updatedEnabled = updated && "modelTimelineEnabled" in updated ? updated.modelTimelineEnabled : next;
-        state.timelineEnabled = Boolean(updatedEnabled);
+        const updatedEnabled = updated && "modelTimelineEnabled" in updated ? Boolean(updated.modelTimelineEnabled) : Boolean(next);
         if (state.snapshot?.preferences && "modelTimelineEnabled" in state.snapshot.preferences) {
-          state.snapshot.preferences.modelTimelineEnabled = state.timelineEnabled;
+          state.snapshot.preferences.modelTimelineEnabled = updatedEnabled;
         }
-        if (!state.timelineEnabled) state.timelineToggled.clear();
+        if (!updatedEnabled) {
+          state.timelineEnabled = false;
+          state.timelineToggled.clear();
+          state.lastTimelineSig = null;
+          state.timelineBusy = false;
+          renderTimeline(ctx, state.snapshot?.speed);
+          return;
+        }
+        if (state.pending && state.refreshRequest) await state.refreshRequest.catch(() => {
+        });
+        if (myEpoch !== state.timelineEpoch) return;
+        state.timelineEnabled = true;
         state.lastTimelineSig = null;
-        state.timelineBusy = false;
-        renderTimeline(ctx, state.snapshot?.speed);
-        if (state.pending && state.refreshRequest) await state.refreshRequest;
         await refresh(true);
+        if (myEpoch === state.timelineEpoch) {
+          state.timelineBusy = false;
+          renderTimeline(ctx, state.snapshot?.speed);
+        }
       } catch {
         state.timelineBusy = false;
         state.timelineNoticeKey = "timelineSaveFailed";
@@ -6043,8 +6975,7 @@ ${FONT_POPOVER_CSS}`;
             renderTimelineStatus(ctx);
           }
         }, 2800);
-        if (state.pending && state.refreshRequest) await state.refreshRequest;
-        await refresh(true);
+        scheduleNextPoll();
       } catch {
         state.timelineBusy = false;
         state.timelineNoticeKey = "timelineClearFailed";
@@ -6060,11 +6991,35 @@ ${FONT_POPOVER_CSS}`;
       refresh,
       refreshManually,
       setTimelineEnabled,
-      clearTimelineData
+      clearTimelineData,
+      stopTimers,
+      resumeTimers,
+      syncFontScaleCache: (scale) => {
+        lastAppliedFontScale = resolveFontScale(scale);
+      }
     };
   }
 
   // src/ui/panel-webview/quota-section.ts
+  var quotaCaches = /* @__PURE__ */ new WeakMap();
+  function getQuotaCache(state) {
+    let cache = quotaCaches.get(state);
+    if (!cache) {
+      cache = {
+        rings: /* @__PURE__ */ new Map(),
+        popGroups: /* @__PURE__ */ new Map(),
+        emptyPill: null,
+        emptyPop: null,
+        nextResetAtMs: Infinity,
+        resetTimesComputed: false
+      };
+      quotaCaches.set(state, cache);
+    }
+    return cache;
+  }
+  function clampRatio(value) {
+    return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  }
   function chooseGroup(ctx, groups, speed) {
     return selectPreferredQuotaGroup(
       groups,
@@ -6077,11 +7032,7 @@ ${FONT_POPOVER_CSS}`;
   }
   var quotaToneColor = (remaining) => typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-quota-red)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-quota-yellow)" : typeof remaining === "number" ? "var(--pulse-quota-green)" : "var(--pulse-muted)";
   function applyQuotaFill(fill, remaining) {
-    setStyle(
-      fill,
-      "width",
-      typeof remaining === "number" ? `${Math.min(100, Math.max(0, remaining * 100))}%` : "0%"
-    );
+    setStyle(fill, "--fill-scale", String(clampRatio(remaining)));
     setStyle(fill, "background", quotaToneColor(remaining));
   }
   function readAvailableWindow(bucket) {
@@ -6110,6 +7061,134 @@ ${FONT_POPOVER_CSS}`;
     }
     return circle;
   }
+  function createRingNode(groupId) {
+    const wrap = createEl("span", { class: "quota-ring-item", "data-group-id": groupId });
+    const svg = document.createElementNS(SVG_NS3, "svg");
+    svg.setAttribute("class", "quota-ring-svg");
+    svg.setAttribute("viewBox", "0 0 28 28");
+    svg.setAttribute("aria-hidden", "true");
+    const innerBg = createSvgCircle({ cx: 14, cy: 14, r: 6.35 });
+    const innerTrack = createSvgCircle({ cx: 14, cy: 14, r: 8.3, fill: "none" });
+    const innerHole = createSvgCircle({ cx: 14, cy: 14, r: 8.3, fill: "none", stroke: "var(--pill-bg)" });
+    const innerArc = createSvgCircle({
+      class: "quota-ring-arc",
+      cx: 14,
+      cy: 14,
+      r: 8.3,
+      fill: "none",
+      pathLength: 100,
+      transform: "rotate(-90 14 14)"
+    });
+    const outerArc = createSvgCircle({
+      class: "quota-ring-arc",
+      cx: 14,
+      cy: 14,
+      r: 12.1,
+      fill: "none",
+      "stroke-width": 1.35,
+      pathLength: 100,
+      transform: "rotate(-90 14 14)"
+    });
+    svg.append(innerBg, innerTrack, innerHole, innerArc, outerArc);
+    const letterEl = createEl("span", { class: "quota-ring-letter" });
+    wrap.append(svg, letterEl);
+    return { wrap, innerBg, innerTrack, innerHole, innerArc, outerArc, letterEl };
+  }
+  function createPopoverRow() {
+    const row = createEl("div", { class: "quota-pop-row" });
+    const meta = createEl("div", { class: "quota-pop-meta" });
+    const labelEl = createEl("span");
+    const numsEl = createEl("span", { class: "quota-pop-nums" });
+    meta.append(labelEl, numsEl);
+    const track = createEl("div", { class: "quota-pop-track" });
+    const fillEl = createEl("i", { class: "quota-pop-fill" });
+    track.appendChild(fillEl);
+    row.append(meta, track);
+    return { row, labelEl, numsEl, fillEl };
+  }
+  function createPopoverGroup(groupId) {
+    const block = createEl("div", { class: "quota-pop-group", "data-group-id": groupId });
+    const title = createEl("div", { class: "quota-pop-title" });
+    const titleTextEl = createEl("span");
+    const badgeEl = createEl("span", { class: "quota-pop-badge" });
+    title.append(titleTextEl, badgeEl);
+    const weekRow = createPopoverRow();
+    const fiveRow = createPopoverRow();
+    block.append(title, weekRow.row, fiveRow.row);
+    return { block, titleTextEl, badgeEl, weekRow, fiveRow };
+  }
+  function syncPopoverRow(rowRef, label, bucket, language, now) {
+    if (!bucket) {
+      setHidden(rowRef.row, true);
+      delete rowRef.numsEl.dataset.resetAt;
+      return;
+    }
+    setHidden(rowRef.row, false);
+    setText(rowRef.labelEl, label);
+    const pctText = percent(bucket.remaining);
+    const resetText = bucket.resetAt ? language.countdown(bucket.resetAt, now, true) : "";
+    setText(rowRef.numsEl, resetText ? `${pctText} \xB7 ${resetText}` : pctText);
+    if (rowRef.numsEl.dataset.pct !== pctText) rowRef.numsEl.dataset.pct = pctText;
+    if (bucket.resetAt) {
+      if (rowRef.numsEl.dataset.resetAt !== bucket.resetAt) rowRef.numsEl.dataset.resetAt = bucket.resetAt;
+    } else {
+      delete rowRef.numsEl.dataset.resetAt;
+    }
+    applyQuotaFill(rowRef.fillEl, bucket.remaining);
+  }
+  function syncRingNode(ref, family, weekAvail, fiveAvail) {
+    const has5h = Boolean(fiveAvail);
+    const innerR = has5h ? 8.3 : 10;
+    const innerOuterW = has5h ? 2.5 : 2.6;
+    const innerHoleW = has5h ? 1.2 : 1.25;
+    const wPct = weekAvail ? Math.max(0, Math.min(100, (weekAvail.remaining ?? 0) * 100)) : 0;
+    const weeklyColor = weekAvail ? quotaToneColor(weekAvail.remaining) : "var(--pulse-ring-track)";
+    setAttr(ref.innerBg, "r", (innerR - innerOuterW / 2 - 0.7).toFixed(2));
+    setAttr(ref.innerBg, "fill", `color-mix(in srgb, ${family.color} 10%, transparent)`);
+    setAttr(ref.innerTrack, "r", innerR);
+    setAttr(ref.innerTrack, "stroke", weeklyColor);
+    setAttr(ref.innerTrack, "stroke-opacity", weekAvail ? "0.75" : "0.45");
+    setAttr(ref.innerTrack, "stroke-width", innerOuterW);
+    setAttr(ref.innerHole, "r", innerR);
+    setAttr(ref.innerHole, "stroke-width", innerHoleW);
+    if (wPct > 0) {
+      setAttr(ref.innerArc, "display", null);
+      setAttr(ref.innerArc, "r", innerR);
+      setAttr(ref.innerArc, "stroke", weeklyColor);
+      setAttr(ref.innerArc, "stroke-width", innerOuterW);
+      setAttr(ref.innerArc, "stroke-linecap", wPct < 99 ? "round" : null);
+      setAttr(ref.innerArc, "stroke-dasharray", wPct < 99 ? `${wPct} ${100 - wPct}` : "100 0");
+    } else {
+      setAttr(ref.innerArc, "display", "none");
+      setAttr(ref.innerArc, "stroke-dasharray", "0 100");
+    }
+    if (fiveAvail) {
+      const remaining5h = fiveAvail.remaining ?? 0;
+      if (remaining5h > 0) {
+        const fPct = Math.max(0, Math.min(100, remaining5h * 100));
+        setAttr(ref.outerArc, "display", null);
+        setAttr(ref.outerArc, "data-depleted", null);
+        setAttr(ref.outerArc, "stroke-opacity", null);
+        setAttr(ref.outerArc, "stroke", quotaToneColor(remaining5h));
+        setAttr(ref.outerArc, "stroke-linecap", fPct < 99 ? "round" : null);
+        setAttr(ref.outerArc, "stroke-dasharray", fPct < 99 ? `${fPct} ${100 - fPct}` : "100 0");
+      } else {
+        setAttr(ref.outerArc, "display", null);
+        setAttr(ref.outerArc, "data-depleted", "true");
+        setAttr(ref.outerArc, "stroke", "var(--pulse-quota-red)");
+        setAttr(ref.outerArc, "stroke-linecap", null);
+        setAttr(ref.outerArc, "stroke-dasharray", "4.5 3.83");
+        setAttr(ref.outerArc, "stroke-opacity", "0.92");
+      }
+    } else {
+      setAttr(ref.outerArc, "display", "none");
+      setAttr(ref.outerArc, "data-depleted", null);
+      setAttr(ref.outerArc, "stroke-opacity", null);
+      setAttr(ref.outerArc, "stroke-dasharray", "0 100");
+    }
+    setText(ref.letterEl, family.letter);
+    setStyle(ref.letterEl, "color", family.color);
+  }
   function renderQuotaRings(ctx, groups) {
     const { $, state, language } = ctx;
     const t = language.t;
@@ -6126,134 +7205,104 @@ ${FONT_POPOVER_CSS}`;
     const sig = `${language.language}|${usable.map((g) => {
       const w = readAvailableWindow(g.windows?.weekly);
       const f = readAvailableWindow(g.windows?.["5h"]);
-      return `${g.id}:${g.name}:${w?.remaining ?? ""}:${w?.resetAt ?? ""}:${f?.remaining ?? ""}:${f?.resetAt ?? ""}`;
+      const fTag = f ? (f.remaining ?? 0) <= 0 ? "0:depleted" : String(f.remaining) : "";
+      return `${g.id}:${g.name}:${w?.remaining ?? ""}:${w?.resetAt ?? ""}:${fTag}:${f?.resetAt ?? ""}`;
     }).join("|")}`;
     if (sig === state.lastQuotaSig) return;
     state.lastQuotaSig = sig;
-    pill.replaceChildren();
-    popover.replaceChildren();
+    const cache = getQuotaCache(state);
+    let nextResetAtMs = Infinity;
+    for (const g of groups) {
+      for (const windowName of ["5h", "weekly"]) {
+        const avail = readAvailableWindow(g.windows?.[windowName]);
+        if (avail?.resetAt) {
+          const parsed = Date.parse(avail.resetAt);
+          if (Number.isFinite(parsed) && parsed < nextResetAtMs) nextResetAtMs = parsed;
+        }
+      }
+    }
+    cache.nextResetAtMs = nextResetAtMs;
+    cache.resetTimesComputed = true;
     if (usable.length === 0) {
-      pill.appendChild(createEl("span", { class: "quota-unavailable-text", text: t("unavailableQuota") }));
-      popover.appendChild(createEl("div", { class: "quota-pop-empty", text: t("unavailableQuota") }));
+      for (const ref of cache.rings.values()) ref.wrap.remove();
+      cache.rings.clear();
+      for (const ref of cache.popGroups.values()) ref.block.remove();
+      cache.popGroups.clear();
+      if (!cache.emptyPill) {
+        cache.emptyPill = createEl("span", { class: "quota-unavailable-text" });
+      }
+      setText(cache.emptyPill, t("unavailableQuota"));
+      for (const child of [...pill.children]) {
+        if (child !== cache.emptyPill) child.remove();
+      }
+      if (cache.emptyPill.parentNode !== pill) pill.appendChild(cache.emptyPill);
+      if (!cache.emptyPop) {
+        cache.emptyPop = createEl("div", { class: "quota-pop-empty" });
+      }
+      setText(cache.emptyPop, t("unavailableQuota"));
+      for (const child of [...popover.children]) {
+        if (child !== cache.emptyPop) child.remove();
+      }
+      if (cache.emptyPop.parentNode !== popover) popover.appendChild(cache.emptyPop);
       return;
     }
+    cache.emptyPill?.remove();
+    cache.emptyPop?.remove();
+    const desiredIds = new Set(usable.map((g) => g.id));
+    for (const [id, ref] of cache.rings) {
+      if (!desiredIds.has(id)) {
+        ref.wrap.remove();
+        cache.rings.delete(id);
+      }
+    }
+    for (const [id, ref] of cache.popGroups) {
+      if (!desiredIds.has(id)) {
+        ref.block.remove();
+        cache.popGroups.delete(id);
+      }
+    }
+    for (const child of [...pill.children]) {
+      const gid = child.dataset?.groupId;
+      if (!gid || !cache.rings.has(gid)) child.remove();
+    }
+    for (const child of [...popover.children]) {
+      const gid = child.dataset?.groupId;
+      if (!gid || !cache.popGroups.has(gid)) child.remove();
+    }
     const now = Date.now() + state.serverOffset;
+    let pillCursor = pill.firstElementChild;
+    let popCursor = popover.firstElementChild;
     for (const g of usable) {
       const weekAvail = readAvailableWindow(g.windows?.weekly);
       const fiveAvail = readAvailableWindow(g.windows?.["5h"]);
       const has5h = Boolean(fiveAvail);
       const family = resolveQuotaFamily(g);
-      const innerR = has5h ? 8.3 : 10;
-      const innerOuterW = has5h ? 2.5 : 2.6;
-      const innerHoleW = has5h ? 1.2 : 1.25;
-      const wPct = weekAvail ? Math.max(0, Math.min(100, (weekAvail.remaining ?? 0) * 100)) : 0;
-      const weeklyColor = weekAvail ? quotaToneColor(weekAvail.remaining) : "var(--pulse-ring-track)";
-      const wrap = createEl("span", { class: "quota-ring-item" });
-      const svg = document.createElementNS(SVG_NS3, "svg");
-      svg.setAttribute("class", "quota-ring-svg");
-      svg.setAttribute("viewBox", "0 0 28 28");
-      svg.setAttribute("aria-hidden", "true");
-      svg.appendChild(
-        createSvgCircle({
-          cx: 14,
-          cy: 14,
-          r: (innerR - innerOuterW / 2 - 0.7).toFixed(2),
-          fill: `color-mix(in srgb, ${family.color} 10%, transparent)`
-        })
-      );
-      svg.appendChild(
-        createSvgCircle({
-          cx: 14,
-          cy: 14,
-          r: innerR,
-          fill: "none",
-          stroke: weeklyColor,
-          "stroke-opacity": weekAvail ? "0.75" : "0.45",
-          "stroke-width": innerOuterW
-        })
-      );
-      svg.appendChild(
-        createSvgCircle({
-          cx: 14,
-          cy: 14,
-          r: innerR,
-          fill: "none",
-          stroke: "var(--pill-bg)",
-          "stroke-width": innerHoleW
-        })
-      );
-      if (wPct > 0) {
-        const innerArcAttrs = {
-          class: "quota-ring-arc",
-          cx: 14,
-          cy: 14,
-          r: innerR,
-          fill: "none",
-          stroke: weeklyColor,
-          "stroke-width": innerOuterW
-        };
-        if (wPct < 99) {
-          innerArcAttrs.pathLength = 100;
-          innerArcAttrs["stroke-linecap"] = "round";
-          innerArcAttrs["stroke-dasharray"] = `${wPct} ${100 - wPct}`;
-          innerArcAttrs.transform = "rotate(-90 14 14)";
-        }
-        svg.appendChild(createSvgCircle(innerArcAttrs));
+      let ringRef = cache.rings.get(g.id);
+      if (!ringRef) {
+        ringRef = createRingNode(g.id);
+        cache.rings.set(g.id, ringRef);
       }
-      if (fiveAvail && (fiveAvail.remaining ?? 0) > 0) {
-        const fPct = Math.max(0, Math.min(100, (fiveAvail.remaining ?? 0) * 100));
-        const outerArcAttrs = {
-          class: "quota-ring-arc",
-          cx: 14,
-          cy: 14,
-          r: 12.1,
-          fill: "none",
-          stroke: quotaToneColor(fiveAvail.remaining),
-          "stroke-width": 1.35
-        };
-        if (fPct < 99) {
-          outerArcAttrs.pathLength = 100;
-          outerArcAttrs["stroke-linecap"] = "round";
-          outerArcAttrs["stroke-dasharray"] = `${fPct} ${100 - fPct}`;
-          outerArcAttrs.transform = "rotate(-90 14 14)";
-        }
-        svg.appendChild(createSvgCircle(outerArcAttrs));
+      syncRingNode(ringRef, family, weekAvail, fiveAvail);
+      if (ringRef.wrap !== pillCursor) {
+        pill.insertBefore(ringRef.wrap, pillCursor);
+      } else {
+        pillCursor = pillCursor.nextElementSibling;
       }
-      const letterEl = createEl("span", { class: "quota-ring-letter", text: family.letter });
-      letterEl.style.color = family.color;
-      wrap.append(svg, letterEl);
-      pill.appendChild(wrap);
-      const block = createEl("div", { class: "quota-pop-group" });
-      const title = createEl("div", { class: "quota-pop-title" });
-      title.appendChild(createEl("span", { text: g.name || groupLabel(g) }));
-      if (!has5h) {
-        title.appendChild(createEl("span", { class: "quota-pop-badge", text: t("quotaNo5hTag") }));
+      let popRef = cache.popGroups.get(g.id);
+      if (!popRef) {
+        popRef = createPopoverGroup(g.id);
+        cache.popGroups.set(g.id, popRef);
       }
-      block.appendChild(title);
-      const rows = [];
-      if (weekAvail) rows.push({ label: t("week"), bucket: weekAvail });
-      if (fiveAvail) rows.push({ label: t("five"), bucket: fiveAvail });
-      for (const r of rows) {
-        const row = createEl("div", { class: "quota-pop-row" });
-        const meta = createEl("div", { class: "quota-pop-meta" });
-        meta.appendChild(createEl("span", { text: r.label }));
-        const pctText = percent(r.bucket.remaining);
-        const resetText = r.bucket.resetAt ? language.countdown(r.bucket.resetAt, now, true) : "";
-        const nums = createEl("span", {
-          class: "quota-pop-nums",
-          text: resetText ? `${pctText} \xB7 ${resetText}` : pctText
-        });
-        nums.dataset.pct = pctText;
-        if (r.bucket.resetAt) nums.dataset.resetAt = r.bucket.resetAt;
-        meta.appendChild(nums);
-        const track = createEl("div", { class: "quota-pop-track" });
-        const fill = createEl("i", { class: "quota-pop-fill" });
-        applyQuotaFill(fill, r.bucket.remaining);
-        track.appendChild(fill);
-        row.append(meta, track);
-        block.appendChild(row);
+      setText(popRef.titleTextEl, g.name || groupLabel(g));
+      setHidden(popRef.badgeEl, has5h);
+      if (!has5h) setText(popRef.badgeEl, t("quotaNo5hTag"));
+      syncPopoverRow(popRef.weekRow, t("week"), weekAvail, language, now);
+      syncPopoverRow(popRef.fiveRow, t("five"), fiveAvail, language, now);
+      if (popRef.block !== popCursor) {
+        popover.insertBefore(popRef.block, popCursor);
+      } else {
+        popCursor = popCursor.nextElementSibling;
       }
-      popover.appendChild(block);
     }
   }
   function renderQuotaAndSpeedSections(ctx, value) {
@@ -6336,11 +7385,11 @@ ${FONT_POPOVER_CSS}`;
       setText($("context-orchestrator"), planModel || t("modelMixModelsCount", { count: sessionModelCount }));
       setText($("context-orchestrator-note"), t(isHybrid ? "contextQuotaSplit" : "contextMultiModelHint"));
     }
-    const pctStr = hasCapacity && context.usedFraction != null ? `${Math.min(1, Math.max(0, context.usedFraction)) * 100}%` : "0%";
+    const fillScale = hasCapacity && context.usedFraction != null ? String(clampRatio(context.usedFraction)) : "0";
     const ctxColor = hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? "var(--pulse-danger)" : hasCapacity && (context.usedFraction ?? 0) >= 0.8 ? "var(--pulse-warning)" : "";
     const stripFill = $("strip-context-fill");
     const stripTrack = $("strip-context-track");
-    setStyle(stripFill, "width", pctStr);
+    setStyle(stripFill, "--fill-scale", fillScale);
     setStyle(stripFill, "background", ctxColor);
     if (hasCapacity && context.usedFraction != null) {
       setAttr(stripTrack, "aria-valuenow", String(Math.min(100, context.usedFraction * 100)));
@@ -6349,7 +7398,7 @@ ${FONT_POPOVER_CSS}`;
     }
     const ctxFill = $("context-fill");
     const ctxTrack = $("context-track");
-    setStyle(ctxFill, "width", pctStr);
+    setStyle(ctxFill, "--fill-scale", fillScale);
     setStyle(ctxFill, "background", ctxColor);
     if (hasCapacity && context.usedFraction != null) {
       setAttr(ctxTrack, "aria-valuenow", String(Math.min(100, context.usedFraction * 100)));
@@ -6395,23 +7444,49 @@ ${FONT_POPOVER_CSS}`;
     }
     void value;
   }
-  function updateCountdowns(ctx, onExpiredRefresh) {
+  function updateCountdowns(ctx, onExpiredRefresh, options = {}) {
     const { $, state, language } = ctx;
     const now = Date.now() + state.serverOffset;
     const popover = $("quota-popover");
-    if (popover) {
-      for (const el2 of popover.querySelectorAll(".quota-pop-nums[data-reset-at]")) {
-        const resetAt = el2.dataset.resetAt;
-        const pctText = el2.dataset.pct || "\u2014";
-        if (resetAt) {
-          setText(el2, `${pctText} \xB7 ${language.countdown(resetAt, now, true)}`);
+    const pill = $("quota-rings-pill");
+    const popoverOpen = Boolean(
+      popover && (popover.matches?.(":popover-open") || pill?.getAttribute("aria-expanded") === "true")
+    );
+    const cache = quotaCaches.get(state);
+    if (popover && (options.forceDom || !document.hidden && popoverOpen)) {
+      if (cache && cache.popGroups.size > 0) {
+        for (const groupRef of cache.popGroups.values()) {
+          for (const rowRef of [groupRef.weekRow, groupRef.fiveRow]) {
+            if (rowRef.row.hidden) continue;
+            const resetAt = rowRef.numsEl.dataset.resetAt;
+            const pctText = rowRef.numsEl.dataset.pct || "\u2014";
+            if (resetAt) {
+              setText(rowRef.numsEl, `${pctText} \xB7 ${language.countdown(resetAt, now, true)}`);
+            }
+          }
+        }
+      } else {
+        for (const el2 of popover.querySelectorAll(".quota-pop-nums[data-reset-at]")) {
+          const resetAt = el2.dataset.resetAt;
+          const pctText = el2.dataset.pct || "\u2014";
+          if (resetAt) {
+            setText(el2, `${pctText} \xB7 ${language.countdown(resetAt, now, true)}`);
+          }
         }
       }
+    }
+    if (state.snapshot?.connection !== "live" || now - state.lastExpiredRefresh <= 3e4) return;
+    if (cache?.resetTimesComputed) {
+      if (cache.nextResetAtMs <= now) {
+        state.lastExpiredRefresh = now;
+        onExpiredRefresh();
+      }
+      return;
     }
     for (const group of state.snapshot?.groups || []) {
       for (const windowName of ["5h", "weekly"]) {
         const avail = readAvailableWindow(group.windows?.[windowName]);
-        if (avail?.resetAt && Date.parse(avail.resetAt) <= now && state.snapshot?.connection === "live" && now - state.lastExpiredRefresh > 3e4) {
+        if (avail?.resetAt && Date.parse(avail.resetAt) <= now) {
           state.lastExpiredRefresh = now;
           onExpiredRefresh();
           return;
@@ -6429,10 +7504,21 @@ ${FONT_POPOVER_CSS}`;
       onFontChange,
       onSelectLanguage,
       onToggleDebugLaunch,
-      onRefreshDebugLaunch
+      onRefreshDebugLaunch,
+      onSelectRecordingAccount,
+      onAddRecordingAccount
     } = options;
     const doc = trigger.ownerDocument;
     const t = language.t;
+    const accountState = {
+      active: null,
+      selected: null,
+      localMode: false,
+      accounts: [],
+      busy: false,
+      error: null,
+      notice: null
+    };
     const debugState = {
       enabled: Boolean(
         options.initialPreferences && !("error" in options.initialPreferences) && "debugLaunchEnabled" in options.initialPreferences && options.initialPreferences.debugLaunchEnabled === true
@@ -6482,6 +7568,85 @@ ${FONT_POPOVER_CSS}`;
     debugSection.append(debugRow, debugStatusEl);
     const div1 = doc.createElement("div");
     div1.className = "settings-divider";
+    const accountSection = doc.createElement("div");
+    accountSection.className = "settings-section settings-account-section";
+    const accountCopy = doc.createElement("div");
+    accountCopy.className = "settings-copy";
+    const accountTitle = doc.createElement("span");
+    accountTitle.className = "settings-row-title";
+    const accountDesc = doc.createElement("span");
+    accountDesc.className = "settings-row-desc";
+    accountCopy.append(accountTitle, accountDesc);
+    const accountControls = doc.createElement("div");
+    accountControls.className = "settings-account-controls";
+    const accountSelect = doc.createElement("select");
+    accountSelect.id = "recording-account-select";
+    accountSelect.className = "settings-account-select";
+    accountSelect.addEventListener("change", () => {
+      if (accountState.busy) return;
+      const val = accountSelect.value;
+      void onSelectRecordingAccount?.(val === "auto" || !val ? null : val);
+    });
+    const accountAddToggle = doc.createElement("button");
+    accountAddToggle.id = "recording-account-add-toggle";
+    accountAddToggle.type = "button";
+    accountAddToggle.className = "settings-account-btn";
+    const accountAddForm = doc.createElement("div");
+    accountAddForm.id = "recording-account-add-form";
+    accountAddForm.className = "settings-account-add-form";
+    accountAddForm.hidden = true;
+    const accountInput = doc.createElement("input");
+    accountInput.id = "recording-account-input";
+    accountInput.type = "text";
+    accountInput.className = "settings-account-input";
+    accountInput.autocomplete = "off";
+    const accountAddActions = doc.createElement("div");
+    accountAddActions.className = "settings-account-add-actions";
+    const accountCancelBtn = doc.createElement("button");
+    accountCancelBtn.id = "recording-account-cancel-btn";
+    accountCancelBtn.type = "button";
+    accountCancelBtn.className = "settings-account-btn";
+    const accountSaveBtn = doc.createElement("button");
+    accountSaveBtn.id = "recording-account-save-btn";
+    accountSaveBtn.type = "button";
+    accountSaveBtn.className = "settings-account-btn is-primary";
+    const submitNewAccount = () => {
+      if (accountState.busy) return;
+      const raw = accountInput.value.trim();
+      if (!raw) {
+        accountInput.focus();
+        return;
+      }
+      void Promise.resolve(onAddRecordingAccount?.(raw)).then(() => {
+        accountInput.value = "";
+        accountAddForm.hidden = true;
+      });
+    };
+    accountAddToggle.addEventListener("click", () => {
+      accountAddForm.hidden = !accountAddForm.hidden;
+      if (!accountAddForm.hidden) accountInput.focus();
+    });
+    accountCancelBtn.addEventListener("click", () => {
+      accountInput.value = "";
+      accountAddForm.hidden = true;
+    });
+    accountSaveBtn.addEventListener("click", submitNewAccount);
+    accountInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitNewAccount();
+      }
+    });
+    accountAddActions.append(accountCancelBtn, accountSaveBtn);
+    accountAddForm.append(accountInput, accountAddActions);
+    accountControls.append(accountSelect, accountAddToggle);
+    const accountStatusEl = doc.createElement("p");
+    accountStatusEl.id = "recording-account-status";
+    accountStatusEl.className = "settings-debug-status";
+    accountStatusEl.setAttribute("role", "status");
+    accountSection.append(accountCopy, accountControls, accountAddForm, accountStatusEl);
+    const divAccount = doc.createElement("div");
+    divAccount.className = "settings-divider";
     const langSection = doc.createElement("div");
     langSection.className = "settings-section";
     const langRow = doc.createElement("div");
@@ -6530,10 +7695,14 @@ ${FONT_POPOVER_CSS}`;
       onChange: onFontChange
     });
     fontSection.append(fontControls.headElement, fontControls.rowsElement);
-    popover.append(debugSection, div1, langSection, div2, fontSection);
+    popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection);
     mountRoot.append(popover);
-    const isOpen = () => popover.matches(":popover-open");
+    const isOpen = () => popover.matches(":popover-open") || popover.dataset.open === "true";
+    const supportsAnchor = () => typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("position-area", "block-end");
+    let resizeRaf = null;
+    let lastSyncedFontSig = null;
     const positionPopover = () => {
+      if (supportsAnchor()) return;
       const r = trigger.getBoundingClientRect();
       const popRect = popover.getBoundingClientRect();
       const popW = popRect.width || 276;
@@ -6579,6 +7748,53 @@ ${FONT_POPOVER_CSS}`;
       debugStatusEl.dataset.tone = tone;
       setText(debugStatusEl, msg);
     };
+    const renderRecordingAccount = () => {
+      accountSelect.disabled = Boolean(accountState.busy);
+      accountAddToggle.disabled = Boolean(accountState.busy);
+      accountSaveBtn.disabled = Boolean(accountState.busy);
+      accountCancelBtn.disabled = Boolean(accountState.busy);
+      accountInput.disabled = Boolean(accountState.busy);
+      const realAccounts = (accountState.accounts || []).filter((a) => a && a.id && a.id !== "all");
+      const selectedKey = accountState.selected || "auto";
+      const sig = `${language.language}|${selectedKey}|${realAccounts.map((a) => `${a.id}:${a.email || a.name}:${Boolean(a.primary)}`).join(",")}`;
+      if (accountSelect.dataset.sig !== sig) {
+        accountSelect.dataset.sig = sig;
+        const autoOpt = doc.createElement("option");
+        autoOpt.value = "auto";
+        autoOpt.textContent = t("recordingAccountAuto");
+        autoOpt.selected = selectedKey === "auto";
+        const opts = [autoOpt];
+        for (const acc of realAccounts) {
+          const opt = doc.createElement("option");
+          opt.value = acc.id;
+          const label = acc.email || acc.name || `Account (${acc.id.slice(0, 8)})`;
+          const primarySuffix = acc.primary ? language.language === "zh-CN" ? " (\u4E3B)" : " (Primary)" : "";
+          opt.textContent = `${label}${primarySuffix}`;
+          opt.selected = acc.id === selectedKey;
+          opts.push(opt);
+        }
+        accountSelect.replaceChildren(...opts);
+      } else if (accountSelect.value !== selectedKey) {
+        accountSelect.value = selectedKey;
+      }
+      const activeId = accountState.active || accountState.selected || null;
+      const matched = activeId ? realAccounts.find((a) => a.id === activeId) : null;
+      const activeLabel = matched?.email || matched?.name || (activeId ? `Account (${activeId.slice(0, 8)})` : "\u2014");
+      let tone = "ready";
+      let msg = accountState.selected ? t("recordingAccountStatusPinned", { account: activeLabel }) : t("recordingAccountStatusAuto", { account: activeLabel });
+      if (accountState.busy) {
+        tone = "saving";
+        msg = t("debugLaunchSaving");
+      } else if (accountState.error) {
+        tone = "error";
+        msg = accountState.error;
+      } else if (accountState.notice) {
+        tone = "ready";
+        msg = accountState.notice;
+      }
+      accountStatusEl.dataset.tone = tone;
+      setText(accountStatusEl, msg);
+    };
     const syncLanguage = (lang = language.language, saveError = languageSaveError) => {
       languageSaveError = saveError;
       const isZh = lang === "zh-CN";
@@ -6596,28 +7812,65 @@ ${FONT_POPOVER_CSS}`;
       setAttr(trigger, "aria-label", title);
       setText(debugTitle, t("debugLaunchTitle"));
       setText(debugDesc, t("debugLaunchDesc"));
+      setText(accountTitle, t("recordingAccountTitle"));
+      setText(accountDesc, t("recordingAccountDesc"));
+      setAttr(accountSelect, "aria-label", t("recordingAccountTitle"));
+      setText(accountAddToggle, t("recordingAccountAddBtn"));
+      accountInput.placeholder = t("recordingAccountInputPlaceholder");
+      setAttr(accountInput, "aria-label", t("recordingAccountInputPlaceholder"));
+      setText(accountSaveBtn, t("recordingAccountSaveBtn"));
+      setText(accountCancelBtn, t("recordingAccountCancelBtn"));
       setText(langTitle, t("languageSection"));
       setAttr(langGroup, "aria-label", t("languageSection"));
       setText(btnZh, t("languageZhLabel"));
       setText(btnEn, t("languageEnLabel"));
       syncLanguage(language.language, languageSaveError);
       renderDebugStatus();
+      renderRecordingAccount();
       fontControls.localize();
     };
     const syncPreferences = (prefs) => {
       if (!prefs || typeof prefs !== "object" || "error" in prefs) return;
-      fontControls.sync(prefs);
+      const p = prefs;
+      const fontSig = `${p.usageFontScale ?? ""}|${p.sidebarFontScale ?? ""}|${p.inlineFontScale ?? ""}`;
+      if (fontSig !== lastSyncedFontSig) {
+        lastSyncedFontSig = fontSig;
+        fontControls.sync(prefs);
+      }
       if ("debugLaunchEnabled" in prefs && typeof prefs.debugLaunchEnabled === "boolean" && !debugState.busy) {
-        debugState.enabled = prefs.debugLaunchEnabled;
-        renderDebugStatus();
+        if (debugState.enabled !== prefs.debugLaunchEnabled) {
+          debugState.enabled = prefs.debugLaunchEnabled;
+          renderDebugStatus();
+        }
       }
     };
     const syncDebugLaunch = (next) => {
-      Object.assign(debugState, next);
-      renderDebugStatus();
+      let changed = false;
+      for (const key of Object.keys(next)) {
+        const value = next[key];
+        if (!Object.is(debugState[key], value)) {
+          debugState[key] = value;
+          changed = true;
+        }
+      }
+      if (changed) renderDebugStatus();
+    };
+    const syncRecordingAccount = (next) => {
+      for (const key of Object.keys(next)) {
+        accountState[key] = next[key];
+      }
+      renderRecordingAccount();
+    };
+    const cancelResizeRaf = () => {
+      if (resizeRaf !== null) {
+        cancelAnimationFrame(resizeRaf);
+        resizeRaf = null;
+      }
     };
     const close = () => {
+      cancelResizeRaf();
       if (!isOpen()) return;
+      delete popover.dataset.open;
       try {
         popover.hidePopover();
       } catch {
@@ -6631,6 +7884,7 @@ ${FONT_POPOVER_CSS}`;
       try {
         popover.showPopover();
       } catch {
+        popover.dataset.open = "true";
         popover.style.display = "block";
       }
       positionPopover();
@@ -6656,7 +7910,11 @@ ${FONT_POPOVER_CSS}`;
       }
     };
     const onViewportChange = () => {
-      if (isOpen()) positionPopover();
+      if (!isOpen() || supportsAnchor() || resizeRaf !== null) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        if (isOpen()) positionPopover();
+      });
     };
     setAttr(trigger, "aria-haspopup", "dialog");
     setAttr(trigger, "aria-expanded", "false");
@@ -6664,13 +7922,14 @@ ${FONT_POPOVER_CSS}`;
     trigger.addEventListener("click", onTriggerClick);
     doc.addEventListener("pointerdown", onDocPointerDown, true);
     doc.addEventListener("keydown", onDocKeyDown, true);
-    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("resize", onViewportChange, { passive: true });
     localize();
     syncPreferences(options.initialPreferences);
     return {
       element: popover,
       syncPreferences,
       syncDebugLaunch,
+      syncRecordingAccount,
       syncLanguage,
       localize,
       close,
@@ -6818,7 +8077,16 @@ ${FONT_POPOVER_CSS}`;
   }
 
   // src/ui/panel-webview/subagent-tree.ts
-  function syncSubagentNode(ctx, nodeEl, node, depth, existingNodes) {
+  var subagentNodeMaps = /* @__PURE__ */ new WeakMap();
+  function getSubagentNodeMap(state) {
+    let map = subagentNodeMaps.get(state);
+    if (!map) {
+      map = /* @__PURE__ */ new Map();
+      subagentNodeMaps.set(state, map);
+    }
+    return map;
+  }
+  function syncSubagentNode(ctx, nodeEl, node, depth, existingNodes, nextNodes) {
     const { state, language } = ctx;
     const t = language.t;
     const refs = subagentRefs.get(nodeEl);
@@ -6909,13 +8177,13 @@ ${FONT_POPOVER_CSS}`;
       }
       refs.childrenEl.dataset.parentId = id;
       if (!panelMotion.has(refs.childrenEl)) setHidden(refs.childrenEl, !isTreeExpanded);
-      syncSubagentChildren(ctx, refs.childrenEl, node.children, depth + 1, existingNodes);
+      syncSubagentChildren(ctx, refs.childrenEl, node.children, depth + 1, existingNodes, nextNodes);
     } else if (refs.childrenEl) {
       refs.childrenEl.remove();
       refs.childrenEl = null;
     }
   }
-  function syncSubagentChildren(ctx, containerEl, nodes, depth, existingNodes) {
+  function syncSubagentChildren(ctx, containerEl, nodes, depth, existingNodes, nextNodes) {
     const desiredIds = new Set(nodes.map((n) => String(n.id)));
     for (const child of [...containerEl.children]) {
       if (!child.classList?.contains("subagent-tree-node") || !desiredIds.has(child.dataset?.id || "")) {
@@ -6928,7 +8196,8 @@ ${FONT_POPOVER_CSS}`;
       let nodeEl = existingNodes.get(id);
       if (nodeEl) existingNodes.delete(id);
       else nodeEl = createSubagentNodeElement();
-      syncSubagentNode(ctx, nodeEl, node, depth, existingNodes);
+      nextNodes.set(id, nodeEl);
+      syncSubagentNode(ctx, nodeEl, node, depth, existingNodes, nextNodes);
       if (nodeEl !== cursor) containerEl.insertBefore(nodeEl, cursor);
       else cursor = cursor.nextElementSibling;
     }
@@ -6949,16 +8218,27 @@ ${FONT_POPOVER_CSS}`;
       const nextSig = items.length ? `${currentConvId || ""}|${language.language}|${items.map((i) => `${i.id}${i.parentId ?? ""}${i.role ?? ""}${i.model ?? ""}${i.tps ?? ""}${i.latestTps ?? ""}${i.latestRateStatus ?? ""}${i.steps ?? 0}${i.totalTokens ?? ""}${i.context?.usedTokens ?? ""}${i.context?.maxTokens ?? ""}${i.context?.usedFraction ?? ""}${i.status ?? ""}`).join("")}` : `EMPTY|${language.language}`;
       if (nextSig !== state.lastSubagentsSig || list.children.length === 0) {
         state.lastSubagentsSig = nextSig;
+        const nodeMap = getSubagentNodeMap(state);
         if (items.length) {
           const container = $("subagents-container");
-          const savedScroll = container ? container.scrollTop : 0;
+          const preserveScroll = Boolean(container && !container.hidden);
+          const savedScroll = preserveScroll && container ? container.scrollTop : 0;
           const existingNodes = /* @__PURE__ */ new Map();
-          for (const el2 of list.querySelectorAll(".subagent-tree-node[data-id]")) {
-            if (el2.dataset.id) existingNodes.set(el2.dataset.id, el2);
+          for (const [id, el2] of nodeMap) {
+            if (el2.isConnected && list.contains(el2)) existingNodes.set(id, el2);
           }
-          syncSubagentChildren(ctx, list, buildSubagentTree(items), 1, existingNodes);
-          if (container) container.scrollTop = savedScroll;
+          if (existingNodes.size === 0 && list.children.length > 0) {
+            for (const el2 of list.querySelectorAll(".subagent-tree-node[data-id]")) {
+              if (el2.dataset.id) existingNodes.set(el2.dataset.id, el2);
+            }
+          }
+          const nextNodes = /* @__PURE__ */ new Map();
+          syncSubagentChildren(ctx, list, buildSubagentTree(items), 1, existingNodes, nextNodes);
+          nodeMap.clear();
+          for (const [id, el2] of nextNodes) nodeMap.set(id, el2);
+          if (preserveScroll && container) container.scrollTop = savedScroll;
         } else {
+          nodeMap.clear();
           list.innerHTML = `<div class="subagent-empty">${escapeHtml(language.t("transcriptLoading"))}</div>`;
         }
       }
@@ -7003,8 +8283,8 @@ ${FONT_POPOVER_CSS}`;
       if (!toggle || !container) return;
       const expanded = toggle.getAttribute("aria-expanded") !== "true";
       setAttr(toggle, "aria-expanded", String(expanded));
+      setExpandedState(container, expanded, true, () => syncPinBottom(ctx));
       syncPinBottom(ctx);
-      setExpandedState(container, expanded, true);
     });
     const subList = $("subagents-list");
     subList?.addEventListener("click", (event) => {
@@ -7051,8 +8331,6 @@ ${FONT_POPOVER_CSS}`;
     const panelWin = window;
     if (!document.querySelector(".widget") || panelWin.__agPulsePanelInstalled) return;
     panelWin.__agPulsePanelInstalled = true;
-    const theme = createAgPulseTheme();
-    let themeController = theme.attach(document.documentElement);
     const localGet = (key) => {
       try {
         return localStorage.getItem(key);
@@ -7066,12 +8344,11 @@ ${FONT_POPOVER_CSS}`;
       } catch {
       }
     };
-    const language = createDashboardI18n(localGet("ag-pulse-language"));
-    const t = language.t;
-    const host = panelWin.sidecar;
-    if (!host) document.body.classList.add("standalone");
     const applySidebarFontScale = (scale) => {
-      document.documentElement.style.setProperty("--pulse-sidebar-font-scale", String(resolveFontScale(scale)));
+      const resolved = String(resolveFontScale(scale));
+      if (document.documentElement.style.getPropertyValue("--pulse-sidebar-font-scale") !== resolved) {
+        document.documentElement.style.setProperty("--pulse-sidebar-font-scale", resolved);
+      }
     };
     applySidebarFontScale(localGet("ag-pulse-sidebar-font-scale"));
     if (!document.getElementById("ag-pulse-font-popover-style")) {
@@ -7080,6 +8357,12 @@ ${FONT_POPOVER_CSS}`;
       styleEl.textContent = FONT_CONTROL_CSS;
       document.head.append(styleEl);
     }
+    const theme = createAgPulseTheme();
+    let themeController = theme.attach(document.documentElement);
+    const language = createDashboardI18n(localGet("ag-pulse-language"));
+    const t = language.t;
+    const host = panelWin.sidecar;
+    if (!host) document.body.classList.add("standalone");
     const state = {
       snapshot: null,
       selectedGroup: localGet("ag-pulse-group"),
@@ -7147,7 +8430,7 @@ ${FONT_POPOVER_CSS}`;
       const dotClass = `connection-dot ${snapshot.connection}`;
       if (dot && dot.className !== dotClass) dot.className = dotClass;
       setAttr(dot, "title", t(snapshot.connection === "live" ? "live" : snapshot.connection === "stale" ? "stale" : "offline"));
-      const timestamp = snapshot.quotaUpdatedAt ? new Date(snapshot.quotaUpdatedAt).toLocaleTimeString(language.language, { hour12: false }) : null;
+      const timestamp = snapshot.quotaUpdatedAt ? formatClock(ctx, snapshot.quotaUpdatedAt) : null;
       const healthNote = ctx.$("health-note");
       setText(
         healthNote,
@@ -7167,12 +8450,15 @@ ${FONT_POPOVER_CSS}`;
       }
       setText(ctx.$("integration-note"), integrationMsg);
       handleUpdateCountdowns();
-      if (localUsage?.isOpen) localUsage.update(snapshot.usage);
     };
-    const handleUpdateCountdowns = () => {
-      updateCountdowns(ctx, () => {
-        setTimeout(() => void controller.refresh(true), 0);
-      });
+    const handleUpdateCountdowns = (forceDom = false) => {
+      updateCountdowns(
+        ctx,
+        () => {
+          setTimeout(() => void controller.refresh(true), 0);
+        },
+        { forceDom }
+      );
     };
     ctx = {
       state,
@@ -7193,7 +8479,8 @@ ${FONT_POPOVER_CSS}`;
     };
     controller = createPanelController(ctx, {
       render,
-      updateCountdowns: handleUpdateCountdowns,
+      updateCountdowns: () => handleUpdateCountdowns(),
+      isUsageOpen: () => Boolean(localUsage?.isOpen),
       onTheme: (hostTheme) => {
         usageThemeController?.setHostTheme(hostTheme ?? null);
       },
@@ -7208,6 +8495,7 @@ ${FONT_POPOVER_CSS}`;
     const quotaPill = ctx.$("quota-rings-pill");
     const quotaPopover = ctx.$("quota-popover");
     let quotaCloseTimer = null;
+    let quotaResizeRaf = null;
     let quotaPinned = false;
     const positionQuotaPopoverFallback = () => {
       if (!quotaPill || !quotaPopover || CSS.supports("position-area", "block-end")) return;
@@ -7225,7 +8513,9 @@ ${FONT_POPOVER_CSS}`;
         clearTimeout(quotaCloseTimer);
         quotaCloseTimer = null;
       }
+      handleUpdateCountdowns(true);
       if (!quotaPopover.matches(":popover-open")) {
+        quotaPopover.style.display = "";
         try {
           quotaPopover.showPopover();
         } catch {
@@ -7241,11 +8531,17 @@ ${FONT_POPOVER_CSS}`;
         clearTimeout(quotaCloseTimer);
         quotaCloseTimer = null;
       }
-      if (quotaPopover && typeof quotaPopover.hidePopover === "function" && quotaPopover.matches(":popover-open")) {
-        try {
-          quotaPopover.hidePopover();
-        } catch {
-          quotaPopover.style.display = "none";
+      if (quotaResizeRaf !== null) {
+        cancelAnimationFrame(quotaResizeRaf);
+        quotaResizeRaf = null;
+      }
+      if (quotaPopover && typeof quotaPopover.hidePopover === "function") {
+        if (quotaPopover.matches(":popover-open")) {
+          try {
+            quotaPopover.hidePopover();
+          } catch {
+            quotaPopover.style.display = "none";
+          }
         }
       } else if (quotaPopover) {
         quotaPopover.style.display = "none";
@@ -7290,11 +8586,15 @@ ${FONT_POPOVER_CSS}`;
       }
     };
     const onQuotaResize = () => {
-      if (isQuotaOpen()) positionQuotaPopoverFallback();
+      if (!isQuotaOpen() || quotaResizeRaf !== null) return;
+      quotaResizeRaf = requestAnimationFrame(() => {
+        quotaResizeRaf = null;
+        if (isQuotaOpen()) positionQuotaPopoverFallback();
+      });
     };
     document.addEventListener("pointerdown", onDocQuotaPointerDown, true);
     document.addEventListener("keydown", onDocQuotaKeyDown, true);
-    window.addEventListener("resize", onQuotaResize);
+    window.addEventListener("resize", onQuotaResize, { passive: true });
     ctx.$("timeline-enable-btn")?.addEventListener("click", () => {
       void controller.setTimelineEnabled(true);
     });
@@ -7341,7 +8641,7 @@ ${FONT_POPOVER_CSS}`;
       const expanded = btn.getAttribute("aria-expanded") !== "true";
       state.timelineToggled.set(nodeEl.dataset.nodeId, !expanded);
       setAttr(btn, "aria-expanded", String(expanded));
-      kids.hidden = !expanded;
+      setExpandedState(kids, expanded, true);
     });
     ctx.$("refresh-button")?.addEventListener("click", controller.refreshManually);
     const settingsTrigger = ctx.$("settings-button");
@@ -7353,6 +8653,7 @@ ${FONT_POPOVER_CSS}`;
         initialPreferences: { sidebarFontScale: resolveFontScale(localGet("ag-pulse-sidebar-font-scale")) },
         onFontChange: async (update, next) => {
           applySidebarFontScale(next.sidebarFontScale);
+          controller.syncFontScaleCache(next.sidebarFontScale);
           localSet("ag-pulse-sidebar-font-scale", String(next.sidebarFontScale));
           try {
             const saved = await controller.savePreferences(update);
@@ -7360,7 +8661,9 @@ ${FONT_POPOVER_CSS}`;
               ctx.settingsPopover?.syncPreferences(saved);
               localUsage?.syncPreferences?.(saved);
               applySidebarFontScale(saved.sidebarFontScale);
-              localSet("ag-pulse-sidebar-font-scale", String(resolveFontScale(saved.sidebarFontScale)));
+              const resolved = resolveFontScale(saved.sidebarFontScale);
+              controller.syncFontScaleCache(resolved);
+              localSet("ag-pulse-sidebar-font-scale", String(resolved));
             }
           } catch {
           }
@@ -7374,19 +8677,27 @@ ${FONT_POPOVER_CSS}`;
           ctx.settingsPopover?.syncDebugLaunch({ busy: true, error: null });
           try {
             const result = await controller.apiJson("/api/debug-launch", { enabled: nextEnabled });
+            const finalEnabled = result.enabled ?? nextEnabled;
             if (result.preferences && !("error" in result.preferences)) {
               ctx.preferences.sync(result.preferences);
               ctx.settingsPopover?.syncPreferences(result.preferences);
+              if (state.snapshot) state.snapshot.preferences = result.preferences;
+            }
+            if (state.snapshot?.integration) {
+              state.snapshot.integration.debugLaunchEnabled = finalEnabled;
+              state.snapshot.integration.debugLaunchConfigured = Boolean(result.configured);
+              state.snapshot.integration.activePortPresent = Boolean(result.activePortPresent);
             }
             ctx.settingsPopover?.syncDebugLaunch({
-              enabled: result.enabled ?? nextEnabled,
+              enabled: finalEnabled,
               configured: Boolean(result.configured),
               activePortPresent: Boolean(result.activePortPresent),
               platform: result.platform ?? null,
               busy: false,
               error: null
             });
-            await controller.refresh(true);
+            if (state.snapshot) render();
+            void controller.refresh(false);
           } catch (err) {
             ctx.settingsPopover?.syncDebugLaunch({
               busy: false,
@@ -7396,15 +8707,76 @@ ${FONT_POPOVER_CSS}`;
         },
         onRefreshDebugLaunch: async () => {
           try {
-            const status = await controller.apiJson("/api/debug-launch");
-            ctx.settingsPopover?.syncDebugLaunch({
-              ...typeof status.enabled === "boolean" ? { enabled: status.enabled } : {},
-              ...typeof status.configured === "boolean" ? { configured: status.configured } : {},
-              ...typeof status.activePortPresent === "boolean" ? { activePortPresent: status.activePortPresent } : {},
-              platform: status.platform ?? null,
-              error: null
-            });
+            const [statusRes, accRes] = await Promise.allSettled([
+              controller.apiJson("/api/debug-launch"),
+              controller.apiJson("/api/usage/recording-account")
+            ]);
+            if (statusRes.status === "fulfilled") {
+              const status = statusRes.value;
+              ctx.settingsPopover?.syncDebugLaunch({
+                ...typeof status.enabled === "boolean" ? { enabled: status.enabled } : {},
+                ...typeof status.configured === "boolean" ? { configured: status.configured } : {},
+                ...typeof status.activePortPresent === "boolean" ? { activePortPresent: status.activePortPresent } : {},
+                platform: status.platform ?? null,
+                error: null
+              });
+            }
+            if (accRes.status === "fulfilled") {
+              const acc = accRes.value;
+              const list = Array.isArray(acc.accounts) ? acc.accounts : acc.accounts?.accounts || [];
+              ctx.settingsPopover?.syncRecordingAccount({
+                active: acc.active ?? null,
+                selected: acc.selected ?? null,
+                localMode: Boolean(acc.localMode),
+                accounts: list,
+                busy: false,
+                error: null
+              });
+            }
           } catch {
+          }
+        },
+        onSelectRecordingAccount: async (scope) => {
+          ctx.settingsPopover?.syncRecordingAccount({ busy: true, error: null, notice: null });
+          try {
+            const acc = await controller.apiJson("/api/usage/recording-account", { scope });
+            const list = Array.isArray(acc.accounts) ? acc.accounts : acc.accounts?.accounts || [];
+            ctx.settingsPopover?.syncRecordingAccount({
+              active: acc.active ?? null,
+              selected: acc.selected ?? null,
+              localMode: Boolean(acc.localMode),
+              accounts: list,
+              busy: false,
+              error: null,
+              notice: t("recordingAccountSaved")
+            });
+            await controller.refresh(true, { includeUsage: Boolean(localUsage?.isOpen) });
+          } catch (err) {
+            ctx.settingsPopover?.syncRecordingAccount({
+              busy: false,
+              error: err instanceof Error ? err.message : t("recordingAccountFailed")
+            });
+          }
+        },
+        onAddRecordingAccount: async (identifier) => {
+          ctx.settingsPopover?.syncRecordingAccount({ busy: true, error: null, notice: null });
+          try {
+            const res = await controller.apiJson("/api/usage/accounts/add", { identifier, activate: true });
+            const list = Array.isArray(res.accounts) ? res.accounts : res.accounts?.accounts || [];
+            ctx.settingsPopover?.syncRecordingAccount({
+              active: res.active ?? null,
+              selected: res.selected ?? null,
+              accounts: list,
+              busy: false,
+              error: null,
+              notice: t("recordingAccountSaved")
+            });
+            await controller.refresh(true, { includeUsage: Boolean(localUsage?.isOpen) });
+          } catch (err) {
+            ctx.settingsPopover?.syncRecordingAccount({
+              busy: false,
+              error: err instanceof Error ? err.message : t("recordingAccountFailed")
+            });
           }
         }
       });
@@ -7420,6 +8792,10 @@ ${FONT_POPOVER_CSS}`;
         setPreferences: (input) => controller.apiJson("/api/preferences", input),
         getAccounts: () => controller.apiJson("/api/usage/accounts", {}),
         switchAccount: (input) => controller.apiJson("/api/usage/switch-account", input),
+        getRecordingAccount: () => controller.apiJson("/api/usage/recording-account"),
+        setRecordingAccount: (input) => controller.apiJson("/api/usage/recording-account", input),
+        addAccount: (input) => controller.apiJson("/api/usage/accounts/add", input),
+        reassignConversation: (input) => controller.apiJson("/api/usage/reassign-conversation", input),
         addManualUsage: (input) => controller.apiJson("/api/usage/manual/add", input),
         deleteManualUsage: (input) => controller.apiJson("/api/usage/manual/delete", input),
         getProjectUsage: (input) => controller.apiJson("/api/usage/project-overview", input),
@@ -7446,7 +8822,7 @@ ${FONT_POPOVER_CSS}`;
           if (state.snapshot?.usage) localUsage?.update(state.snapshot.usage);
         },
         onRefresh: async () => {
-          await controller.refresh(true);
+          await controller.refresh(true, { includeUsage: true });
           if (state.snapshot?.usage) localUsage?.update(state.snapshot.usage);
         },
         onPreferencesSaved: (saved) => {
@@ -7455,11 +8831,23 @@ ${FONT_POPOVER_CSS}`;
           if ("sidebarFontScale" in saved) {
             const scale = resolveFontScale(saved.sidebarFontScale);
             applySidebarFontScale(scale);
+            controller.syncFontScaleCache(scale);
             localSet("ag-pulse-sidebar-font-scale", String(scale));
           }
         }
       });
       return localUsage;
+    };
+    let countdownTimer = null;
+    const startCountdownTimer = () => {
+      if (countdownTimer !== null || document.hidden) return;
+      countdownTimer = setInterval(() => handleUpdateCountdowns(false), 1e3);
+    };
+    const stopCountdownTimer = () => {
+      if (countdownTimer !== null) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
     };
     const openUsageBtn = ctx.$("open-usage-button");
     openUsageBtn?.addEventListener("click", () => {
@@ -7473,7 +8861,7 @@ ${FONT_POPOVER_CSS}`;
           } catch {
           }
           if (!state.snapshot?.usage) {
-            await controller.refresh(true);
+            await controller.refresh(true, { includeUsage: true });
           }
           if (!state.snapshot?.usage) return;
           const dashboard = ensureLocalUsage();
@@ -7484,10 +8872,18 @@ ${FONT_POPOVER_CSS}`;
       })();
     });
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) void controller.refresh();
+      if (document.hidden) {
+        stopCountdownTimer();
+      } else {
+        startCountdownTimer();
+        handleUpdateCountdowns(false);
+        void controller.refresh();
+      }
     });
     window.addEventListener("pagehide", () => {
       closeQuotaPopoverNow();
+      stopCountdownTimer();
+      controller.stopTimers();
       document.removeEventListener("pointerdown", onDocQuotaPointerDown, true);
       document.removeEventListener("keydown", onDocQuotaKeyDown, true);
       window.removeEventListener("resize", onQuotaResize);
@@ -7503,8 +8899,14 @@ ${FONT_POPOVER_CSS}`;
       if (!event.persisted) return;
       ctx.setThemeController(theme.attach(document.documentElement));
       ctx.setPreferences(controller.connectPreferences());
+      document.addEventListener("pointerdown", onDocQuotaPointerDown, true);
+      document.addEventListener("keydown", onDocQuotaKeyDown, true);
+      window.addEventListener("resize", onQuotaResize, { passive: true });
+      startCountdownTimer();
+      controller.resumeTimers();
+      void controller.refresh();
     });
-    setInterval(handleUpdateCountdowns, 1e3);
+    startCountdownTimer();
     controller.localize();
     showCard("speed");
     syncPinBottom(ctx);

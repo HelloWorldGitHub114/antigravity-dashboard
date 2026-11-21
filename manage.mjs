@@ -871,7 +871,7 @@ function statusCli(home) {
 }
 
 // src/lifecycle/debug-launch.ts
-import { execFileSync as execFileSync2, spawn } from "node:child_process";
+import { execFile, execFileSync as execFileSync2, spawn } from "node:child_process";
 import {
   chmodSync,
   closeSync as closeSync3,
@@ -884,6 +884,7 @@ import {
   rmSync as rmSync2,
   writeFileSync as writeFileSync2
 } from "node:fs";
+import { mkdir as mkdir2, readdir, rm as rm2 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { basename as basename3, dirname as dirname5, join as join4, resolve as resolve3 } from "node:path";
 var DEBUG_PORT_FLAG = "--remote-debugging-port=0";
@@ -891,6 +892,30 @@ var DEBUG_ADDR_FLAG = "--remote-debugging-address=127.0.0.1";
 var DEBUG_LAUNCH_FLAGS = [DEBUG_PORT_FLAG, DEBUG_ADDR_FLAG];
 var WIN_DASHBOARD_SHORTCUT_NAME = "Antigravity (Dashboard).lnk";
 var MAC_DASHBOARD_LAUNCHER_NAME = "Antigravity (Dashboard).command";
+var CACHE_TTL_MS = 5e3;
+var MAX_CACHE_ENTRIES = 64;
+var executableCache = /* @__PURE__ */ new Map();
+var statusCache = /* @__PURE__ */ new Map();
+function cacheKeyFor(options) {
+  const platform = options.platform ?? process.platform;
+  const home = options.home ?? homedir2();
+  const env = options.env ?? process.env;
+  return JSON.stringify([
+    platform,
+    home,
+    options.appPath ? resolve3(options.appPath) : "",
+    env.APPDATA ?? "",
+    env.LOCALAPPDATA ?? "",
+    env.XDG_CONFIG_HOME ?? "",
+    env.XDG_DATA_HOME ?? "",
+    env.AG_PULSE_APP_ASAR ?? "",
+    platform === "linux" ? env.PATH ?? "" : ""
+  ]);
+}
+function invalidateDebugLaunchCache() {
+  executableCache.clear();
+  statusCache.clear();
+}
 function debugStateFile(options) {
   return join4(dirname5(platformPaths(options).settings), "debug-launch-state.json");
 }
@@ -968,7 +993,7 @@ function stripDebugFlags(rawArgs) {
   }
   return { next: kept.join(" "), changed };
 }
-function resolveDesktopExecutable(options = {}) {
+function resolveDesktopExecutableUncached(options) {
   const platform = options.platform ?? process.platform;
   const home = options.home ?? homedir2();
   const candidates = options.appPath ? [resolve3(options.appPath)] : appAsarCandidates(options);
@@ -1000,6 +1025,18 @@ function resolveDesktopExecutable(options = {}) {
   }
   return null;
 }
+function resolveDesktopExecutable(options = {}) {
+  const key = cacheKeyFor(options);
+  const now = Date.now();
+  if (!options.bypassCache) {
+    const cached = executableCache.get(key);
+    if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
+  }
+  const value = resolveDesktopExecutableUncached(options);
+  if (executableCache.size >= MAX_CACHE_ENTRIES) executableCache.clear();
+  executableCache.set(key, { value, at: now });
+  return value;
+}
 function collectLnkFiles(dir, maxDepth, out, depth = 0) {
   if (depth > maxDepth || !existsSync4(dir)) return;
   try {
@@ -1026,6 +1063,40 @@ function findWindowsShortcutCandidates(options) {
   collectLnkFiles(join4(appData, "Microsoft", "Windows", "Start Menu", "Programs"), 3, found);
   return { desktopDir, shortcuts: [...found].sort() };
 }
+var READ_SHORTCUTS_PS = [
+  "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
+  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+  "$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json",
+  "$sh = New-Object -ComObject WScript.Shell",
+  "$out = @()",
+  "foreach ($p in $paths) {",
+  "  if (Test-Path -LiteralPath $p) {",
+  "    try {",
+  "      $sc = $sh.CreateShortcut($p)",
+  "      $out += [PSCustomObject]@{ path = $p; targetPath = [string]$sc.TargetPath; arguments = [string]$sc.Arguments }",
+  "    } catch {}",
+  "  }",
+  "}",
+  "$out | ConvertTo-Json -Compress"
+].join("\n");
+var WRITE_SHORTCUTS_PS = [
+  "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
+  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+  "$items = [Console]::In.ReadToEnd() | ConvertFrom-Json",
+  "$sh = New-Object -ComObject WScript.Shell",
+  "foreach ($item in $items) {",
+  "  $sc = $sh.CreateShortcut($item.path)",
+  "  if ($item.targetPath) { $sc.TargetPath = [string]$item.targetPath }",
+  "  $sc.Arguments = [string]$item.arguments",
+  "  $sc.Save()",
+  "}"
+].join("\n");
+function parseReadShortcutsOutput(stdout) {
+  const raw = stdout.trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
 function defaultWindowsDriver() {
   const runPs = (script, payload) => execFileSync2(
     "powershell.exe",
@@ -1040,42 +1111,11 @@ function defaultWindowsDriver() {
   return {
     readShortcuts(paths) {
       if (paths.length === 0) return [];
-      const script = [
-        "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
-        "$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json",
-        "$sh = New-Object -ComObject WScript.Shell",
-        "$out = @()",
-        "foreach ($p in $paths) {",
-        "  if (Test-Path -LiteralPath $p) {",
-        "    try {",
-        "      $sc = $sh.CreateShortcut($p)",
-        "      $out += [PSCustomObject]@{ path = $p; targetPath = [string]$sc.TargetPath; arguments = [string]$sc.Arguments }",
-        "    } catch {}",
-        "  }",
-        "}",
-        "$out | ConvertTo-Json -Compress"
-      ].join("\n");
-      const raw = runPs(script, paths).trim();
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [parsed];
+      return parseReadShortcutsOutput(runPs(READ_SHORTCUTS_PS, paths));
     },
     writeShortcuts(updates) {
       if (updates.length === 0) return;
-      const script = [
-        "[Console]::InputEncoding = [System.Text.Encoding]::UTF8",
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
-        "$items = [Console]::In.ReadToEnd() | ConvertFrom-Json",
-        "$sh = New-Object -ComObject WScript.Shell",
-        "foreach ($item in $items) {",
-        "  $sc = $sh.CreateShortcut($item.path)",
-        "  if ($item.targetPath) { $sc.TargetPath = [string]$item.targetPath }",
-        "  $sc.Arguments = [string]$item.arguments",
-        "  $sc.Save()",
-        "}"
-      ].join("\n");
-      runPs(script, updates);
+      runPs(WRITE_SHORTCUTS_PS, updates);
     }
   };
 }
@@ -1101,6 +1141,12 @@ function stripFlagsFromDesktopExec(line) {
   return `Exec=${next}`;
 }
 function getDebugLaunchStatus(options = {}) {
+  const key = cacheKeyFor(options);
+  const now = Date.now();
+  if (!options.bypassCache) {
+    const cached = statusCache.get(key);
+    if (cached && now - cached.at < CACHE_TTL_MS) return { ...cached.value };
+  }
   const platform = options.platform ?? process.platform;
   const home = options.home ?? homedir2();
   const state = readDebugState(debugStateFile(options));
@@ -1127,190 +1173,56 @@ function getDebugLaunchStatus(options = {}) {
     const first = state.createdFiles.find((p) => existsSync4(p));
     launcherPath = first ?? null;
   }
-  return {
+  const value = {
     enabled: state.enabled,
     configured,
     platform,
     launcherPath,
     exeFound: Boolean(exe)
   };
+  if (statusCache.size >= MAX_CACHE_ENTRIES) statusCache.clear();
+  statusCache.set(key, { value, at: now });
+  return { ...value };
 }
-function applyDebugLaunch(enabled, options = {}) {
-  const platform = options.platform ?? process.platform;
-  const home = options.home ?? homedir2();
-  const env = options.env ?? process.env;
-  const statePath = debugStateFile(options);
-  const state = readDebugState(statePath);
-  const exe = resolveDesktopExecutable(options);
+function planWindowsShortcutUpdates(enabled, entries, state, desktopDir, exe) {
+  const updates = [];
   const patchedTargets = [];
   const createdTargets = [];
-  const removedTargets = [];
   let launcherPath = null;
-  if (platform === "win32") {
-    const driver = options.windowsDriver ?? defaultWindowsDriver();
-    const { desktopDir, shortcuts } = findWindowsShortcutCandidates(options);
-    const allPaths = [.../* @__PURE__ */ new Set([...shortcuts, ...state.patchedShortcuts, ...state.createdFiles])];
-    const entries = driver.readShortcuts(allPaths);
-    const updates = [];
-    if (enabled) {
-      const matching = entries.filter(isDirectAntigravityShortcut);
-      for (const entry of matching) {
-        const { next, changed } = appendDebugFlags(entry.arguments || "");
-        if (changed) updates.push({ path: entry.path, arguments: next });
+  let needsDesktopDir = false;
+  if (enabled) {
+    const matching = entries.filter(isDirectAntigravityShortcut);
+    for (const entry of matching) {
+      const { next, changed } = appendDebugFlags(entry.arguments || "");
+      if (changed) updates.push({ path: entry.path, arguments: next });
+      patchedTargets.push(entry.path);
+    }
+    if (matching.length === 0 && exe) {
+      needsDesktopDir = true;
+      const created = join4(desktopDir, WIN_DASHBOARD_SHORTCUT_NAME);
+      updates.push({
+        path: created,
+        targetPath: exe,
+        arguments: `${DEBUG_PORT_FLAG} ${DEBUG_ADDR_FLAG}`
+      });
+      createdTargets.push(created);
+      launcherPath = created;
+    }
+  } else {
+    for (const entry of entries) {
+      if (state.createdFiles.includes(entry.path)) continue;
+      if (!isDirectAntigravityShortcut(entry)) continue;
+      const { next, changed } = stripDebugFlags(entry.arguments || "");
+      if (changed) {
+        updates.push({ path: entry.path, arguments: next });
         patchedTargets.push(entry.path);
       }
-      if (matching.length === 0 && exe) {
-        mkdirSync4(desktopDir, { recursive: true });
-        const created = join4(desktopDir, WIN_DASHBOARD_SHORTCUT_NAME);
-        updates.push({
-          path: created,
-          targetPath: exe,
-          arguments: `${DEBUG_PORT_FLAG} ${DEBUG_ADDR_FLAG}`
-        });
-        createdTargets.push(created);
-        launcherPath = created;
-      }
-      driver.writeShortcuts(updates);
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: true,
-        patchedShortcuts: [.../* @__PURE__ */ new Set([...state.patchedShortcuts, ...patchedTargets])],
-        createdFiles: [.../* @__PURE__ */ new Set([...state.createdFiles, ...createdTargets])],
-        desktopBackup: state.desktopBackup ?? null
-      });
-    } else {
-      for (const entry of entries) {
-        if (state.createdFiles.includes(entry.path)) continue;
-        if (!isDirectAntigravityShortcut(entry)) continue;
-        const { next, changed } = stripDebugFlags(entry.arguments || "");
-        if (changed) {
-          updates.push({ path: entry.path, arguments: next });
-          patchedTargets.push(entry.path);
-        }
-      }
-      driver.writeShortcuts(updates);
-      for (const created of state.createdFiles) {
-        if (existsSync4(created)) {
-          rmSync2(created, { force: true });
-          removedTargets.push(created);
-        }
-      }
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: false,
-        patchedShortcuts: [],
-        createdFiles: [],
-        desktopBackup: null
-      });
-    }
-  } else if (platform === "linux") {
-    const dataHome = env.XDG_DATA_HOME || join4(home, ".local", "share");
-    const appsDir = join4(dataHome, "applications");
-    const userDesktop = join4(appsDir, "antigravity.desktop");
-    const systemCandidates = [
-      "/usr/share/applications/antigravity.desktop",
-      "/usr/local/share/applications/antigravity.desktop"
-    ];
-    if (enabled) {
-      let sourceContent = null;
-      let backup = state.desktopBackup ?? null;
-      if (existsSync4(userDesktop)) {
-        sourceContent = readFileSync5(userDesktop, "utf8");
-        if (!backup) backup = { path: userDesktop, existed: true, content: sourceContent };
-      } else {
-        const sysFile = systemCandidates.find((p) => existsSync4(p));
-        if (sysFile) sourceContent = readFileSync5(sysFile, "utf8");
-        if (!backup) backup = { path: userDesktop, existed: false, content: null };
-      }
-      if (!sourceContent && exe) {
-        sourceContent = [
-          "[Desktop Entry]",
-          "Type=Application",
-          "Name=Antigravity",
-          `Exec="${exe}" %U`,
-          "Terminal=false",
-          "Categories=Development;",
-          ""
-        ].join("\n");
-      }
-      if (sourceContent) {
-        const updated = sourceContent.split(/\r?\n/).map(injectFlagsIntoDesktopExec).join("\n");
-        mkdirSync4(appsDir, { recursive: true });
-        writeFileSync2(userDesktop, updated, "utf8");
-        launcherPath = userDesktop;
-        if (backup.existed) patchedTargets.push(userDesktop);
-        else createdTargets.push(userDesktop);
-      }
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: true,
-        patchedShortcuts: patchedTargets,
-        createdFiles: createdTargets,
-        desktopBackup: backup
-      });
-    } else {
-      const backup = state.desktopBackup;
-      if (backup && backup.path === userDesktop) {
-        if (backup.existed && backup.content !== null) {
-          writeFileSync2(userDesktop, backup.content, "utf8");
-          patchedTargets.push(userDesktop);
-        } else if (!backup.existed && existsSync4(userDesktop)) {
-          rmSync2(userDesktop, { force: true });
-          removedTargets.push(userDesktop);
-        }
-      } else if (existsSync4(userDesktop)) {
-        const stripped = readFileSync5(userDesktop, "utf8").split(/\r?\n/).map(stripFlagsFromDesktopExec).join("\n");
-        writeFileSync2(userDesktop, stripped, "utf8");
-        patchedTargets.push(userDesktop);
-      }
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: false,
-        patchedShortcuts: [],
-        createdFiles: [],
-        desktopBackup: null
-      });
-    }
-  } else if (platform === "darwin") {
-    const cmdPath = join4(home, "Desktop", MAC_DASHBOARD_LAUNCHER_NAME);
-    if (enabled) {
-      const appTarget = exe || "/Applications/Antigravity.app";
-      mkdirSync4(dirname5(cmdPath), { recursive: true });
-      const script = [
-        "#!/bin/sh",
-        `exec open -na ${JSON.stringify(appTarget)} --args ${DEBUG_PORT_FLAG} ${DEBUG_ADDR_FLAG} "$@"`,
-        ""
-      ].join("\n");
-      writeFileSync2(cmdPath, script, "utf8");
-      try {
-        chmodSync(cmdPath, 493);
-      } catch {
-      }
-      createdTargets.push(cmdPath);
-      launcherPath = cmdPath;
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: true,
-        patchedShortcuts: [],
-        createdFiles: [cmdPath],
-        desktopBackup: null
-      });
-    } else {
-      for (const created of [.../* @__PURE__ */ new Set([...state.createdFiles, cmdPath])]) {
-        if (existsSync4(created)) {
-          rmSync2(created, { force: true });
-          removedTargets.push(created);
-        }
-      }
-      writeDebugState(statePath, {
-        schema: 1,
-        enabled: false,
-        patchedShortcuts: [],
-        createdFiles: [],
-        desktopBackup: null
-      });
     }
   }
+  return { updates, patchedTargets, createdTargets, launcherPath, needsDesktopDir };
+}
+function buildDebugLaunchOutcome(params) {
+  const { enabled, platform, patchedTargets, createdTargets, removedTargets, launcherPath, exe } = params;
   const configured = enabled && (patchedTargets.length > 0 || createdTargets.length > 0 || existsSync4(launcherPath ?? ""));
   return {
     enabled,
@@ -1323,6 +1235,174 @@ function applyDebugLaunch(enabled, options = {}) {
     exeFound: Boolean(exe),
     message: enabled ? configured ? "Debug launch flags configured; fully quit and reopen Antigravity to take effect." : "Debug launch preference saved, but no Antigravity executable or shortcut was found." : "Debug launch flags removed from managed shortcuts."
   };
+}
+function applyDebugLaunch(enabled, options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const home = options.home ?? homedir2();
+    const env = options.env ?? process.env;
+    const statePath = debugStateFile(options);
+    const state = readDebugState(statePath);
+    const exe = resolveDesktopExecutable({ ...options, bypassCache: true });
+    const patchedTargets = [];
+    const createdTargets = [];
+    const removedTargets = [];
+    let launcherPath = null;
+    if (platform === "win32") {
+      const driver = options.windowsDriver ?? defaultWindowsDriver();
+      const { desktopDir, shortcuts } = findWindowsShortcutCandidates(options);
+      const allPaths = [.../* @__PURE__ */ new Set([...shortcuts, ...state.patchedShortcuts, ...state.createdFiles])];
+      const entries = driver.readShortcuts(allPaths);
+      const plan = planWindowsShortcutUpdates(enabled, entries, state, desktopDir, exe);
+      patchedTargets.push(...plan.patchedTargets);
+      createdTargets.push(...plan.createdTargets);
+      launcherPath = plan.launcherPath;
+      if (enabled) {
+        if (plan.needsDesktopDir) mkdirSync4(desktopDir, { recursive: true });
+        driver.writeShortcuts(plan.updates);
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: true,
+          patchedShortcuts: [.../* @__PURE__ */ new Set([...state.patchedShortcuts, ...patchedTargets])],
+          createdFiles: [.../* @__PURE__ */ new Set([...state.createdFiles, ...createdTargets])],
+          desktopBackup: state.desktopBackup ?? null
+        });
+      } else {
+        driver.writeShortcuts(plan.updates);
+        for (const created of state.createdFiles) {
+          if (existsSync4(created)) {
+            rmSync2(created, { force: true });
+            removedTargets.push(created);
+          }
+        }
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: false,
+          patchedShortcuts: [],
+          createdFiles: [],
+          desktopBackup: null
+        });
+      }
+    } else if (platform === "linux") {
+      const dataHome = env.XDG_DATA_HOME || join4(home, ".local", "share");
+      const appsDir = join4(dataHome, "applications");
+      const userDesktop = join4(appsDir, "antigravity.desktop");
+      const systemCandidates = [
+        "/usr/share/applications/antigravity.desktop",
+        "/usr/local/share/applications/antigravity.desktop"
+      ];
+      if (enabled) {
+        let sourceContent = null;
+        let backup = state.desktopBackup ?? null;
+        if (existsSync4(userDesktop)) {
+          sourceContent = readFileSync5(userDesktop, "utf8");
+          if (!backup) backup = { path: userDesktop, existed: true, content: sourceContent };
+        } else {
+          const sysFile = systemCandidates.find((p) => existsSync4(p));
+          if (sysFile) sourceContent = readFileSync5(sysFile, "utf8");
+          if (!backup) backup = { path: userDesktop, existed: false, content: null };
+        }
+        if (!sourceContent && exe) {
+          sourceContent = [
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=Antigravity",
+            `Exec="${exe}" %U`,
+            "Terminal=false",
+            "Categories=Development;",
+            ""
+          ].join("\n");
+        }
+        if (sourceContent) {
+          const updated = sourceContent.split(/\r?\n/).map(injectFlagsIntoDesktopExec).join("\n");
+          mkdirSync4(appsDir, { recursive: true });
+          writeFileSync2(userDesktop, updated, "utf8");
+          launcherPath = userDesktop;
+          if (backup.existed) patchedTargets.push(userDesktop);
+          else createdTargets.push(userDesktop);
+        }
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: true,
+          patchedShortcuts: patchedTargets,
+          createdFiles: createdTargets,
+          desktopBackup: backup
+        });
+      } else {
+        const backup = state.desktopBackup;
+        if (backup && backup.path === userDesktop) {
+          if (backup.existed && backup.content !== null) {
+            writeFileSync2(userDesktop, backup.content, "utf8");
+            patchedTargets.push(userDesktop);
+          } else if (!backup.existed && existsSync4(userDesktop)) {
+            rmSync2(userDesktop, { force: true });
+            removedTargets.push(userDesktop);
+          }
+        } else if (existsSync4(userDesktop)) {
+          const stripped = readFileSync5(userDesktop, "utf8").split(/\r?\n/).map(stripFlagsFromDesktopExec).join("\n");
+          writeFileSync2(userDesktop, stripped, "utf8");
+          patchedTargets.push(userDesktop);
+        }
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: false,
+          patchedShortcuts: [],
+          createdFiles: [],
+          desktopBackup: null
+        });
+      }
+    } else if (platform === "darwin") {
+      const cmdPath = join4(home, "Desktop", MAC_DASHBOARD_LAUNCHER_NAME);
+      if (enabled) {
+        const appTarget = exe || "/Applications/Antigravity.app";
+        mkdirSync4(dirname5(cmdPath), { recursive: true });
+        const script = [
+          "#!/bin/sh",
+          `exec open -na ${JSON.stringify(appTarget)} --args ${DEBUG_PORT_FLAG} ${DEBUG_ADDR_FLAG} "$@"`,
+          ""
+        ].join("\n");
+        writeFileSync2(cmdPath, script, "utf8");
+        try {
+          chmodSync(cmdPath, 493);
+        } catch {
+        }
+        createdTargets.push(cmdPath);
+        launcherPath = cmdPath;
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: true,
+          patchedShortcuts: [],
+          createdFiles: [cmdPath],
+          desktopBackup: null
+        });
+      } else {
+        for (const created of [.../* @__PURE__ */ new Set([...state.createdFiles, cmdPath])]) {
+          if (existsSync4(created)) {
+            rmSync2(created, { force: true });
+            removedTargets.push(created);
+          }
+        }
+        writeDebugState(statePath, {
+          schema: 1,
+          enabled: false,
+          patchedShortcuts: [],
+          createdFiles: [],
+          desktopBackup: null
+        });
+      }
+    }
+    return buildDebugLaunchOutcome({
+      enabled,
+      platform,
+      patchedTargets,
+      createdTargets,
+      removedTargets,
+      launcherPath,
+      exe
+    });
+  } finally {
+    invalidateDebugLaunchCache();
+  }
 }
 function launchDesktopWithDebug(options = {}) {
   const platform = options.platform ?? process.platform;

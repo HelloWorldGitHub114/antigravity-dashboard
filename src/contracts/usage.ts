@@ -156,6 +156,8 @@ export interface UsageSummarySnapshot {
   updatedAt: string;
   source: string;
   activeAccount?: string;
+  recordingAccount?: string | null;
+  localAccountMode?: boolean;
   accounts?: UsageAccountInfo[];
   syncing?: boolean;
   status?: DesktopUsageSyncStatus;

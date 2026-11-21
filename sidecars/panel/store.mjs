@@ -65,10 +65,8 @@ function sameStringList(a, b) {
 }
 
 // src/telemetry/store/metrics-store.ts
-import { dirname as dirname2, join as join2 } from "node:path";
-import { AntigravityClient } from "./client.mjs";
-import { DelegatedUsage } from "./delegated-usage.mjs";
-import { TranscriptReader } from "./transcript.mjs";
+import { createHash as createHash2 } from "node:crypto";
+import { dirname as dirname3, join as join3 } from "node:path";
 
 // src/platform/native-bridge.ts
 import { existsSync } from "node:fs";
@@ -164,6 +162,36 @@ function getAddon() {
   cachedEnvPath = null;
   return null;
 }
+function isNativeAccelAvailable() {
+  return getAddon() !== null;
+}
+function readSqliteConversationMeta(dbPath, conversationId2) {
+  if (!dbPath || !conversationId2) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  try {
+    const json = addon.readSqliteConversationMetaJson(dbPath, conversationId2);
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function readSqliteConversationSummaries(dbPath) {
+  if (!dbPath) return null;
+  const addon = getAddon();
+  const fn = addon?.readSqliteConversationSummariesJson;
+  if (typeof fn !== "function") return null;
+  try {
+    const json = fn(dbPath);
+    if (typeof json !== "string" || !json) return null;
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 function callSingleJsonAddon(methodName, payload, validate) {
   const addon = getAddon();
   const fn = addon?.[methodName];
@@ -183,6 +211,242 @@ function diffSessionSnapshots(inputs) {
   if (!Array.isArray(inputs)) return null;
   return callSingleJsonAddon("diffSessionSnapshotsJson", inputs);
 }
+
+// src/telemetry/store/metrics-store.ts
+import { AntigravityClient, isNoLocalCredentialsError } from "./client.mjs";
+import { DelegatedUsage } from "./delegated-usage.mjs";
+
+// src/telemetry/reader/local-summaries.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import { createRequire as createRequire2 } from "node:module";
+import { dirname as dirname2, join as join2 } from "node:path";
+import { conversationId, defaultConversationsDir } from "./local-conversations.mjs";
+var summaryCache = /* @__PURE__ */ new Map();
+function normalizeMs(raw) {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
+  if (typeof raw === "string" && raw) {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+}
+function parseWorkspaceUris(raw) {
+  if (typeof raw !== "string") return [];
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((v) => String(v || "").trim()).filter(Boolean);
+    } catch {
+    }
+  }
+  return trimmed.split(/[\r\n,]+/).map((v) => v.trim()).filter(Boolean);
+}
+async function statSqliteDbStamp(dbPath) {
+  if (!dbPath) return null;
+  let mainStat;
+  try {
+    const info = await stat(dbPath);
+    if (!info.isFile()) return null;
+    mainStat = { size: info.size, mtimeMs: info.mtimeMs };
+  } catch {
+    return null;
+  }
+  let walPart = "0:0";
+  try {
+    const wal = await stat(`${dbPath}-wal`);
+    if (wal.isFile()) walPart = `${wal.size}:${Math.trunc(wal.mtimeMs)}`;
+  } catch {
+  }
+  return `${mainStat.size}:${Math.trunc(mainStat.mtimeMs)}|${walPart}`;
+}
+function readSummaryDbWithNodeSqlite(dbPath) {
+  if (!dbPath || !existsSync2(dbPath)) return null;
+  try {
+    const req = createRequire2(import.meta.url);
+    const mod = req("node:sqlite");
+    const DatabaseSync = mod.DatabaseSync;
+    if (typeof DatabaseSync !== "function") return null;
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const rows = db.prepare(
+        `SELECT conversation_id, COALESCE(title, '') AS title, COALESCE(preview, '') AS preview,
+                  COALESCE(last_modified_time, 0) AS last_modified_time, COALESCE(workspace_uris, '') AS workspace_uris,
+                  COALESCE(project_id, '') AS project_id, COALESCE(parent_conversation_id, '') AS parent_conversation_id,
+                  COALESCE(source, '') AS source, COALESCE(agent_name, '') AS agent_name
+           FROM conversation_summaries`
+      ).all();
+      return rows.map((r) => {
+        const vals = Object.values(r);
+        return {
+          conversationId: String(r.conversation_id ?? vals[0] ?? ""),
+          title: String(r.title ?? vals[1] ?? ""),
+          preview: String(r.preview ?? vals[2] ?? ""),
+          lastModifiedTime: normalizeMs(r.last_modified_time ?? vals[3]),
+          workspaceUris: String(r.workspace_uris ?? vals[4] ?? ""),
+          projectId: String(r.project_id ?? vals[5] ?? ""),
+          parentConversationId: String(r.parent_conversation_id ?? vals[6] ?? ""),
+          source: String(r.source ?? vals[7] ?? ""),
+          agentName: String(r.agent_name ?? vals[8] ?? "")
+        };
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+function rowsToSummaries(rows) {
+  const rawSummaries = {};
+  const list = [];
+  for (const row of rows) {
+    const id = typeof row.conversationId === "string" ? row.conversationId.trim() : "";
+    if (!id) continue;
+    const ts = normalizeMs(row.lastModifiedTime);
+    const modifiedAt = ts > 0 ? new Date(ts).toISOString() : "";
+    const cleanTitle = (row.title || "").replace(/\s+/g, " ").trim();
+    const agentName = (row.agentName || "").replace(/\s+/g, " ").trim();
+    const displayTitle = cleanTitle || agentName || "\u672A\u547D\u540D\u4F1A\u8BDD";
+    const parentId = (row.parentConversationId || "").trim();
+    const uris = parseWorkspaceUris(row.workspaceUris);
+    const trajectoryMetadata = {
+      ...parentId ? { parentConversationId: parentId } : {},
+      ...agentName ? { subagentRole: agentName } : {}
+    };
+    const raw = {
+      ...cleanTitle ? { summary: cleanTitle } : {},
+      lastModifiedTime: modifiedAt,
+      status: "",
+      ...uris.length ? { workspaces: uris.map((u) => ({ workspaceFolderAbsoluteUri: u })) } : {},
+      ...Object.keys(trajectoryMetadata).length ? { trajectoryMetadata } : {}
+    };
+    rawSummaries[id] = raw;
+    list.push({
+      ts,
+      item: {
+        id,
+        title: displayTitle,
+        modifiedAt,
+        status: "",
+        stepCount: 0
+      }
+    });
+  }
+  list.sort((a, b) => b.ts - a.ts);
+  return { rawSummaries, summaries: list.map((r) => r.item) };
+}
+async function fallbackScanConversationsDir(conversationsDir) {
+  const rawSummaries = {};
+  const entries = [];
+  try {
+    const names = await readdir(conversationsDir);
+    for (const name of names) {
+      if (!name.endsWith(".db")) continue;
+      const id = name.slice(0, -3);
+      if (!conversationId.test(id)) continue;
+      const dbPath = join2(conversationsDir, name);
+      try {
+        const main = await stat(dbPath);
+        if (!main.isFile()) continue;
+        let ts = main.mtimeMs;
+        try {
+          const wal = await stat(`${dbPath}-wal`);
+          if (wal.isFile() && wal.mtimeMs > ts) ts = wal.mtimeMs;
+        } catch {
+        }
+        entries.push({ id, dbPath, ts });
+      } catch {
+      }
+    }
+  } catch {
+    return { rawSummaries: {}, summaries: [] };
+  }
+  entries.sort((a, b) => b.ts - a.ts);
+  const top = entries.slice(0, 64);
+  const summaries = [];
+  const canReadMeta = isNativeAccelAvailable();
+  for (const item of top) {
+    const modifiedAt = item.ts > 0 ? new Date(item.ts).toISOString() : "";
+    const meta = canReadMeta ? readSqliteConversationMeta(item.dbPath, item.id) : null;
+    const specRole = typeof meta?.subagentSpec?.role === "string" && meta.subagentSpec.role.trim() || typeof meta?.subagentSpec?.typeName === "string" && meta.subagentSpec.typeName.trim() || "";
+    const trajectoryMetadata = {
+      ...meta?.parentConversationId ? { parentConversationId: meta.parentConversationId } : {},
+      ...meta?.rootConversationId ? { rootConversationId: meta.rootConversationId } : {},
+      ...typeof meta?.nestingDepth === "number" ? { nestingDepth: meta.nestingDepth } : {},
+      ...meta?.subagentSpec ? { subagentSpec: meta.subagentSpec } : {}
+    };
+    const raw = {
+      lastModifiedTime: modifiedAt,
+      status: "",
+      ...typeof meta?.stepCount === "number" ? { stepCount: meta.stepCount } : {},
+      ...Object.keys(trajectoryMetadata).length ? { trajectoryMetadata } : {}
+    };
+    rawSummaries[item.id] = raw;
+    summaries.push({
+      id: item.id,
+      title: specRole || "\u672A\u547D\u540D\u4F1A\u8BDD",
+      modifiedAt,
+      status: "",
+      stepCount: typeof meta?.stepCount === "number" ? meta.stepCount : 0
+    });
+  }
+  return { rawSummaries, summaries };
+}
+function resolveLocalAntigravityDir(client) {
+  if (!client || typeof client !== "object") return null;
+  const c = client;
+  const explicitDir = c.conversationsDir ?? c.reader?.conversationsDir ?? null;
+  if (typeof explicitDir === "string" && explicitDir.length > 0) {
+    return { rootDir: dirname2(explicitDir), conversationsDir: explicitDir };
+  }
+  if (Object.hasOwn(c, "call") || typeof c.paths !== "function") {
+    return null;
+  }
+  try {
+    const p = c.paths();
+    if (typeof p?.conversationsDir === "string" && p.conversationsDir.length > 0) {
+      return { rootDir: dirname2(p.conversationsDir), conversationsDir: p.conversationsDir };
+    }
+    if (typeof p?.home === "string" && p.home.length > 0) {
+      const host = typeof c.profile === "string" && c.profile.length > 0 ? "ide" : "app";
+      const conversationsDir = defaultConversationsDir(host, p.home);
+      return { rootDir: dirname2(conversationsDir), conversationsDir };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+async function readLocalConversationSummaries(rootDir, options = {}) {
+  const conversationsDir = options.conversationsDir || join2(rootDir, "conversations");
+  const dbPath = join2(rootDir, "conversation_summaries.db");
+  const stamp = await statSqliteDbStamp(dbPath);
+  if (stamp) {
+    const cached = !options.force && !options.readSummaries ? summaryCache.get(dbPath) : void 0;
+    if (cached && cached.stamp === stamp) {
+      return cached.result;
+    }
+    let rows = options.readSummaries ? options.readSummaries(dbPath) : readSqliteConversationSummaries(dbPath);
+    if (rows === null && !options.readSummaries) {
+      rows = readSummaryDbWithNodeSqlite(dbPath);
+    }
+    if (rows && rows.length > 0) {
+      const result = rowsToSummaries(rows);
+      if (!options.readSummaries) {
+        if (summaryCache.size >= 8) summaryCache.clear();
+        summaryCache.set(dbPath, { stamp, result });
+      }
+      return result;
+    }
+  }
+  return fallbackScanConversationsDir(conversationsDir);
+}
+
+// src/telemetry/store/metrics-store.ts
+import { TranscriptReader } from "./transcript.mjs";
 
 // src/telemetry/snapshot-diff.ts
 var FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
@@ -569,11 +833,26 @@ async function loadCachedSession(host, id, guid) {
   }
   return { ...restored, transcriptRestoredFromHistory: !!saved.metrics.transcriptStats, restoredFromHistory: true, savedAt: saved.savedAt };
 }
-async function executeQuotaRefresh(host) {
+async function callRetrieveUserQuota(host, forceRefresh) {
+  if (!forceRefresh || host.supportsForceQuotaRefresh === false) {
+    return host.client.call("RetrieveUserQuotaSummary");
+  }
+  try {
+    return await host.client.call("RetrieveUserQuotaSummary", { forceRefresh: true });
+  } catch (error) {
+    const status = error?.status;
+    if (status === 400) {
+      host.supportsForceQuotaRefresh = false;
+      return host.client.call("RetrieveUserQuotaSummary");
+    }
+    throw error;
+  }
+}
+async function executeQuotaRefresh(host, { forceRefresh = false, requestSeq } = {}) {
   const epoch = host.epoch;
   const [userRes, quotaRes] = await Promise.allSettled([
     host.client.call("GetUserStatus"),
-    host.client.call("RetrieveUserQuotaSummary")
+    callRetrieveUserQuota(host, forceRefresh)
   ]);
   if (epoch !== host.epoch) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
   if (userRes.status === "rejected") throw userRes.reason;
@@ -586,6 +865,9 @@ async function executeQuotaRefresh(host) {
     host.client.resetTrajectories?.();
     host.quota = null;
     host.quotaAt = 0;
+    host.quotaForceAt = 0;
+    host.quotaDirtyAt = 0;
+    host.quotaSettledAt = 0;
     host.sessions.clear();
     host.ancestorPending.clear();
     host.ancestorRaws.clear();
@@ -614,8 +896,14 @@ async function executeQuotaRefresh(host) {
   }
   if (accountPromise) await accountPromise;
   if (epoch !== host.epoch || identity !== host.identity) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+  if (requestSeq !== void 0 && host.quotaCommittedSeq !== void 0 && requestSeq < host.quotaCommittedSeq) {
+    return;
+  }
   host.quota = quotaMetrics(quotaRes.value);
-  host.quotaAt = Date.now();
+  const completedAt = Date.now();
+  host.quotaAt = completedAt;
+  if (forceRefresh) host.quotaForceAt = completedAt;
+  if (requestSeq !== void 0) host.quotaCommittedSeq = requestSeq;
 }
 async function saveSessionTimeline(host, scope, id, raw, metrics) {
   if (host.modelTimelineEnabled !== true) return null;
@@ -745,7 +1033,19 @@ async function runSessionPoll(host, id, entry, force) {
     if (delegatedConversations) fresh.delegatedConversations = delegatedConversations;
     const modelTimeline = await saveSessionTimeline(host, scope, id, raw, baseMetrics);
     if (!current()) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+    const prevRequests = entry.data?.requests ?? 0;
+    const prevOutput = entry.data?.counts?.output ?? 0;
+    const prevRunning = entry.data?.status === "CASCADE_RUN_STATUS_RUNNING";
     entry.data = { ...reconcileMetrics(entry.data, fresh, entry.savedAt || null), conversationId: id, modelTimeline };
+    const nextRequests = entry.data.requests ?? 0;
+    const nextOutput = entry.data.counts?.output ?? 0;
+    const nextRunning = entry.data.status === "CASCADE_RUN_STATUS_RUNNING";
+    if (nextRequests > prevRequests || nextOutput > prevOutput || nextRunning) {
+      host.quotaDirtyAt = Date.now();
+    }
+    if (prevRunning && !nextRunning || nextRequests > prevRequests && !nextRunning) {
+      host.quotaSettledAt = Date.now();
+    }
     entry.updatedAt = Date.now();
     entry.rawWeak = readerRev !== null && raw && typeof raw === "object" ? new WeakRef(raw) : null;
     entry.rawRev = readerRev;
@@ -780,6 +1080,25 @@ var HASH = /^[a-f0-9]{64}$/;
 
 // src/telemetry/store/metrics-store.ts
 var errorMessage2 = (e) => e instanceof Error ? e.message : String(e);
+var QUOTA_IDLE_TTL_MS = 3e4;
+var QUOTA_IDLE_FORCE_TTL_MS = 9e4;
+var QUOTA_ACTIVE_TTL_MS = 12e3;
+var QUOTA_SETTLE_COOLDOWN_MS = 5e3;
+var QUOTA_EXPIRED_RETRY_MS = 1e4;
+var LOCAL_SQLITE_MODE_NOTICE = "\u5F53\u524D\u7248\u672C\u5DF2\u5207\u6362\u4E3A\u672C\u5730 SQLite \u76F4\u8BFB\u6A21\u5F0F\uFF08\u4E91\u7AEF\u989D\u5EA6\u6682\u4E0D\u53EF\u7528\uFF09";
+function hasExpiredQuotaWindow(groups, now) {
+  if (!Array.isArray(groups)) return false;
+  for (const group of groups) {
+    const windows = group?.windows;
+    if (!windows || typeof windows !== "object") continue;
+    for (const win of Object.values(windows)) {
+      if (!win || !win.available || typeof win.resetAt !== "string") continue;
+      const resetMs = Date.parse(win.resetAt);
+      if (Number.isFinite(resetMs) && resetMs <= now) return true;
+    }
+  }
+  return false;
+}
 var MetricsStore = class {
   client;
   history;
@@ -790,9 +1109,18 @@ var MetricsStore = class {
   transcripts;
   delegated;
   owns;
+  resolveLocalIdentityFn;
+  localFallbackActive = false;
   quota = null;
   quotaAt = 0;
+  quotaForceAt = 0;
+  quotaDirtyAt = 0;
+  quotaSettledAt = 0;
   quotaPending = null;
+  quotaPendingForce = false;
+  quotaRequestSeq = 0;
+  quotaCommittedSeq = 0;
+  supportsForceQuotaRefresh = true;
   identity = null;
   registeredAccount = null;
   serverPid = null;
@@ -820,18 +1148,20 @@ var MetricsStore = class {
     onAccount = null,
     transcripts = new TranscriptReader(),
     delegated = null,
-    owns = () => true
+    owns = () => true,
+    resolveLocalIdentity = null
   } = {}) {
     this.client = client;
     this.history = history;
     this.timelineStore = timelineStore === null ? null : timelineStore || new TimelineStore(
-      dataDir ? join2(dataDir, "timeline-v1") : history?.directory ? join2(dirname2(history.directory), "timeline-v1") : void 0
+      dataDir ? join3(dataDir, "timeline-v1") : history?.directory ? join3(dirname3(history.directory), "timeline-v1") : void 0
     );
     this.modelTimelineEnabled = modelTimelineEnabled === true;
     this.onTrajectory = onTrajectory;
     this.onAccount = onAccount;
     this.transcripts = transcripts;
     this.owns = owns;
+    this.resolveLocalIdentityFn = typeof resolveLocalIdentity === "function" ? resolveLocalIdentity : null;
     this.client?.setModelTimelineEnabled?.(this.modelTimelineEnabled);
     this.delegated = delegated || new DelegatedUsage(this.client, {
       owns: () => this.owns() === true,
@@ -909,13 +1239,48 @@ var MetricsStore = class {
   cachedSession(id) {
     return loadCachedSession(this, id, GUID);
   }
+  quotaRefreshPlan(force, now = Date.now()) {
+    if (force) return { refresh: true, forceUpstream: true };
+    if (!this.quota) return { refresh: true, forceUpstream: true };
+    const age = now - this.quotaAt;
+    const forceAge = now - this.quotaForceAt;
+    if (hasExpiredQuotaWindow(this.quota, now) && age >= QUOTA_EXPIRED_RETRY_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (this.quotaSettledAt > this.quotaForceAt && forceAge >= QUOTA_SETTLE_COOLDOWN_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    const active = this.runningSessionIds.size > 0 || this.quotaDirtyAt > this.quotaForceAt;
+    if (active && forceAge >= QUOTA_ACTIVE_TTL_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (forceAge >= QUOTA_IDLE_FORCE_TTL_MS) {
+      return { refresh: true, forceUpstream: true };
+    }
+    if (age >= QUOTA_IDLE_TTL_MS) {
+      return { refresh: true, forceUpstream: false };
+    }
+    return { refresh: false, forceUpstream: false };
+  }
   async refreshQuota(force = false) {
-    if (!force && this.quota && Date.now() - this.quotaAt < 6e4) return;
-    if (this.quotaPending) return this.quotaPending;
-    this.quotaPending = executeQuotaRefresh(this).finally(() => {
-      this.quotaPending = null;
+    const plan = this.quotaRefreshPlan(force);
+    if (!plan.refresh) return;
+    if (this.quotaPending) {
+      if (!plan.forceUpstream || this.quotaPendingForce) return this.quotaPending;
+    }
+    const seq = ++this.quotaRequestSeq;
+    const pending = executeQuotaRefresh(this, {
+      forceRefresh: plan.forceUpstream,
+      requestSeq: seq
+    }).finally(() => {
+      if (this.quotaPending === pending) {
+        this.quotaPending = null;
+        this.quotaPendingForce = false;
+      }
     });
-    return this.quotaPending;
+    this.quotaPending = pending;
+    this.quotaPendingForce = plan.forceUpstream;
+    return pending;
   }
   getSummaryDiff() {
     return this.lastSummaryDiff;
@@ -927,17 +1292,58 @@ var MetricsStore = class {
     this.runningSessionIds.clear();
     this.lastSummaryDiff = null;
   }
-  async listConversations(force = false) {
-    if (!force && Date.now() - this.summariesAt < 5e3) return this.summaries;
-    const scope = this.identity;
+  resetForServerPid(pid) {
+    this.epoch++;
+    this.delegated?.reset?.();
+    this.transcripts?.reset();
+    this.quota = null;
+    this.quotaAt = 0;
+    this.quotaForceAt = 0;
+    this.quotaDirtyAt = 0;
+    this.quotaSettledAt = 0;
+    this.quotaPending = null;
+    this.quotaPendingForce = false;
+    this.quotaCommittedSeq = 0;
+    this.quotaRequestSeq++;
+    this.supportsForceQuotaRefresh = true;
+    this.sessions.clear();
+    this.ancestorPending.clear();
+    this.ancestorRaws.clear();
+    this.identity = null;
+    this.registeredAccount = null;
+    this.summaries = [];
+    this.rawSummaries = null;
+    this.summariesAt = 0;
+    this.clearSummaryDiffState();
+    this.serverPid = pid;
+    this.lastActiveConversationId = null;
+  }
+  async ensureLocalIdentity(localDir, recentConversationIds) {
+    if (this.identity && HASH.test(this.identity)) return this.identity;
     const epoch = this.epoch;
-    const response = await this.client.call("GetAllCascadeTrajectories");
-    if (scope !== this.identity || epoch !== this.epoch) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
-    const rawSummaries = response.trajectorySummaries || {};
+    let resolved = null;
+    if (this.resolveLocalIdentityFn) {
+      try {
+        const candidate = await this.resolveLocalIdentityFn(recentConversationIds);
+        if (typeof candidate === "string" && HASH.test(candidate)) resolved = candidate;
+      } catch {
+      }
+    }
+    if (epoch !== this.epoch) return this.identity;
+    if (!resolved) {
+      const pathInfo = this.client.paths?.();
+      const profileKey = pathInfo?.profile || localDir.rootDir;
+      const prefix = /antigravity-vertex/i.test(profileKey) ? "vertex:" : "local:";
+      resolved = createHash2("sha256").update(`${prefix}${profileKey}`).digest("hex");
+    }
+    this.identity = resolved;
+    return resolved;
+  }
+  commitSummaries(rawSummaries, mapped) {
     this.rawSummaries = rawSummaries;
     const now = Date.now();
     this.client?.reader?.seedSummaries?.(rawSummaries, now, this.client?.server);
-    this.summaries = mapConversationSummaries(rawSummaries);
+    this.summaries = mapped ?? mapConversationSummaries(rawSummaries);
     this.summariesAt = now;
     const descriptors = new Array(this.summaries.length);
     for (let i = 0; i < this.summaries.length; i++) {
@@ -959,6 +1365,13 @@ var MetricsStore = class {
     this.dirtySessionIds = new Set(diff.dirtyIds);
     this.newlySettledSessionIds = new Set(diff.newlySettledIds);
     this.runningSessionIds = new Set(diff.runningIds);
+    if (this.runningSessionIds.size > 0 || this.dirtySessionIds.size > 0) {
+      this.quotaDirtyAt = now;
+    }
+    if (this.newlySettledSessionIds.size > 0) {
+      this.quotaDirtyAt = now;
+      this.quotaSettledAt = now;
+    }
     const nextStates = /* @__PURE__ */ new Map();
     for (const item of diff.items) {
       const settled = item.statusKind === "settled";
@@ -978,6 +1391,43 @@ var MetricsStore = class {
     this.summaryStates = nextStates;
     return this.summaries;
   }
+  async listConversations(force = false) {
+    if (!force && Date.now() - this.summariesAt < 5e3) return this.summaries;
+    const scope = this.identity;
+    const epoch = this.epoch;
+    if (this.localFallbackActive) {
+      const localDir = resolveLocalAntigravityDir(this.client);
+      if (localDir) {
+        const local = await readLocalConversationSummaries(localDir.rootDir, {
+          conversationsDir: localDir.conversationsDir,
+          force
+        });
+        if (scope !== this.identity || epoch !== this.epoch) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+        return this.commitSummaries(local.rawSummaries, local.summaries);
+      }
+    }
+    let response;
+    try {
+      response = await this.client.call("GetAllCascadeTrajectories");
+    } catch (err) {
+      if (isNoLocalCredentialsError(err)) {
+        const localDir = resolveLocalAntigravityDir(this.client);
+        if (localDir && isNativeAccelAvailable()) {
+          this.localFallbackActive = true;
+          const local = await readLocalConversationSummaries(localDir.rootDir, {
+            conversationsDir: localDir.conversationsDir,
+            force
+          });
+          if (scope !== this.identity || epoch !== this.epoch) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+          return this.commitSummaries(local.rawSummaries, local.summaries);
+        }
+      }
+      throw err;
+    }
+    if (scope !== this.identity || epoch !== this.epoch) throw new Error("\u540E\u53F0\u5DF2\u91CD\u65B0\u8FDE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u5237\u65B0");
+    const rawSummaries = response.trajectorySummaries || {};
+    return this.commitSummaries(rawSummaries);
+  }
   async session(id, force = false) {
     if (!GUID.test(id)) throw new Error("\u4F1A\u8BDD\u6807\u8BC6\u65E0\u6548");
     let entry = this.sessions.get(id);
@@ -996,59 +1446,132 @@ var MetricsStore = class {
     });
     return entry.pending;
   }
-  async snapshot({ conversationId, force = false } = {}) {
+  async runLocalSqliteSnapshot(localDir, pidHint, conversationId2, force) {
+    const pid = Number.isSafeInteger(pidHint) && pidHint > 0 ? pidHint : -1;
+    if (pid !== this.serverPid) {
+      this.resetForServerPid(pid);
+    }
+    this.localFallbackActive = true;
+    this.quota = null;
+    this.quotaAt = 0;
+    let sessionError = null;
+    let speed = null;
+    if (conversationId2 && GUID.test(conversationId2)) this.lastActiveConversationId = conversationId2;
+    let summaries = this.summaries;
+    if (!conversationId2) {
+      try {
+        summaries = await this.listConversations(force);
+      } catch (e) {
+        sessionError ||= errorMessage2(e);
+      }
+    }
+    const recentIds = [
+      ...conversationId2 && GUID.test(conversationId2) ? [conversationId2] : [],
+      ...summaries.slice(0, 8).map((s) => s.id)
+    ];
+    await this.ensureLocalIdentity(localDir, recentIds);
+    const selected = conversationId2 || this.selectRootConversation(summaries, this.lastActiveConversationId);
+    if (selected) {
+      try {
+        speed = await this.session(selected, force);
+      } catch (e) {
+        sessionError = errorMessage2(e);
+      }
+    }
+    return {
+      connection: "live",
+      error: LOCAL_SQLITE_MODE_NOTICE,
+      speed,
+      sessionError,
+      source: "Antigravity local SQLite"
+    };
+  }
+  async snapshot({ conversationId: conversationId2, force = false } = {}) {
     let connection = "live";
     let error = null;
     let speed = null;
     let sessionError = null;
+    let source = "Antigravity local API";
     try {
-      const server = await this.client.discover();
-      if (server.pid !== this.serverPid) {
-        this.epoch++;
-        this.delegated?.reset?.();
-        this.transcripts?.reset();
-        this.quota = null;
-        this.quotaAt = 0;
-        this.sessions.clear();
-        this.ancestorPending.clear();
-        this.ancestorRaws.clear();
-        this.identity = null;
-        this.registeredAccount = null;
-        this.summaries = [];
-        this.rawSummaries = null;
-        this.summariesAt = 0;
-        this.clearSummaryDiffState();
-        this.serverPid = server.pid;
-        this.lastActiveConversationId = null;
-      }
+      const localDir = resolveLocalAntigravityDir(this.client);
+      const canUseLocalSqlite = Boolean(localDir && isNativeAccelAvailable());
+      let localDiscoverErr = null;
+      let server = null;
       try {
-        await this.refreshQuota(force);
-      } catch (e) {
-        connection = this.quota ? "stale" : "offline";
-        error = errorMessage2(e);
-      }
-      if (conversationId && GUID.test(conversationId)) this.lastActiveConversationId = conversationId;
-      let summaries = this.summaries;
-      if (!conversationId) {
-        try {
-          summaries = await this.listConversations(force);
-        } catch (e) {
-          connection = this.quota ? "stale" : "offline";
-          error ||= errorMessage2(e);
+        server = await this.client.discover();
+        this.localFallbackActive = false;
+      } catch (discoverErr) {
+        if (isNoLocalCredentialsError(discoverErr) && canUseLocalSqlite) {
+          localDiscoverErr = discoverErr;
+          this.localFallbackActive = true;
+        } else {
+          throw discoverErr;
         }
       }
-      const selected = conversationId || this.selectRootConversation(summaries, this.lastActiveConversationId);
-      if (selected) {
+      if (localDiscoverErr && localDir) {
+        const localResult = await this.runLocalSqliteSnapshot(
+          localDir,
+          typeof localDiscoverErr.pid === "number" ? localDiscoverErr.pid : -1,
+          conversationId2,
+          force
+        );
+        ({ connection, error, speed, sessionError, source } = localResult);
+      } else {
+        if (server.pid !== this.serverPid) {
+          this.resetForServerPid(server.pid);
+        }
+        let fallbackToSqlite = false;
         try {
-          speed = await this.session(selected, force);
+          await this.refreshQuota(force);
         } catch (e) {
-          sessionError = errorMessage2(e);
+          if (isNoLocalCredentialsError(e) && canUseLocalSqlite) {
+            fallbackToSqlite = true;
+          } else {
+            connection = this.quota ? "stale" : "offline";
+            error = errorMessage2(e);
+          }
+        }
+        if (!fallbackToSqlite) {
+          if (conversationId2 && GUID.test(conversationId2)) this.lastActiveConversationId = conversationId2;
+          let summaries = this.summaries;
+          if (!conversationId2) {
+            try {
+              summaries = await this.listConversations(force);
+            } catch (e) {
+              connection = this.quota ? "stale" : "offline";
+              error ||= errorMessage2(e);
+            }
+          }
+          if (this.localFallbackActive && canUseLocalSqlite) {
+            fallbackToSqlite = true;
+          } else {
+            const selected = conversationId2 || this.selectRootConversation(summaries, this.lastActiveConversationId);
+            if (selected) {
+              try {
+                speed = await this.session(selected, force);
+              } catch (e) {
+                if (isNoLocalCredentialsError(e) && canUseLocalSqlite) {
+                  fallbackToSqlite = true;
+                } else {
+                  sessionError = errorMessage2(e);
+                }
+              }
+            }
+          }
+        }
+        if (fallbackToSqlite && localDir) {
+          const localResult = await this.runLocalSqliteSnapshot(localDir, server.pid, conversationId2, force);
+          ({ connection, error, speed, sessionError, source } = localResult);
+        } else if (!force && connection === "live" && this.quotaRefreshPlan(false).refresh) {
+          void this.refreshQuota(false).catch(() => {
+          });
         }
       }
     } catch (e) {
+      this.localFallbackActive = false;
       connection = this.quota ? "stale" : "offline";
       error = errorMessage2(e);
-      const fallbackId = conversationId || this.selectRootConversation(this.summaries, this.lastActiveConversationId);
+      const fallbackId = conversationId2 || this.selectRootConversation(this.summaries, this.lastActiveConversationId);
       if (fallbackId) speed = await this.cachedSession(fallbackId);
     }
     return {
@@ -1061,12 +1584,28 @@ var MetricsStore = class {
       speed,
       conversations: this.summaries,
       persistenceError: this.persistenceError,
-      source: "Antigravity local API"
+      source
     };
   }
   switchAccount(identity) {
     if (!identity || identity !== "all" && !HASH.test(identity)) throw new Error("Invalid account scope");
     return { success: true, active: identity, activeAccount: this.identity || identity };
+  }
+  setLocalIdentity(scope) {
+    if (scope !== null && (!scope || !HASH.test(scope))) {
+      throw new Error("Invalid account scope");
+    }
+    if (scope === this.identity) return false;
+    this.epoch++;
+    this.delegated?.reset?.();
+    this.transcripts?.reset();
+    this.client.resetTrajectories?.();
+    this.sessions.clear();
+    this.ancestorPending.clear();
+    this.ancestorRaws.clear();
+    this.registeredAccount = null;
+    this.identity = scope;
+    return true;
   }
   async getAccounts() {
     return {
@@ -1076,6 +1615,10 @@ var MetricsStore = class {
   }
   dispose() {
     this.epoch++;
+    this.quotaPending = null;
+    this.quotaPendingForce = false;
+    this.quotaDirtyAt = 0;
+    this.quotaSettledAt = 0;
     this.delegated?.dispose?.();
     this.transcripts?.dispose?.();
     this.sessions.clear();

@@ -13,10 +13,52 @@ export interface ServerSource {
   mtimeMs: number;
 }
 
+export type DiscoveryEnv = Readonly<Record<string, string | undefined>>;
+export type CredentialSource = 'cli' | 'env';
+
+export interface LoopbackLsAddress {
+  host: '127.0.0.1' | 'localhost' | '[::1]';
+  port: number;
+}
+
+export interface EnvCredentials {
+  host: '127.0.0.1' | 'localhost' | '[::1]';
+  port: number;
+  csrf: string;
+}
+
+export interface DiscoveredServerEndpoint {
+  server: ServerEndpoint;
+  source: CredentialSource;
+}
+
 export interface ProcessCandidate {
   ProcessId: number;
   CommandLine?: string;
   Ports?: number[] | number;
+}
+
+export const NO_LOCAL_CREDENTIALS_CODE = 'NO_LOCAL_CREDENTIALS';
+export const NO_LOCAL_CREDENTIALS_MESSAGE = '当前版本未提供可用的本地检测凭据';
+
+export interface LocalCredentialsUnavailableError extends Error {
+  code: typeof NO_LOCAL_CREDENTIALS_CODE;
+  pid: number;
+  port: number;
+}
+
+export function createNoLocalCredentialsError(pid: number, port: number): LocalCredentialsUnavailableError {
+  return Object.assign(new Error(NO_LOCAL_CREDENTIALS_MESSAGE), {
+    code: NO_LOCAL_CREDENTIALS_CODE as typeof NO_LOCAL_CREDENTIALS_CODE,
+    pid,
+    port,
+  });
+}
+
+export function isNoLocalCredentialsError(error: unknown): error is LocalCredentialsUnavailableError {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: unknown; message?: unknown };
+  return e.code === NO_LOCAL_CREDENTIALS_CODE || e.message === NO_LOCAL_CREDENTIALS_MESSAGE;
 }
 
 export const PORT_LOG_LINE = /listening on random port at (\d+) for HTTP(?:\s|$)/;
@@ -73,12 +115,67 @@ export async function readLogWithStats(file: string): Promise<{ text: string; si
 }
 
 /**
- * Pair the latest listening port in `log` with a unique standalone process owning that port and CSRF token.
+ * Parse `ANTIGRAVITY_LS_ADDRESS` (`host:port` or `http://host:port`), rejecting non-loopback hosts and invalid ports.
  */
-export function serverFromDiscovery(
+export function parseLoopbackLsAddress(raw: unknown): LoopbackLsAddress | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed) && !/^http:\/\//i.test(trimmed)) {
+    return null;
+  }
+  const candidate = /^http:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  const match = candidate.match(/^http:\/\/(\[[^\]]+\]|[^/:?#\s@]+):(\d+)\/?$/i);
+  if (!match) return null;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' || url.username || url.password || url.search || url.hash) {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]') {
+    return null;
+  }
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
+  return { host, port };
+}
+
+/**
+ * Extract validated loopback address and CSRF token from managed child process environment variables.
+ */
+export function parseEnvCredentials(env: DiscoveryEnv = process.env): EnvCredentials | null {
+  if (!env || typeof env !== 'object') return null;
+  const addr = parseLoopbackLsAddress(env.ANTIGRAVITY_LS_ADDRESS);
+  if (!addr) return null;
+  const rawToken = env.ANTIGRAVITY_CSRF_TOKEN;
+  const csrf = typeof rawToken === 'string' ? rawToken.trim() : '';
+  if (!csrf || /[\r\n\0]/.test(csrf)) return null;
+  return { host: addr.host, port: addr.port, csrf };
+}
+
+function extractCliCsrfToken(commandLine?: string): string | null {
+  return commandLine?.match(/--csrf_token(?:=|\s+)"?([^\s"]+)/)?.[1] ?? null;
+}
+
+function findPortOwners(rows: readonly ProcessCandidate[], port: number): ProcessCandidate[] {
+  return rows.filter((r) => [r.Ports].flat().map(Number).includes(port));
+}
+
+/**
+ * Pair the listening port in `log` (or validated `env` port) with a unique standalone process owning that port and CSRF token.
+ */
+export function discoverServerEndpoint(
   log: string,
   processes: ProcessCandidate | readonly ProcessCandidate[],
-): ServerEndpoint {
+  env: DiscoveryEnv = process.env,
+): DiscoveredServerEndpoint {
   const list = Array.isArray(processes) ? processes : [processes];
   const rows = list.filter((p) => /--standalone\b/.test(p?.CommandLine || ''));
   if (!rows.length) throw new Error('未找到 Antigravity 桌面后台');
@@ -86,15 +183,45 @@ export function serverFromDiscovery(
   let matchedRow: ProcessCandidate | null = null;
   let port: number | null = null;
   for (const candidate of logPorts) {
-    const owners = rows.filter((r) => [r.Ports].flat().map(Number).includes(candidate));
+    const owners = findPortOwners(rows, candidate);
     if (owners.length === 1) {
       matchedRow = owners[0];
       port = candidate;
       break;
     }
   }
-  if (!matchedRow || port === null) throw new Error('等待 Antigravity 本地接口启动');
-  const csrf = matchedRow.CommandLine?.match(/--csrf_token(?:=|\s+)"?([^\s"]+)/)?.[1];
-  if (!csrf) throw new Error('当前版本未提供可用的本地检测凭据');
-  return { port, csrf, pid: matchedRow.ProcessId };
+  const envCreds = parseEnvCredentials(env);
+  if (matchedRow && port !== null) {
+    const cliCsrf = extractCliCsrfToken(matchedRow.CommandLine);
+    if (cliCsrf) {
+      return { server: { port, csrf: cliCsrf, pid: matchedRow.ProcessId }, source: 'cli' };
+    }
+    if (envCreds && envCreds.port === port) {
+      return { server: { port, csrf: envCreds.csrf, pid: matchedRow.ProcessId }, source: 'env' };
+    }
+    throw createNoLocalCredentialsError(matchedRow.ProcessId, port);
+  }
+  if (envCreds) {
+    const owners = findPortOwners(rows, envCreds.port);
+    if (owners.length === 1) {
+      const owner = owners[0];
+      const cliCsrf = extractCliCsrfToken(owner.CommandLine);
+      if (cliCsrf) {
+        return { server: { port: envCreds.port, csrf: cliCsrf, pid: owner.ProcessId }, source: 'cli' };
+      }
+      return { server: { port: envCreds.port, csrf: envCreds.csrf, pid: owner.ProcessId }, source: 'env' };
+    }
+  }
+  throw new Error('等待 Antigravity 本地接口启动');
+}
+
+/**
+ * Pair the latest listening port in `log` with a unique standalone process owning that port and CSRF token.
+ */
+export function serverFromDiscovery(
+  log: string,
+  processes: ProcessCandidate | readonly ProcessCandidate[],
+  env: DiscoveryEnv = process.env,
+): ServerEndpoint {
+  return discoverServerEndpoint(log, processes, env).server;
 }

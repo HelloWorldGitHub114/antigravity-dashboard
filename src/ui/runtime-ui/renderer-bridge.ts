@@ -132,6 +132,10 @@ function rendererBridge(binding: string): void {
     deleteManualUsage: (input: unknown) => call('deleteManualUsage', input),
     getAccounts: () => call('getAccounts', {}),
     switchAccount: (input: unknown) => call('switchAccount', input),
+    getRecordingAccount: () => call('getRecordingAccount', {}),
+    setRecordingAccount: (input: unknown) => call('setRecordingAccount', input),
+    addAccount: (input: unknown) => call('addAccount', input),
+    reassignConversation: (input: unknown) => call('reassignConversation', input),
     getProjectUsage: (input?: unknown) => call('getProjectUsage', input ?? {}),
     getProjectDetail: (input: unknown) => call('getProjectDetail', input),
   };

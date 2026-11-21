@@ -371,6 +371,13 @@ function safeSubagentContext(value) {
     usedFraction: maxTokens === null ? null : usedTokens / maxTokens
   };
 }
+var PLACEHOLDER_ROLES = /* @__PURE__ */ new Set(["\u672A\u547D\u540D\u4F1A\u8BDD", "Untitled Session"]);
+function sanitizeRole(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || PLACEHOLDER_ROLES.has(trimmed)) return null;
+  return trimmed.slice(0, 128);
+}
 function safeSubagentItem(item) {
   if (!isObject3(item) || typeof item.id !== "string" || !GUID.test(item.id)) return null;
   const rateStatus = ["ok", "missing", "unreliable", "legacy"].includes(
@@ -378,7 +385,7 @@ function safeSubagentItem(item) {
   ) ? item.latestRateStatus : "missing";
   return {
     id: item.id.toLowerCase(),
-    role: typeof item.role === "string" ? item.role.slice(0, 128) : null,
+    role: sanitizeRole(item.role),
     parentId: typeof item.parentId === "string" && GUID.test(item.parentId) ? item.parentId.toLowerCase() : null,
     depth: isCount3(item.depth) ? item.depth : 1,
     model: typeof item.model === "string" ? item.model.slice(0, 128) : null,

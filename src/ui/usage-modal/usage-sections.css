@@ -86,14 +86,20 @@ select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 
 .year-trigger:hover, .year-trigger[aria-expanded=true] { background: var(--pulse-hover); }
 .year-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }
 .year-trigger[aria-expanded=true] .year-chevron { transform: rotate(180deg); }
-.year-menu { position: fixed; inset: auto; margin: 0; padding: 5px; width: 112px; max-height: 232px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); transform-origin: top right; opacity: 1; transform: scale(1); transition: opacity 140ms ease, transform 160ms cubic-bezier(.23, 1, .32, 1); }
+.year-menu { position: fixed; inset: auto; margin: 0; padding: 5px; width: 112px; max-height: 232px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); transform-origin: top right; pointer-events: none; opacity: 0; transition: opacity 90ms ease, display 90ms, overlay 90ms; transition-behavior: allow-discrete; }
+.year-menu:is(:popover-open, .\:popover-open) { pointer-events: auto; opacity: 1; }
 .year-menu::backdrop { background: transparent; pointer-events: none; }
 .year-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); font-variant-numeric: tabular-nums; }
 .year-option:hover, .year-option:focus-visible { background: var(--pulse-hover); }
 .year-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }
 .year-check { color: var(--pulse-accent); width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
 .year-option[aria-selected=true] .year-check { opacity: 1; }
-@starting-style { .year-menu:popover-open { opacity: 0; transform: scale(.97); } }
+@starting-style { .year-menu:popover-open { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .year-menu { scale: .97; transition: opacity 130ms ease, scale 150ms cubic-bezier(.2, .9, .3, 1), display 150ms, overlay 150ms; transition-behavior: allow-discrete; }
+  .year-menu:is(:popover-open, .\:popover-open) { scale: 1; }
+  @starting-style { .year-menu:popover-open { opacity: 0; scale: .96; } }
+}
 
 .usage-intro { margin: 18px 0 0; padding: 17px 20px 14px; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); }
 .usage-intro[hidden] { display: none; }
