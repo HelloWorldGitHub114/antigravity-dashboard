@@ -14,3 +14,13 @@ export {
 } from './model-usage.ts';
 export { trajectoryMetrics } from './trajectory.ts';
 export { quotaMetrics } from './quota.ts';
+export {
+  quotaRemaining,
+  quotaModelFamily,
+  classifyQuotaGroupId,
+  shortEta,
+  quotaForecast,
+  groupQuotaPace,
+  buildQuotaWindowSpecs,
+  finalizeQuotaWindows,
+} from '../../shared/quota-forecast.ts';

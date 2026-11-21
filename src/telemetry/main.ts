@@ -42,6 +42,7 @@ import {
   UsageLedger,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  summarizeQuotaWindows,
 } from './ledger/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
 import { startPreviewServer } from './preview-server.ts';
@@ -204,11 +205,24 @@ const createMetrics = (
       prefs && !('error' in prefs) ? prefs.debugLaunchEnabled === true : debugStatus.enabled,
     debugLaunchConfigured: debugStatus.configured,
   };
+  const quotaWindows = await summarizeQuotaWindows(
+    targetUsage.ledger,
+    targetStore.identity,
+    base.groups,
+  ).catch(() => ({}));
   if (input?.includeUsage === false) {
     const { conversations: _omitted, ...compactBase } = base;
-    return { ...compactBase, preferences: prefs, theme, integration };
+    return { ...compactBase, quotaWindows, preferences: prefs, theme, integration };
   }
-  return { ...base, usage: await targetUsage.snapshot(), preferences: prefs, theme, integration };
+  const usageSnap = await targetUsage.snapshot();
+  return {
+    ...base,
+    quotaWindows,
+    usage: usageSnap ? { ...usageSnap, quotaWindows } : usageSnap,
+    preferences: prefs,
+    theme,
+    integration,
+  };
 };
 
 const staticFiles: Record<string, [string, string]> = {

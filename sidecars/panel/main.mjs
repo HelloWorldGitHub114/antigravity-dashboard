@@ -1415,7 +1415,8 @@ import {
   DesktopUsage,
   UsageLedger,
   queryProjectConversationDetail,
-  queryProjectUsageOverview
+  queryProjectUsageOverview,
+  summarizeQuotaWindows
 } from "./usage.mjs";
 import { panelAppSource as panelAppSource2, panelPageSource as panelPageSource2 } from "./panel-source.mjs";
 
@@ -1773,11 +1774,24 @@ var createMetrics = (targetStore, targetUsage, getHealth, targetProfile) => asyn
     debugLaunchEnabled: prefs && !("error" in prefs) ? prefs.debugLaunchEnabled === true : debugStatus.enabled,
     debugLaunchConfigured: debugStatus.configured
   };
+  const quotaWindows = await summarizeQuotaWindows(
+    targetUsage.ledger,
+    targetStore.identity,
+    base.groups
+  ).catch(() => ({}));
   if (input?.includeUsage === false) {
     const { conversations: _omitted, ...compactBase } = base;
-    return { ...compactBase, preferences: prefs, theme, integration: integration2 };
+    return { ...compactBase, quotaWindows, preferences: prefs, theme, integration: integration2 };
   }
-  return { ...base, usage: await targetUsage.snapshot(), preferences: prefs, theme, integration: integration2 };
+  const usageSnap = await targetUsage.snapshot();
+  return {
+    ...base,
+    quotaWindows,
+    usage: usageSnap ? { ...usageSnap, quotaWindows } : usageSnap,
+    preferences: prefs,
+    theme,
+    integration: integration2
+  };
 };
 var staticFiles = {
   "/": ["index.html", "text/html"],

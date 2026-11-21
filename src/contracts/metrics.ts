@@ -1,7 +1,7 @@
 import type { HostThemeConfig } from './ipc.ts';
 import type { PreferencesSnapshot } from './preferences.ts';
 import type { ModelTimelineSnapshot } from './timeline.ts';
-import type { UsageSummarySnapshot } from './usage.ts';
+import type { QuotaWindowUsage, UsageSummarySnapshot } from './usage.ts';
 
 /**
  * Live connection state between the dashboard UI and local Antigravity server.
@@ -345,6 +345,7 @@ export interface MetricsSnapshot {
   persistenceError?: string | null;
   source?: string;
   enabled?: boolean;
+  quotaWindows?: Record<string, QuotaWindowUsage>;
   usage?: UsageSummarySnapshot | null;
   preferences?: PreferencesSnapshot;
   theme?: HostThemeConfig;

@@ -696,15 +696,227 @@ function quotaMetrics(response, now = Date.now()) {
     };
   });
 }
+
+// src/shared/quota-forecast.ts
+var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
+var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
+var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
+var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+function quotaRemaining(bucket) {
+  if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
+  const value = bucket.remaining;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return null;
+  return value;
+}
+function quotaModelFamily(value) {
+  const text = String(value || "");
+  if (/(?:^|[^a-z])argon(?:$|[^a-z])/i.test(text)) return "gemini-argon";
+  if (/gemini|hydrogen|carbon|neon|orchestrator/i.test(text)) return "gemini";
+  if (/claude|sonnet|opus|haiku|anthropic|gpt|openai/i.test(text) || /(?:^|[^a-z0-9])o[134](?:$|[^a-z0-9])/i.test(text) || /^3p(?:$|[-_])/i.test(text)) {
+    return "3p";
+  }
+  return null;
+}
+function classifyQuotaGroupId(groups, model) {
+  const list = Array.isArray(groups) ? groups.filter((g) => g && typeof g.id === "string") : [];
+  if (!list.length) return null;
+  const kind = quotaModelFamily(model);
+  const specific = kind ? list.find((g) => quotaModelFamily(`${g.id} ${g.name || ""}`) === kind) : void 0;
+  if (specific) return specific.id;
+  if (kind === "gemini-argon") {
+    const shared = list.find((g) => g.id === "gemini" && quotaModelFamily(`${g.id} ${g.name || ""}`) === "gemini");
+    if (shared) return shared.id;
+  }
+  return kind ? null : list[0].id;
+}
+function shortEta(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "\u2014";
+  const totalMin = Math.max(1, Math.round(ms / 6e4));
+  if (totalMin < 60) return `${totalMin}m`;
+  if (totalMin < 1440) {
+    const h2 = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return `${h2}h${m ? ` ${m}m` : ""}`;
+  }
+  const totalH = Math.round(ms / 36e5);
+  const d = Math.floor(totalH / 24);
+  const h = totalH % 24;
+  return `${d}d${h ? ` ${h}h` : ""}`;
+}
+function quotaForecast(bucket, windowKey, now = Date.now()) {
+  const remaining = quotaRemaining(bucket);
+  if (remaining === null) return null;
+  const used = Math.max(0, Math.min(1, 1 - remaining));
+  const resetAt = bucket && bucket.available === true ? bucket.resetAt : null;
+  const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+  if (!Number.isFinite(resetMs) || resetMs <= now) {
+    return used === 0 ? {
+      remaining: 1,
+      used: 0,
+      timeRemaining: null,
+      pace: "idle",
+      paceDelta: 0,
+      forecastReady: false,
+      warmingUp: false,
+      projectedUsed: 0,
+      projectedRemaining: 1,
+      willExhaust: false,
+      exhaustInMs: null,
+      earlyByMs: null,
+      outlook: "idle"
+    } : null;
+  }
+  const durationMs = windowKey === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
+  const leftMs = Math.max(0, Math.min(durationMs, resetMs - now));
+  const elapsedMs = durationMs - leftMs;
+  const timeRemaining = leftMs / durationMs;
+  const elapsed = elapsedMs / durationMs;
+  const paceDelta = remaining - timeRemaining;
+  let pace = used < 5e-4 ? "idle" : paceDelta < -0.05 ? "fast" : paceDelta > 0.08 ? "slow" : "steady";
+  const minSampleMs = windowKey === "5h" ? MIN_SAMPLE_5H_MS : MIN_SAMPLE_WEEKLY_MS;
+  let forecastReady = false;
+  let warmingUp = false;
+  let projectedUsed = null;
+  let projectedRemaining = null;
+  let willExhaust = false;
+  let exhaustInMs = null;
+  if (used < 5e-4) {
+    forecastReady = true;
+    projectedUsed = 0;
+    projectedRemaining = 1;
+  } else if (elapsedMs < minSampleMs && used < 0.1) {
+    warmingUp = true;
+  } else {
+    const rawProjectedUsed = elapsed > 0 ? used / elapsed : Infinity;
+    projectedUsed = Math.min(1, rawProjectedUsed);
+    projectedRemaining = Math.max(0, 1 - rawProjectedUsed);
+    willExhaust = rawProjectedUsed > 1.005;
+    exhaustInMs = willExhaust && used > 0 ? Math.max(6e4, Math.round(elapsedMs * (remaining / used))) : null;
+    forecastReady = true;
+    if (willExhaust) pace = "fast";
+  }
+  const earlyByMs = willExhaust && exhaustInMs !== null ? Math.max(6e4, leftMs - exhaustInMs) : null;
+  const outlook = used < 5e-4 ? "idle" : !forecastReady ? null : willExhaust ? "exhaust" : (projectedRemaining ?? 1) < 0.2 ? "tight" : "ok";
+  return {
+    remaining,
+    used,
+    timeRemaining,
+    pace,
+    paceDelta,
+    forecastReady,
+    warmingUp,
+    projectedUsed,
+    projectedRemaining,
+    willExhaust,
+    exhaustInMs,
+    earlyByMs,
+    outlook
+  };
+}
+function groupQuotaPace(group, now = Date.now()) {
+  if (!group) return null;
+  const windows = ["5h", "weekly"].filter(
+    (key) => group.windows?.[key]?.available === true
+  );
+  const activeWindows = windows.length ? windows : ["5h", "weekly"];
+  const items = activeWindows.map((w) => ({ w, f: quotaForecast(group.windows?.[w], w, now) })).filter((x) => Boolean(x.f && typeof x.f.timeRemaining === "number"));
+  if (!items.length) return null;
+  if (items.every((x) => x.f.outlook === "idle")) {
+    return {
+      pace: "idle",
+      delta: 0,
+      window: items[0].w,
+      critical: false,
+      labelKey: "paceIdle",
+      windowKey: items[0].w === "5h" ? "five" : "week"
+    };
+  }
+  const rank = { exhaust: 0, tight: 1, ok: 2 };
+  const ready = items.filter(
+    (x) => x.f.outlook === "exhaust" || x.f.outlook === "tight" || x.f.outlook === "ok"
+  ).sort(
+    (a, b) => rank[a.f.outlook] - rank[b.f.outlook] || (a.f.projectedRemaining ?? 1) - (b.f.projectedRemaining ?? 1)
+  );
+  if (!ready.length) return null;
+  const chosen = ready[0];
+  const f = chosen.f;
+  const labelKey = f.outlook === "exhaust" ? "outlookExhaust" : f.outlook === "tight" ? "outlookTight" : "outlookOk";
+  const critical = f.remaining < 0.1 || f.willExhaust && f.exhaustInMs !== null && f.exhaustInMs < (chosen.w === "5h" ? 36e5 : 864e5);
+  return {
+    pace: f.outlook,
+    delta: f.paceDelta,
+    window: chosen.w,
+    critical,
+    labelKey,
+    windowKey: chosen.w === "5h" ? "five" : "week"
+  };
+}
+function buildQuotaWindowSpecs(groups) {
+  const specs = [];
+  const groupInfos = [];
+  for (const g of Array.isArray(groups) ? groups : []) {
+    if (!g || typeof g.id !== "string") continue;
+    groupInfos.push({ id: g.id, name: String(g.name || "") });
+    for (const win of ["5h", "weekly"]) {
+      const b = g.windows?.[win];
+      if (!b || b.available !== true || b.disabled === true) continue;
+      const endAt = typeof b.resetAt === "string" ? Date.parse(b.resetAt) : NaN;
+      if (!Number.isFinite(endAt)) continue;
+      const dur = win === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
+      const remaining = quotaRemaining(b);
+      const idle = remaining !== null && remaining >= 1;
+      specs.push({
+        id: `${g.id}:${win}`,
+        groupId: g.id,
+        window: win,
+        startAt: endAt - dur,
+        endAt,
+        resetMinute: Math.round(endAt / 6e4),
+        remaining,
+        idle
+      });
+    }
+  }
+  return { specs, groupInfos };
+}
+function finalizeQuotaWindows(specs, counts = {}, meta = null) {
+  const out = {};
+  for (const spec of specs) {
+    const prev = meta?.[spec.id];
+    if (prev) {
+      if (spec.idle !== prev.idle) continue;
+      if (!spec.idle && Math.abs(prev.resetMinute - spec.resetMinute) > 2) continue;
+    }
+    const c = counts[spec.id];
+    if (!c || !c.requests) continue;
+    const usedFraction = typeof spec.remaining === "number" ? Math.max(0, Math.min(1, 1 - spec.remaining)) : null;
+    const estimatedFullTokens = c.observedTokens > 0 && usedFraction !== null && usedFraction >= 0.05 ? Math.round(c.observedTokens / usedFraction) : null;
+    out[spec.id] = {
+      observedTokens: c.observedTokens,
+      estimatedFullTokens,
+      requests: c.requests,
+      usedFraction
+    };
+  }
+  return out;
+}
 export {
   buildModelUsage,
+  buildQuotaWindowSpecs,
+  classifyQuotaGroupId,
   extractPlanModel,
+  finalizeQuotaWindows,
+  groupQuotaPace,
   isSupportedCacheProvider,
+  quotaForecast,
   quotaMetrics,
+  quotaModelFamily,
+  quotaRemaining,
   requestCacheMetrics,
   resolveChatModelName,
   safeModelUsage,
   seconds,
+  shortEta,
   tokenCount,
   trajectoryMetrics
 };

@@ -2,6 +2,7 @@ export { dateTimeParts, dateKey, hourKey, weekStart, type DateTimeParts } from '
 export { usageRecords, type RawTrajectoryContainer } from './extractor.ts';
 export { loadKnownAccounts } from './storage.ts';
 export { UsageLedger, addManualUsage, deleteManualUsage } from './summary.ts';
+export { summarizeQuotaWindows } from './quota-windows.ts';
 export {
   queryProjectUsageOverview,
   queryProjectConversationDetail,

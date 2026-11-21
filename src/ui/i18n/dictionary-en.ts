@@ -227,6 +227,18 @@ export const EN_DICTIONARY = {
   recordingAccountStatusPinned: 'Active: Pinned to {account}',
   recordingAccountSaved: 'Switched recording account',
   recordingAccountFailed: 'Could not update recording account',
+  outlookOk: 'Comfortable',
+  outlookTight: 'Tight',
+  outlookExhaust: 'Runs out early',
+  paceIdle: 'Unused',
+  forecastLeft: '~{pct} left at reset',
+  forecastDepletes: 'Runs out in ~{eta}, {early} before reset',
+  forecastWarming: 'Used {pct} · warming up',
+  forecastBasis: "{remaining} quota left · {time} of the window left · linear projection from this window's average usage",
+  quotaWindowUsage: 'Window tokens',
+  quotaWindowFullRef: '~{full} full',
+  quotaWindowBasis:
+    'Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache).',
 } as const;
 
 export type I18nKey = keyof typeof EN_DICTIONARY;

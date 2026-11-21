@@ -597,7 +597,133 @@ select {
 }
 
 .quota-section .track {
-  margin: 8px 0;
+  position: relative;
+  height: 5px;
+  margin: 8px 0 6px;
+}
+
+.quota-track .track-actual,
+.quota-track .track-forecast {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+}
+
+.quota-track .track-actual {
+  border-radius: inherit;
+}
+
+.quota-track .track-forecast {
+  width: 0;
+  border-radius: 0 999px 999px 0;
+  background: repeating-linear-gradient(-45deg, var(--pulse-card) 0 1.5px, transparent 1.5px 4px);
+  opacity: .82;
+  pointer-events: none;
+  transition: left 260ms cubic-bezier(.22, 1, .36, 1), width 260ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.quota-heading-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+  color: var(--pulse-label);
+  background: var(--pulse-control);
+  font-variant-numeric: tabular-nums;
+}
+
+.pace-badge[hidden] {
+  display: none;
+}
+
+.pace-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--pulse-muted);
+  flex: none;
+}
+
+.pace-badge[data-pace=exhaust] {
+  color: var(--pulse-warning);
+  background: color-mix(in srgb, var(--pulse-warning) 14%, transparent);
+}
+
+.pace-badge[data-pace=exhaust] .pace-dot,
+.pace-badge[data-pace=tight] .pace-dot {
+  background: var(--pulse-warning);
+}
+
+.pace-badge[data-critical=true] {
+  color: var(--pulse-danger);
+  background: color-mix(in srgb, var(--pulse-danger) 14%, transparent);
+}
+
+.pace-badge[data-critical=true] .pace-dot {
+  background: var(--pulse-danger);
+}
+
+.pace-badge[data-pace=ok] .pace-dot {
+  background: var(--pulse-success);
+}
+
+.quota-forecast {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: calc(10.5px * var(--pulse-inline-font-scale, 1));
+  line-height: 1.4;
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.quota-forecast[hidden],
+.quota-usage[hidden] {
+  display: none;
+}
+
+.forecast-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forecast-main[data-alert=true] {
+  color: var(--pulse-warning);
+  font-weight: 500;
+}
+
+.quota-usage {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 5px;
+  font-size: calc(10.5px * var(--pulse-inline-font-scale, 1));
+  line-height: 1.4;
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.quota-usage-val {
+  color: var(--pulse-label);
+  font-weight: 500;
+  text-align: right;
 }
 
 .quota-section .footnote {

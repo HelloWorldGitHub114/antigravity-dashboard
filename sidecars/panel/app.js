@@ -476,7 +476,18 @@
     recordingAccountStatusAuto: "Active: Auto ({account})",
     recordingAccountStatusPinned: "Active: Pinned to {account}",
     recordingAccountSaved: "Switched recording account",
-    recordingAccountFailed: "Could not update recording account"
+    recordingAccountFailed: "Could not update recording account",
+    outlookOk: "Comfortable",
+    outlookTight: "Tight",
+    outlookExhaust: "Runs out early",
+    paceIdle: "Unused",
+    forecastLeft: "~{pct} left at reset",
+    forecastDepletes: "Runs out in ~{eta}, {early} before reset",
+    forecastWarming: "Used {pct} \xB7 warming up",
+    forecastBasis: "{remaining} quota left \xB7 {time} of the window left \xB7 linear projection from this window's average usage",
+    quotaWindowUsage: "Window tokens",
+    quotaWindowFullRef: "~{full} full",
+    quotaWindowBasis: "Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache)."
   };
 
   // src/ui/i18n/dictionary-zh.ts
@@ -700,7 +711,18 @@
     recordingAccountStatusAuto: "\u5F53\u524D\uFF1A\u81EA\u52A8\u5339\u914D ({account})",
     recordingAccountStatusPinned: "\u5F53\u524D\uFF1A\u5DF2\u9501\u5B9A\u81F3 {account}",
     recordingAccountSaved: "\u5DF2\u5207\u6362\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
-    recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25"
+    recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25",
+    outlookOk: "\u989D\u5EA6\u5145\u88D5",
+    outlookTight: "\u989D\u5EA6\u504F\u7D27",
+    outlookExhaust: "\u91CD\u7F6E\u524D\u8017\u5C3D",
+    paceIdle: "\u6682\u672A\u6D88\u8017",
+    forecastLeft: "\u9884\u8BA1\u91CD\u7F6E\u65F6\u5269 ~{pct}",
+    forecastDepletes: "\u7EA6 {eta} \u540E\u8017\u5C3D\uFF0C\u6BD4\u91CD\u7F6E\u65E9 {early}",
+    forecastWarming: "\u5DF2\u8017 {pct} \xB7 \u91C7\u6837\u9884\u70ED\u4E2D",
+    forecastBasis: "\u5269\u4F59\u989D\u5EA6 {remaining} \xB7 \u5269\u4F59\u65F6\u95F4 {time} \xB7 \u6309\u672C\u7A97\u53E3\u5E73\u5747\u6D88\u8017\u7EBF\u6027\u63A8\u7B97",
+    quotaWindowUsage: "\u5468\u671F\u7528\u91CF",
+    quotaWindowFullRef: "\u7EA6 {full} \u6EE1\u989D",
+    quotaWindowBasis: "\u5F53\u524D\u8D26\u53F7\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u672C\u673A\u5B9E\u6D4B\u6D41\u7ECF Token\uFF1B\u4F30\u7B97\u6EE1\u989D\u4EC5\u4F5C\u540C\u6BD4\u4F8B\u53C2\u8003\uFF08\u4E0D\u540C\u6A21\u578B\u4E0E\u7F13\u5B58\u6298\u7B97\u6743\u91CD\u4E0D\u540C\uFF09\u3002"
   };
 
   // src/ui/i18n/index.ts
@@ -7000,6 +7022,140 @@ ${FONT_POPOVER_CSS}`;
     };
   }
 
+  // src/shared/quota-forecast.ts
+  var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
+  var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
+  var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
+  var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+  function quotaRemaining(bucket) {
+    if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
+    const value = bucket.remaining;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return null;
+    return value;
+  }
+  function shortEta(ms) {
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "\u2014";
+    const totalMin = Math.max(1, Math.round(ms / 6e4));
+    if (totalMin < 60) return `${totalMin}m`;
+    if (totalMin < 1440) {
+      const h2 = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      return `${h2}h${m ? ` ${m}m` : ""}`;
+    }
+    const totalH = Math.round(ms / 36e5);
+    const d = Math.floor(totalH / 24);
+    const h = totalH % 24;
+    return `${d}d${h ? ` ${h}h` : ""}`;
+  }
+  function quotaForecast(bucket, windowKey, now = Date.now()) {
+    const remaining = quotaRemaining(bucket);
+    if (remaining === null) return null;
+    const used = Math.max(0, Math.min(1, 1 - remaining));
+    const resetAt = bucket && bucket.available === true ? bucket.resetAt : null;
+    const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+    if (!Number.isFinite(resetMs) || resetMs <= now) {
+      return used === 0 ? {
+        remaining: 1,
+        used: 0,
+        timeRemaining: null,
+        pace: "idle",
+        paceDelta: 0,
+        forecastReady: false,
+        warmingUp: false,
+        projectedUsed: 0,
+        projectedRemaining: 1,
+        willExhaust: false,
+        exhaustInMs: null,
+        earlyByMs: null,
+        outlook: "idle"
+      } : null;
+    }
+    const durationMs = windowKey === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
+    const leftMs = Math.max(0, Math.min(durationMs, resetMs - now));
+    const elapsedMs = durationMs - leftMs;
+    const timeRemaining = leftMs / durationMs;
+    const elapsed2 = elapsedMs / durationMs;
+    const paceDelta = remaining - timeRemaining;
+    let pace = used < 5e-4 ? "idle" : paceDelta < -0.05 ? "fast" : paceDelta > 0.08 ? "slow" : "steady";
+    const minSampleMs = windowKey === "5h" ? MIN_SAMPLE_5H_MS : MIN_SAMPLE_WEEKLY_MS;
+    let forecastReady = false;
+    let warmingUp = false;
+    let projectedUsed = null;
+    let projectedRemaining = null;
+    let willExhaust = false;
+    let exhaustInMs = null;
+    if (used < 5e-4) {
+      forecastReady = true;
+      projectedUsed = 0;
+      projectedRemaining = 1;
+    } else if (elapsedMs < minSampleMs && used < 0.1) {
+      warmingUp = true;
+    } else {
+      const rawProjectedUsed = elapsed2 > 0 ? used / elapsed2 : Infinity;
+      projectedUsed = Math.min(1, rawProjectedUsed);
+      projectedRemaining = Math.max(0, 1 - rawProjectedUsed);
+      willExhaust = rawProjectedUsed > 1.005;
+      exhaustInMs = willExhaust && used > 0 ? Math.max(6e4, Math.round(elapsedMs * (remaining / used))) : null;
+      forecastReady = true;
+      if (willExhaust) pace = "fast";
+    }
+    const earlyByMs = willExhaust && exhaustInMs !== null ? Math.max(6e4, leftMs - exhaustInMs) : null;
+    const outlook = used < 5e-4 ? "idle" : !forecastReady ? null : willExhaust ? "exhaust" : (projectedRemaining ?? 1) < 0.2 ? "tight" : "ok";
+    return {
+      remaining,
+      used,
+      timeRemaining,
+      pace,
+      paceDelta,
+      forecastReady,
+      warmingUp,
+      projectedUsed,
+      projectedRemaining,
+      willExhaust,
+      exhaustInMs,
+      earlyByMs,
+      outlook
+    };
+  }
+  function groupQuotaPace(group, now = Date.now()) {
+    if (!group) return null;
+    const windows = ["5h", "weekly"].filter(
+      (key) => group.windows?.[key]?.available === true
+    );
+    const activeWindows = windows.length ? windows : ["5h", "weekly"];
+    const items = activeWindows.map((w) => ({ w, f: quotaForecast(group.windows?.[w], w, now) })).filter((x) => Boolean(x.f && typeof x.f.timeRemaining === "number"));
+    if (!items.length) return null;
+    if (items.every((x) => x.f.outlook === "idle")) {
+      return {
+        pace: "idle",
+        delta: 0,
+        window: items[0].w,
+        critical: false,
+        labelKey: "paceIdle",
+        windowKey: items[0].w === "5h" ? "five" : "week"
+      };
+    }
+    const rank = { exhaust: 0, tight: 1, ok: 2 };
+    const ready = items.filter(
+      (x) => x.f.outlook === "exhaust" || x.f.outlook === "tight" || x.f.outlook === "ok"
+    ).sort(
+      (a, b) => rank[a.f.outlook] - rank[b.f.outlook] || (a.f.projectedRemaining ?? 1) - (b.f.projectedRemaining ?? 1)
+    );
+    if (!ready.length) return null;
+    const chosen = ready[0];
+    const f = chosen.f;
+    const labelKey = f.outlook === "exhaust" ? "outlookExhaust" : f.outlook === "tight" ? "outlookTight" : "outlookOk";
+    const critical = f.remaining < 0.1 || f.willExhaust && f.exhaustInMs !== null && f.exhaustInMs < (chosen.w === "5h" ? 36e5 : 864e5);
+    return {
+      pace: f.outlook,
+      delta: f.paceDelta,
+      window: chosen.w,
+      critical,
+      labelKey,
+      windowKey: chosen.w === "5h" ? "five" : "week"
+    };
+  }
+
   // src/ui/panel-webview/quota-section.ts
   var quotaCaches = /* @__PURE__ */ new WeakMap();
   function getQuotaCache(state) {
@@ -7008,6 +7164,8 @@ ${FONT_POPOVER_CSS}`;
       cache = {
         rings: /* @__PURE__ */ new Map(),
         popGroups: /* @__PURE__ */ new Map(),
+        windowUsageAccount: null,
+        windowUsage: /* @__PURE__ */ new Map(),
         emptyPill: null,
         emptyPop: null,
         nextResetAtMs: Infinity,
@@ -7031,10 +7189,6 @@ ${FONT_POPOVER_CSS}`;
     return formatQuotaGroupLabel(value, value.name);
   }
   var quotaToneColor = (remaining) => typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-quota-red)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-quota-yellow)" : typeof remaining === "number" ? "var(--pulse-quota-green)" : "var(--pulse-muted)";
-  function applyQuotaFill(fill, remaining) {
-    setStyle(fill, "--fill-scale", String(clampRatio(remaining)));
-    setStyle(fill, "background", quotaToneColor(remaining));
-  }
   function readAvailableWindow(bucket) {
     if (!bucket?.available) return null;
     const avail = bucket;
@@ -7102,22 +7256,36 @@ ${FONT_POPOVER_CSS}`;
     meta.append(labelEl, numsEl);
     const track = createEl("div", { class: "quota-pop-track" });
     const fillEl = createEl("i", { class: "quota-pop-fill" });
-    track.appendChild(fillEl);
-    row.append(meta, track);
-    return { row, labelEl, numsEl, fillEl };
+    const projectedFillEl = createEl("i", { class: "quota-pop-forecast-fill", "aria-hidden": "true" });
+    track.append(fillEl, projectedFillEl);
+    const forecastEl = createEl("div", { class: "quota-pop-forecast", hidden: "" });
+    const forecastTextEl = createEl("span", { class: "quota-pop-forecast-text" });
+    forecastEl.appendChild(forecastTextEl);
+    const usageEl = createEl("div", { class: "quota-pop-usage", hidden: "" });
+    const usageLabelEl = createEl("span");
+    const usageValEl = createEl("span", { class: "quota-pop-usage-val" });
+    usageEl.append(usageLabelEl, usageValEl);
+    row.append(meta, track, forecastEl, usageEl);
+    return { row, labelEl, numsEl, fillEl, projectedFillEl, forecastEl, forecastTextEl, usageEl, usageLabelEl, usageValEl };
   }
   function createPopoverGroup(groupId) {
     const block = createEl("div", { class: "quota-pop-group", "data-group-id": groupId });
     const title = createEl("div", { class: "quota-pop-title" });
-    const titleTextEl = createEl("span");
+    const titleTextEl = createEl("span", { class: "quota-pop-title-text" });
+    const badges = createEl("span", { class: "quota-pop-badges" });
+    const paceEl = createEl("span", { class: "quota-pop-pace", hidden: "" });
+    const paceDot = createEl("i", { class: "quota-pop-pace-dot", "aria-hidden": "true" });
+    const paceTextEl = createEl("span");
+    paceEl.append(paceDot, paceTextEl);
     const badgeEl = createEl("span", { class: "quota-pop-badge" });
-    title.append(titleTextEl, badgeEl);
+    badges.append(paceEl, badgeEl);
+    title.append(titleTextEl, badges);
     const weekRow = createPopoverRow();
     const fiveRow = createPopoverRow();
     block.append(title, weekRow.row, fiveRow.row);
-    return { block, titleTextEl, badgeEl, weekRow, fiveRow };
+    return { block, titleTextEl, paceEl, paceTextEl, badgeEl, weekRow, fiveRow };
   }
-  function syncPopoverRow(rowRef, label, bucket, language, now) {
+  function syncPopoverRow(rowRef, label, windowKey, groupId, bucket, quotaWindows, usageCache, language, now) {
     if (!bucket) {
       setHidden(rowRef.row, true);
       delete rowRef.numsEl.dataset.resetAt;
@@ -7134,7 +7302,83 @@ ${FONT_POPOVER_CSS}`;
     } else {
       delete rowRef.numsEl.dataset.resetAt;
     }
-    applyQuotaFill(rowRef.fillEl, bucket.remaining);
+    const forecast = quotaForecast(bucket, windowKey, now);
+    setStyle(rowRef.fillEl, "--fill-scale", String(clampRatio(bucket.remaining)));
+    setStyle(
+      rowRef.fillEl,
+      "background",
+      typeof bucket.remaining === "number" && bucket.remaining < 0.05 ? "var(--pulse-quota-red)" : typeof bucket.remaining === "number" && bucket.remaining < 0.2 || forecast?.willExhaust ? "var(--pulse-quota-yellow)" : quotaToneColor(bucket.remaining)
+    );
+    const remaining = typeof bucket.remaining === "number" ? bucket.remaining : null;
+    const projectedRemaining = forecast?.projectedRemaining ?? null;
+    const showHatch = Boolean(
+      forecast?.forecastReady && remaining !== null && projectedRemaining !== null && projectedRemaining < remaining - 5e-3
+    );
+    setStyle(
+      rowRef.projectedFillEl,
+      "left",
+      showHatch && projectedRemaining !== null ? `${projectedRemaining * 100}%` : "0%"
+    );
+    setStyle(
+      rowRef.projectedFillEl,
+      "width",
+      showHatch && remaining !== null && projectedRemaining !== null ? `${(remaining - projectedRemaining) * 100}%` : "0%"
+    );
+    const showForecast = Boolean(forecast && typeof forecast.timeRemaining === "number");
+    setHidden(rowRef.forecastEl, !showForecast);
+    if (showForecast && forecast) {
+      if (forecast.willExhaust) {
+        setText(
+          rowRef.forecastTextEl,
+          language.t("forecastDepletes", {
+            eta: shortEta(forecast.exhaustInMs),
+            early: shortEta(forecast.earlyByMs)
+          })
+        );
+        setAttr(rowRef.forecastTextEl, "data-alert", "true");
+      } else {
+        setAttr(rowRef.forecastTextEl, "data-alert", null);
+        setText(
+          rowRef.forecastTextEl,
+          forecast.warmingUp ? language.t("forecastWarming", { pct: percent(forecast.used) }) : language.t("forecastLeft", { pct: percent(forecast.projectedRemaining) })
+        );
+      }
+      setAttr(
+        rowRef.forecastEl,
+        "title",
+        language.t("forecastBasis", {
+          remaining: percent(forecast.remaining),
+          time: percent(forecast.timeRemaining)
+        })
+      );
+    }
+    const winKey = `${groupId}:${windowKey}`;
+    const resetMs = typeof bucket.resetAt === "string" ? Date.parse(bucket.resetAt) : NaN;
+    const resetMinute = Number.isFinite(resetMs) ? Math.round(resetMs / 6e4) : null;
+    const rawUsage = quotaWindows?.[winKey] ?? null;
+    let winUsage = rawUsage && typeof rawUsage.observedTokens === "number" && rawUsage.observedTokens > 0 ? rawUsage : null;
+    if (winUsage) {
+      usageCache.set(winKey, { resetMinute, usage: winUsage });
+    } else if (!quotaWindows && resetMinute !== null) {
+      const prev = usageCache.get(winKey);
+      if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
+        const usedFrac = remaining !== null ? Math.max(0, Math.min(1, 1 - remaining)) : null;
+        const estFull = prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05 ? Math.round(prev.usage.observedTokens / usedFrac) : null;
+        winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+      }
+    } else if (quotaWindows) {
+      usageCache.delete(winKey);
+    }
+    const showUsage = Boolean(winUsage && winUsage.observedTokens > 0);
+    setHidden(rowRef.usageEl, !showUsage);
+    if (showUsage && winUsage) {
+      setText(rowRef.usageLabelEl, language.t("quotaWindowUsage"));
+      const refText = winUsage.estimatedFullTokens ? ` (${language.t("quotaWindowFullRef", { full: compact(winUsage.estimatedFullTokens) })})` : "";
+      setText(rowRef.usageValEl, `${compact(winUsage.observedTokens)} tok${refText}`);
+      setAttr(rowRef.usageEl, "title", language.t("quotaWindowBasis"));
+    } else {
+      setAttr(rowRef.usageEl, "title", null);
+    }
   }
   function syncRingNode(ref, family, weekAvail, fiveAvail) {
     const has5h = Boolean(fiveAvail);
@@ -7189,7 +7433,7 @@ ${FONT_POPOVER_CSS}`;
     setText(ref.letterEl, family.letter);
     setStyle(ref.letterEl, "color", family.color);
   }
-  function renderQuotaRings(ctx, groups) {
+  function renderQuotaRings(ctx, groups, quotaWindows, activeAccount) {
     const { $, state, language } = ctx;
     const t = language.t;
     const pill = $("quota-rings-pill");
@@ -7202,7 +7446,10 @@ ${FONT_POPOVER_CSS}`;
     const usable = groups.filter(
       (g) => readAvailableWindow(g.windows?.weekly) || readAvailableWindow(g.windows?.["5h"])
     );
-    const sig = `${language.language}|${usable.map((g) => {
+    const now = Date.now() + state.serverOffset;
+    const minuteBucket = Math.floor(now / 6e4);
+    const winUsageSig = quotaWindows ? Object.entries(quotaWindows).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v.observedTokens}/${v.estimatedFullTokens ?? ""}`).join(",") : "";
+    const sig = `${language.language}|${minuteBucket}|${winUsageSig}|${usable.map((g) => {
       const w = readAvailableWindow(g.windows?.weekly);
       const f = readAvailableWindow(g.windows?.["5h"]);
       const fTag = f ? (f.remaining ?? 0) <= 0 ? "0:depleted" : String(f.remaining) : "";
@@ -7211,6 +7458,10 @@ ${FONT_POPOVER_CSS}`;
     if (sig === state.lastQuotaSig) return;
     state.lastQuotaSig = sig;
     const cache = getQuotaCache(state);
+    if (activeAccount !== void 0 && activeAccount !== cache.windowUsageAccount) {
+      cache.windowUsageAccount = activeAccount;
+      cache.windowUsage.clear();
+    }
     let nextResetAtMs = Infinity;
     for (const g of groups) {
       for (const windowName of ["5h", "weekly"]) {
@@ -7269,7 +7520,6 @@ ${FONT_POPOVER_CSS}`;
       const gid = child.dataset?.groupId;
       if (!gid || !cache.popGroups.has(gid)) child.remove();
     }
-    const now = Date.now() + state.serverOffset;
     let pillCursor = pill.firstElementChild;
     let popCursor = popover.firstElementChild;
     for (const g of usable) {
@@ -7294,10 +7544,20 @@ ${FONT_POPOVER_CSS}`;
         cache.popGroups.set(g.id, popRef);
       }
       setText(popRef.titleTextEl, g.name || groupLabel(g));
+      const pace = groupQuotaPace(g, now);
+      setHidden(popRef.paceEl, !pace);
+      if (pace) {
+        const paceLabel = t(pace.labelKey);
+        const winLabel = t(pace.windowKey);
+        setText(popRef.paceTextEl, paceLabel);
+        setAttr(popRef.paceEl, "data-pace", pace.pace);
+        setAttr(popRef.paceEl, "data-critical", pace.critical ? "true" : null);
+        setAttr(popRef.paceEl, "title", pace.pace === "idle" ? paceLabel : `${winLabel} \xB7 ${paceLabel}`);
+      }
       setHidden(popRef.badgeEl, has5h);
       if (!has5h) setText(popRef.badgeEl, t("quotaNo5hTag"));
-      syncPopoverRow(popRef.weekRow, t("week"), weekAvail, language, now);
-      syncPopoverRow(popRef.fiveRow, t("five"), fiveAvail, language, now);
+      syncPopoverRow(popRef.weekRow, t("week"), "weekly", g.id, weekAvail, quotaWindows, cache.windowUsage, language, now);
+      syncPopoverRow(popRef.fiveRow, t("five"), "5h", g.id, fiveAvail, quotaWindows, cache.windowUsage, language, now);
       if (popRef.block !== popCursor) {
         popover.insertBefore(popRef.block, popCursor);
       } else {
@@ -7311,7 +7571,9 @@ ${FONT_POPOVER_CSS}`;
     const groups = value.groups || [];
     const speed = value.speed;
     state.group = chooseGroup(ctx, groups, speed);
-    renderQuotaRings(ctx, groups);
+    const quotaWindows = value.quotaWindows ?? value.usage?.quotaWindows ?? null;
+    const activeAccount = value.usage?.recordingAccount ?? value.usage?.activeAccount;
+    renderQuotaRings(ctx, groups, quotaWindows, activeAccount);
     setText($("strip-tps"), rate(speed?.tps));
     setAttr($("speed-tab"), "title", `${rate(speed?.tps)} tok/s`);
     setText($("session-tps"), speed?.latestRateStatus === "legacy" ? t("ratePending") : `${rate(speed?.tps)} tok/s`);

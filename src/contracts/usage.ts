@@ -128,6 +128,17 @@ export interface UsageUserMeta {
 export type DesktopUsageSyncStatus = 'waiting' | 'syncing' | 'partial' | 'ready' | 'offline';
 
 /**
+ * Per-window observed token volume and proportional full-capacity reference
+ * for an active quota window (`<groupId>:5h` or `<groupId>:weekly`).
+ */
+export interface QuotaWindowUsage {
+  observedTokens: number;
+  estimatedFullTokens: number | null;
+  requests: number;
+  usedFraction: number | null;
+}
+
+/**
  * Full usage summary snapshot returned by `UsageLedger.summary()` and `DesktopUsage.snapshot()`.
  */
 export interface UsageSummarySnapshot {
@@ -155,6 +166,7 @@ export interface UsageSummarySnapshot {
   firstDate: string | null;
   updatedAt: string;
   source: string;
+  quotaWindows?: Record<string, QuotaWindowUsage>;
   activeAccount?: string;
   recordingAccount?: string | null;
   localAccountMode?: boolean;

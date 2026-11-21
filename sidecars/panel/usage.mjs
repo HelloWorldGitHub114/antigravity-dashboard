@@ -1727,10 +1727,178 @@ async function deleteManualUsage(scope, id, ledger = new UsageLedger()) {
   return await ledger.deleteManualUsage(scope, id);
 }
 
+// src/telemetry/ledger/quota-windows.ts
+import { join as join6 } from "node:path";
+
+// src/shared/quota-forecast.ts
+var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
+var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
+var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
+var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+function quotaRemaining(bucket) {
+  if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
+  const value = bucket.remaining;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return null;
+  return value;
+}
+function quotaModelFamily(value) {
+  const text = String(value || "");
+  if (/(?:^|[^a-z])argon(?:$|[^a-z])/i.test(text)) return "gemini-argon";
+  if (/gemini|hydrogen|carbon|neon|orchestrator/i.test(text)) return "gemini";
+  if (/claude|sonnet|opus|haiku|anthropic|gpt|openai/i.test(text) || /(?:^|[^a-z0-9])o[134](?:$|[^a-z0-9])/i.test(text) || /^3p(?:$|[-_])/i.test(text)) {
+    return "3p";
+  }
+  return null;
+}
+function classifyQuotaGroupId(groups, model) {
+  const list = Array.isArray(groups) ? groups.filter((g) => g && typeof g.id === "string") : [];
+  if (!list.length) return null;
+  const kind = quotaModelFamily(model);
+  const specific = kind ? list.find((g) => quotaModelFamily(`${g.id} ${g.name || ""}`) === kind) : void 0;
+  if (specific) return specific.id;
+  if (kind === "gemini-argon") {
+    const shared = list.find((g) => g.id === "gemini" && quotaModelFamily(`${g.id} ${g.name || ""}`) === "gemini");
+    if (shared) return shared.id;
+  }
+  return kind ? null : list[0].id;
+}
+function buildQuotaWindowSpecs(groups) {
+  const specs = [];
+  const groupInfos = [];
+  for (const g of Array.isArray(groups) ? groups : []) {
+    if (!g || typeof g.id !== "string") continue;
+    groupInfos.push({ id: g.id, name: String(g.name || "") });
+    for (const win of ["5h", "weekly"]) {
+      const b = g.windows?.[win];
+      if (!b || b.available !== true || b.disabled === true) continue;
+      const endAt = typeof b.resetAt === "string" ? Date.parse(b.resetAt) : NaN;
+      if (!Number.isFinite(endAt)) continue;
+      const dur = win === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
+      const remaining = quotaRemaining(b);
+      const idle = remaining !== null && remaining >= 1;
+      specs.push({
+        id: `${g.id}:${win}`,
+        groupId: g.id,
+        window: win,
+        startAt: endAt - dur,
+        endAt,
+        resetMinute: Math.round(endAt / 6e4),
+        remaining,
+        idle
+      });
+    }
+  }
+  return { specs, groupInfos };
+}
+function quotaWindowMeta(specs) {
+  return Object.fromEntries(specs.map((s) => [s.id, { resetMinute: s.resetMinute, idle: s.idle }]));
+}
+function finalizeQuotaWindows(specs, counts = {}, meta = null) {
+  const out = {};
+  for (const spec of specs) {
+    const prev = meta?.[spec.id];
+    if (prev) {
+      if (spec.idle !== prev.idle) continue;
+      if (!spec.idle && Math.abs(prev.resetMinute - spec.resetMinute) > 2) continue;
+    }
+    const c = counts[spec.id];
+    if (!c || !c.requests) continue;
+    const usedFraction = typeof spec.remaining === "number" ? Math.max(0, Math.min(1, 1 - spec.remaining)) : null;
+    const estimatedFullTokens = c.observedTokens > 0 && usedFraction !== null && usedFraction >= 0.05 ? Math.round(c.observedTokens / usedFraction) : null;
+    out[spec.id] = {
+      observedTokens: c.observedTokens,
+      estimatedFullTokens,
+      requests: c.requests,
+      usedFraction
+    };
+  }
+  return out;
+}
+
+// src/telemetry/ledger/quota-windows.ts
+var quotaWindowCaches = /* @__PURE__ */ new WeakMap();
+async function summarizeQuotaWindows(ledger, accountScope, groups) {
+  if (!accountScope || !HASH_RE.test(accountScope)) return {};
+  const { specs, groupInfos } = buildQuotaWindowSpecs(groups);
+  if (!specs.length) return {};
+  const specsKey = specs.map((s) => `${s.id}:${s.idle ? "idle" : s.resetMinute}`).join("|");
+  const cacheKey = `${accountScope}|${specsKey}`;
+  const cached = quotaWindowCaches.get(ledger);
+  if (cached && cached.key === cacheKey && cached.revision === ledger.revision) {
+    return finalizeQuotaWindows(specs, cached.counts, cached.meta);
+  }
+  let minStart = Infinity;
+  for (const spec of specs) {
+    if (spec.startAt < minStart) minStart = spec.startAt;
+  }
+  if (!Number.isFinite(minStart)) return {};
+  const scopeDir = join6(ledger.directory, accountScope);
+  let files = [];
+  try {
+    files = await ledger.fs.readdir(scopeDir);
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return {};
+    return {};
+  }
+  const validFiles = files.filter((name) => LEDGER_FILE_RE.test(name));
+  if (!validFiles.length) return {};
+  const startRevision = ledger.revision;
+  const dedup = /* @__PURE__ */ new Map();
+  await mapPool(validFiles, 16, async (name) => {
+    const fullPath = join6(scopeDir, name);
+    let doc = null;
+    try {
+      const st = await ledger.fs.stat(fullPath);
+      if (!st) return;
+      const mtimeMs = Number(st.mtimeMs ?? 0);
+      if (Number.isFinite(mtimeMs) && mtimeMs > 0 && mtimeMs < minStart - 12e4) {
+        return;
+      }
+      if (Number(st.size) > MAX_RECORD_FILE_BYTES) return;
+      const text = await ledger.fs.readFile(fullPath, "utf8");
+      if (text.length > MAX_RECORD_FILE_BYTES) return;
+      const parsed = JSON.parse(text);
+      if (parsed.schema !== 1 || parsed.account !== accountScope || !Array.isArray(parsed.records) || !parsed.records.every(validRow)) {
+        return;
+      }
+      doc = parsed;
+    } catch {
+      return;
+    }
+    if (!doc) return;
+    for (const r of doc.records) {
+      if (typeof r.at !== "number" || !Number.isFinite(r.at) || r.at < minStart) continue;
+      const total = recordSum(r);
+      const prev = dedup.get(r.id);
+      if (!prev || total > prev.total) {
+        dedup.set(r.id, { at: r.at, model: r.model, total });
+      }
+    }
+  });
+  const counts = {};
+  for (const r of dedup.values()) {
+    const gid = classifyQuotaGroupId(groupInfos, r.model);
+    if (!gid) continue;
+    for (const spec of specs) {
+      if (spec.groupId === gid && r.at >= spec.startAt && r.at <= spec.endAt) {
+        const item = counts[spec.id] || { observedTokens: 0, requests: 0 };
+        item.observedTokens += r.total;
+        item.requests += 1;
+        counts[spec.id] = item;
+      }
+    }
+  }
+  const meta = quotaWindowMeta(specs);
+  if (ledger.revision === startRevision) {
+    quotaWindowCaches.set(ledger, { key: cacheKey, revision: startRevision, counts, meta });
+  }
+  return finalizeQuotaWindows(specs, counts, meta);
+}
+
 // src/telemetry/ledger/project-stats.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var MAX_PARENT_HOPS = 16;
 var WORKTREE_RE = /(?:^|\/)(?:\.gemini\/antigravity|\.antigravity|\.git)\/worktrees\/([^/]+)(?:\/|$)/i;
 var GENERIC_WORKTREE_RE = /\/worktrees\/([^/]+)\//i;
@@ -2570,7 +2738,7 @@ async function loadSharedFileSummariesJs(params) {
         tasks.push({
           scope: s,
           fileHash,
-          filePath: join6(ledger.directory, s, `${fileHash}.json`)
+          filePath: join7(ledger.directory, s, `${fileHash}.json`)
         });
       }
     }
@@ -2692,7 +2860,7 @@ function resolveProjectForSummary(resolver, cid, file) {
   return resolver.resolve(cid);
 }
 async function listScopeLedgerFiles(ledger, scope) {
-  const scopeDir = join6(ledger.directory, scope);
+  const scopeDir = join7(ledger.directory, scope);
   try {
     const entries = await ledger.fs.readdir(scopeDir, { withFileTypes: true });
     const out = [];
@@ -2701,7 +2869,7 @@ async function listScopeLedgerFiles(ledger, scope) {
       if (typeof ent.isFile === "function" && !ent.isFile()) continue;
       out.push({
         fileHash: ent.name.slice(0, -5),
-        filePath: join6(scopeDir, ent.name)
+        filePath: join7(scopeDir, ent.name)
       });
     }
     return out;
@@ -2773,7 +2941,7 @@ async function queryProjectUsageOverview(opts) {
     return { accountKey: "", from, to, projects: [], days: [], totalTokens: 0, requests: 0, updatedAt };
   }
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join6(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join7(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -2914,7 +3082,7 @@ async function queryProjectConversationDetail(opts) {
   });
   if (!isValidScope(scope)) return emptyDetail("");
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join6(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join7(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -3707,6 +3875,7 @@ export {
   loadKnownAccounts,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  summarizeQuotaWindows,
   usageRecords,
   weekStart
 };

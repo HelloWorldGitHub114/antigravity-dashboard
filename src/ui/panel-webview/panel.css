@@ -259,7 +259,7 @@ body:not(.standalone) > .widget {
 
 /* 悬停弹出完整额度列表 */
 [popover].quota-popover-card {
-  width: min(264px, calc(100vw - 24px));
+  width: min(292px, calc(100vw - 24px));
   padding: 12px 13px;
   border: 1px solid var(--pulse-border);
   border-radius: 11px;
@@ -332,6 +332,52 @@ body:not(.standalone) > .widget {
   justify-content: space-between;
   gap: 6px;
 }
+.quota-pop-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quota-pop-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+.quota-pop-pace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: calc(10px * var(--pulse-sidebar-font-scale, 1));
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+  color: var(--pulse-label);
+  background: var(--pulse-control);
+  font-variant-numeric: tabular-nums;
+}
+.quota-pop-pace[hidden] { display: none; }
+.quota-pop-pace-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--pulse-muted);
+  flex: none;
+}
+.quota-pop-pace[data-pace="ok"] .quota-pop-pace-dot { background: var(--pulse-success); }
+.quota-pop-pace[data-pace="tight"] .quota-pop-pace-dot,
+.quota-pop-pace[data-pace="exhaust"] .quota-pop-pace-dot { background: var(--pulse-warning); }
+.quota-pop-pace[data-pace="exhaust"] {
+  color: var(--pulse-warning);
+  background: color-mix(in srgb, var(--pulse-warning) 14%, transparent);
+}
+.quota-pop-pace[data-critical="true"] {
+  color: var(--pulse-danger);
+  background: color-mix(in srgb, var(--pulse-danger) 14%, transparent);
+}
+.quota-pop-pace[data-critical="true"] .quota-pop-pace-dot { background: var(--pulse-danger); }
 .quota-pop-badge {
   font-size: calc(10px * var(--pulse-sidebar-font-scale, 1));
   font-weight: 600;
@@ -340,7 +386,7 @@ body:not(.standalone) > .widget {
   background: var(--pulse-control);
   color: var(--pulse-muted);
 }
-.quota-pop-row + .quota-pop-row { margin-top: 7px; }
+.quota-pop-row + .quota-pop-row { margin-top: 8px; }
 .quota-pop-meta {
   display: flex;
   align-items: baseline;
@@ -357,6 +403,7 @@ body:not(.standalone) > .widget {
   white-space: nowrap;
 }
 .quota-pop-track {
+  position: relative;
   height: 5px;
   border-radius: 999px;
   background: var(--pulse-track);
@@ -370,6 +417,56 @@ body:not(.standalone) > .widget {
   transform-origin: left center;
   transform: scaleX(var(--fill-scale, 0));
   transition: background-color var(--pulse-dur-base) ease;
+}
+.quota-pop-forecast-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 100%;
+  border-radius: 0 999px 999px 0;
+  background: repeating-linear-gradient(-45deg, var(--pulse-menu) 0 1.5px, transparent 1.5px 4px);
+  opacity: .85;
+  pointer-events: none;
+  transition: left var(--pulse-dur-base) var(--pulse-ease-out), width var(--pulse-dur-base) var(--pulse-ease-out);
+}
+.quota-pop-forecast {
+  display: flex;
+  align-items: center;
+  margin-top: 3px;
+  font-size: calc(10px * var(--pulse-sidebar-font-scale, 1));
+  line-height: 1.35;
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+}
+.quota-pop-forecast[hidden],
+.quota-pop-usage[hidden] { display: none; }
+.quota-pop-forecast-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quota-pop-forecast-text[data-alert="true"] {
+  color: var(--pulse-warning);
+  font-weight: 500;
+}
+.quota-pop-usage {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: calc(10px * var(--pulse-sidebar-font-scale, 1));
+  line-height: 1.35;
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+}
+.quota-pop-usage-val {
+  color: var(--pulse-label);
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
 }
 @media (prefers-reduced-motion: no-preference) {
   .quota-pop-fill {

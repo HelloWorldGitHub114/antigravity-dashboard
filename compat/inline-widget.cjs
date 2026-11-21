@@ -200,7 +200,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         ([key, id]) => `<div ${id === "cache-write" ? 'id="cache-write-row" hidden' : ""}><dt data-i18n="${key}">${t(key)}</dt><dd id="${id}">\u2014</dd></div>`
       ).join("");
       const quotaSections = ["five", "week"].map(
-        (name) => `<section class="quota-section" data-i18n-aria="${name}" aria-label="${t(name)}"><div class="quota-title"><span>${svg(name)}<span data-i18n="${name}">${t(name)}</span></span><strong id="${name}-balance">\u2014</strong><span class="dim" data-i18n="remaining">remaining</span></div><div class="track" role="progressbar" data-i18n-aria="${name}" id="${name}-track"><i id="${name}-fill"></i></div><dl><div><dt data-i18n="resetIn">Resets in</dt><dd class="reset" id="${name}-countdown">\u2014</dd></div><div><dt data-i18n="resetTime">Reset time (UTC+8)</dt><dd id="${name}-reset">\u2014</dd></div></dl><p class="footnote" id="${name}-note" hidden></p></section>`
+        (name) => `<section class="quota-section" data-i18n-aria="${name}" aria-label="${t(name)}"><div class="quota-title"><span>${svg(name)}<span data-i18n="${name}">${t(name)}</span></span><strong id="${name}-balance">\u2014</strong><span class="dim" data-i18n="remaining">remaining</span></div><div class="track quota-track" role="progressbar" data-i18n-aria="${name}" id="${name}-track"><i class="track-actual" id="${name}-fill"></i><i class="track-forecast" id="${name}-projected-fill" aria-hidden="true"></i></div><div class="quota-forecast" id="${name}-forecast" hidden><span class="forecast-main" id="${name}-forecast-text"></span></div><div class="quota-usage" id="${name}-usage" hidden><span data-i18n="quotaWindowUsage">${t("quotaWindowUsage")}</span><span class="quota-usage-val" id="${name}-usage-value">\u2014</span></div><dl><div><dt data-i18n="resetIn">Resets in</dt><dd class="reset" id="${name}-countdown">\u2014</dd></div><div><dt data-i18n="resetTime">Reset time (UTC+8)</dt><dd id="${name}-reset">\u2014</dd></div></dl><p class="footnote" id="${name}-note" hidden></p></section>`
       ).join("");
       return `<style>${themeShadowCss}
   ${inlineCss}</style><div class="bar" data-i18n-aria="strip" aria-label="Dashboard statistics">
@@ -219,7 +219,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         <strong id="context-summary">\u2014</strong><p id="context-tokens">\u2014</p>
         <div class="track" role="progressbar" data-i18n-aria="context" id="context-track"><i id="context-fill"></i></div>
         <dl><div><dt data-i18n="contextModel">Sampled model</dt><dd id="context-model">\u2014</dd></div><div id="context-orchestrator-row" hidden><dt id="context-orchestrator-label" data-i18n="contextPlanner">${t("contextPlanner")}</dt><dd id="context-planner">\u2014</dd><dd class="orchestrator-note" id="context-orchestrator-note"></dd></div></dl>
-        <div class="heading quota-heading"><span data-i18n="group">Quota group</span><div class="toolbar"><button class="group-trigger" data-i18n-aria="group" aria-haspopup="listbox" aria-expanded="false">Quota \u25BE</button><div class="group-menu" role="listbox" data-i18n-aria="selectGroup" hidden></div><button class="refresh" data-i18n-aria="refresh" aria-label="Refresh quota" title="Refresh quota"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.8 6a5.1 5.1 0 1 0 .1 4M12.8 2.5V6H9.2"/></svg></button></div></div>
+        <div class="heading quota-heading"><span class="quota-heading-title"><span data-i18n="group">Quota group</span><span class="pace-badge" id="quota-pace" hidden><i class="pace-dot" aria-hidden="true"></i><span id="quota-pace-text"></span></span></span><div class="toolbar"><button class="group-trigger" data-i18n-aria="group" aria-haspopup="listbox" aria-expanded="false">Quota \u25BE</button><div class="group-menu" role="listbox" data-i18n-aria="selectGroup" hidden></div><button class="refresh" data-i18n-aria="refresh" aria-label="Refresh quota" title="Refresh quota"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.8 6a5.1 5.1 0 1 0 .1 4M12.8 2.5V6H9.2"/></svg></button></div></div>
         <div class="quota-details">${quotaSections}</div>
       </section>`;
     }
@@ -2269,7 +2269,133 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
 
   .quota-section .track {
-    margin: 8px 0;
+    position: relative;
+    height: 5px;
+    margin: 8px 0 6px;
+  }
+
+  .quota-track .track-actual,
+  .quota-track .track-forecast {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+  }
+
+  .quota-track .track-actual {
+    border-radius: inherit;
+  }
+
+  .quota-track .track-forecast {
+    width: 0;
+    border-radius: 0 999px 999px 0;
+    background: repeating-linear-gradient(-45deg, var(--pulse-card) 0 1.5px, transparent 1.5px 4px);
+    opacity: .82;
+    pointer-events: none;
+    transition: left 260ms cubic-bezier(.22, 1, .36, 1), width 260ms cubic-bezier(.22, 1, .36, 1);
+  }
+
+  .quota-heading-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .pace-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+    font-weight: 500;
+    line-height: 15px;
+    white-space: nowrap;
+    color: var(--pulse-label);
+    background: var(--pulse-control);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pace-badge[hidden] {
+    display: none;
+  }
+
+  .pace-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--pulse-muted);
+    flex: none;
+  }
+
+  .pace-badge[data-pace=exhaust] {
+    color: var(--pulse-warning);
+    background: color-mix(in srgb, var(--pulse-warning) 14%, transparent);
+  }
+
+  .pace-badge[data-pace=exhaust] .pace-dot,
+  .pace-badge[data-pace=tight] .pace-dot {
+    background: var(--pulse-warning);
+  }
+
+  .pace-badge[data-critical=true] {
+    color: var(--pulse-danger);
+    background: color-mix(in srgb, var(--pulse-danger) 14%, transparent);
+  }
+
+  .pace-badge[data-critical=true] .pace-dot {
+    background: var(--pulse-danger);
+  }
+
+  .pace-badge[data-pace=ok] .pace-dot {
+    background: var(--pulse-success);
+  }
+
+  .quota-forecast {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 4px;
+    font-size: calc(10.5px * var(--pulse-inline-font-scale, 1));
+    line-height: 1.4;
+    color: var(--pulse-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .quota-forecast[hidden],
+  .quota-usage[hidden] {
+    display: none;
+  }
+
+  .forecast-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .forecast-main[data-alert=true] {
+    color: var(--pulse-warning);
+    font-weight: 500;
+  }
+
+  .quota-usage {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 5px;
+    font-size: calc(10.5px * var(--pulse-inline-font-scale, 1));
+    line-height: 1.4;
+    color: var(--pulse-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .quota-usage-val {
+    color: var(--pulse-label);
+    font-weight: 500;
+    text-align: right;
   }
 
   .quota-section .footnote {
@@ -2768,6 +2894,140 @@ module.exports = function installAgPulseInlineWidget(...args) {
   }
   `;
 
+    // src/shared/quota-forecast.ts
+    var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
+    var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
+    var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
+    var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+    function quotaRemaining(bucket) {
+      if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
+      const value = bucket.remaining;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return null;
+      return value;
+    }
+    function shortEta(ms) {
+      if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "\u2014";
+      const totalMin = Math.max(1, Math.round(ms / 6e4));
+      if (totalMin < 60) return `${totalMin}m`;
+      if (totalMin < 1440) {
+        const h2 = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        return `${h2}h${m ? ` ${m}m` : ""}`;
+      }
+      const totalH = Math.round(ms / 36e5);
+      const d = Math.floor(totalH / 24);
+      const h = totalH % 24;
+      return `${d}d${h ? ` ${h}h` : ""}`;
+    }
+    function quotaForecast(bucket, windowKey, now = Date.now()) {
+      const remaining = quotaRemaining(bucket);
+      if (remaining === null) return null;
+      const used = Math.max(0, Math.min(1, 1 - remaining));
+      const resetAt = bucket && bucket.available === true ? bucket.resetAt : null;
+      const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+      if (!Number.isFinite(resetMs) || resetMs <= now) {
+        return used === 0 ? {
+          remaining: 1,
+          used: 0,
+          timeRemaining: null,
+          pace: "idle",
+          paceDelta: 0,
+          forecastReady: false,
+          warmingUp: false,
+          projectedUsed: 0,
+          projectedRemaining: 1,
+          willExhaust: false,
+          exhaustInMs: null,
+          earlyByMs: null,
+          outlook: "idle"
+        } : null;
+      }
+      const durationMs = windowKey === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
+      const leftMs = Math.max(0, Math.min(durationMs, resetMs - now));
+      const elapsedMs = durationMs - leftMs;
+      const timeRemaining = leftMs / durationMs;
+      const elapsed = elapsedMs / durationMs;
+      const paceDelta = remaining - timeRemaining;
+      let pace = used < 5e-4 ? "idle" : paceDelta < -0.05 ? "fast" : paceDelta > 0.08 ? "slow" : "steady";
+      const minSampleMs = windowKey === "5h" ? MIN_SAMPLE_5H_MS : MIN_SAMPLE_WEEKLY_MS;
+      let forecastReady = false;
+      let warmingUp = false;
+      let projectedUsed = null;
+      let projectedRemaining = null;
+      let willExhaust = false;
+      let exhaustInMs = null;
+      if (used < 5e-4) {
+        forecastReady = true;
+        projectedUsed = 0;
+        projectedRemaining = 1;
+      } else if (elapsedMs < minSampleMs && used < 0.1) {
+        warmingUp = true;
+      } else {
+        const rawProjectedUsed = elapsed > 0 ? used / elapsed : Infinity;
+        projectedUsed = Math.min(1, rawProjectedUsed);
+        projectedRemaining = Math.max(0, 1 - rawProjectedUsed);
+        willExhaust = rawProjectedUsed > 1.005;
+        exhaustInMs = willExhaust && used > 0 ? Math.max(6e4, Math.round(elapsedMs * (remaining / used))) : null;
+        forecastReady = true;
+        if (willExhaust) pace = "fast";
+      }
+      const earlyByMs = willExhaust && exhaustInMs !== null ? Math.max(6e4, leftMs - exhaustInMs) : null;
+      const outlook = used < 5e-4 ? "idle" : !forecastReady ? null : willExhaust ? "exhaust" : (projectedRemaining ?? 1) < 0.2 ? "tight" : "ok";
+      return {
+        remaining,
+        used,
+        timeRemaining,
+        pace,
+        paceDelta,
+        forecastReady,
+        warmingUp,
+        projectedUsed,
+        projectedRemaining,
+        willExhaust,
+        exhaustInMs,
+        earlyByMs,
+        outlook
+      };
+    }
+    function groupQuotaPace(group, now = Date.now()) {
+      if (!group) return null;
+      const windows = ["5h", "weekly"].filter(
+        (key) => group.windows?.[key]?.available === true
+      );
+      const activeWindows = windows.length ? windows : ["5h", "weekly"];
+      const items = activeWindows.map((w) => ({ w, f: quotaForecast(group.windows?.[w], w, now) })).filter((x) => Boolean(x.f && typeof x.f.timeRemaining === "number"));
+      if (!items.length) return null;
+      if (items.every((x) => x.f.outlook === "idle")) {
+        return {
+          pace: "idle",
+          delta: 0,
+          window: items[0].w,
+          critical: false,
+          labelKey: "paceIdle",
+          windowKey: items[0].w === "5h" ? "five" : "week"
+        };
+      }
+      const rank = { exhaust: 0, tight: 1, ok: 2 };
+      const ready = items.filter(
+        (x) => x.f.outlook === "exhaust" || x.f.outlook === "tight" || x.f.outlook === "ok"
+      ).sort(
+        (a, b) => rank[a.f.outlook] - rank[b.f.outlook] || (a.f.projectedRemaining ?? 1) - (b.f.projectedRemaining ?? 1)
+      );
+      if (!ready.length) return null;
+      const chosen = ready[0];
+      const f = chosen.f;
+      const labelKey = f.outlook === "exhaust" ? "outlookExhaust" : f.outlook === "tight" ? "outlookTight" : "outlookOk";
+      const critical = f.remaining < 0.1 || f.willExhaust && f.exhaustInMs !== null && f.exhaustInMs < (chosen.w === "5h" ? 36e5 : 864e5);
+      return {
+        pace: f.outlook,
+        delta: f.paceDelta,
+        window: chosen.w,
+        critical,
+        labelKey,
+        windowKey: chosen.w === "5h" ? "five" : "week"
+      };
+    }
+
     // src/ui/shared/model-donut.ts
     var SVG_NS2 = "http://www.w3.org/2000/svg";
     var ROLE_COLORS = {
@@ -2884,6 +3144,15 @@ module.exports = function installAgPulseInlineWidget(...args) {
     }
 
     // src/ui/inline-widget/model-donut.ts
+    var inlineQuotaUsageCaches = /* @__PURE__ */ new WeakMap();
+    function getInlineQuotaUsageCache(root) {
+      let entry = inlineQuotaUsageCaches.get(root);
+      if (!entry) {
+        entry = { account: null, windows: /* @__PURE__ */ new Map() };
+        inlineQuotaUsageCaches.set(root, entry);
+      }
+      return entry;
+    }
     var DONUT_RADIUS = 13;
     var DONUT_CIRC = 2 * Math.PI * DONUT_RADIUS;
     function formatGroupLabel(group, language) {
@@ -2971,6 +3240,28 @@ module.exports = function installAgPulseInlineWidget(...args) {
     }
     function renderQuotaSection(root, group, data, composer, language) {
       const $ = (id) => root.getElementById(id);
+      const serverMs = typeof data.serverTime === "string" ? Date.parse(data.serverTime) : NaN;
+      const now = Number.isFinite(serverMs) ? serverMs : Date.now();
+      const usageCache = getInlineQuotaUsageCache(root);
+      const activeAccount = data.usage?.recordingAccount ?? data.usage?.activeAccount ?? null;
+      if (data.usage && activeAccount !== usageCache.account) {
+        usageCache.account = activeAccount;
+        usageCache.windows.clear();
+      }
+      const quotaWindowsMap = data.quotaWindows ?? data.usage?.quotaWindows ?? null;
+      const paceBadge = $("quota-pace");
+      if (paceBadge) {
+        const pace = groupQuotaPace(group, now);
+        toggleHidden(paceBadge, !pace);
+        if (pace) {
+          const labelText = language.t(pace.labelKey);
+          const winLabel = language.t(pace.windowKey);
+          setText($("quota-pace-text"), labelText);
+          setAttr(paceBadge, "data-pace", pace.pace);
+          setAttr(paceBadge, "data-critical", pace.critical ? "true" : null);
+          setAttr(paceBadge, "title", pace.pace === "idle" ? labelText : `${winLabel} \xB7 ${labelText}`);
+        }
+      }
       for (const [windowKey, name] of [
         ["5h", "five"],
         ["weekly", "week"]
@@ -2980,16 +3271,91 @@ module.exports = function installAgPulseInlineWidget(...args) {
         const remaining = available ? windowData.remaining : null;
         const resetAt = available ? windowData.resetAt : null;
         const disabled = available ? windowData.disabled : false;
+        const forecast = quotaForecast(windowData, windowKey, now);
         setText($(name), percent(remaining));
         setText($(`${name}-balance`), percent(remaining));
         setText($(`${name}-reset`), language.resetDate(resetAt));
         const fill = $(`${name}-fill`);
+        const projectedFill = $(`${name}-projected-fill`);
         setStyle(fill, "width", typeof remaining === "number" ? `${remaining * 100}%` : "0%");
         setStyle(
           fill,
           "background",
-          typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-danger)" : typeof remaining === "number" && remaining < 0.2 ? "var(--pulse-warning)" : ""
+          typeof remaining === "number" && remaining < 0.05 ? "var(--pulse-danger)" : typeof remaining === "number" && remaining < 0.2 || forecast?.willExhaust ? "var(--pulse-warning)" : ""
         );
+        const projectedRemaining = forecast?.projectedRemaining ?? null;
+        const showHatch = Boolean(
+          forecast?.forecastReady && typeof remaining === "number" && projectedRemaining !== null && projectedRemaining < remaining - 5e-3
+        );
+        if (projectedFill) {
+          setStyle(projectedFill, "left", showHatch && projectedRemaining !== null ? `${projectedRemaining * 100}%` : "0%");
+          setStyle(
+            projectedFill,
+            "width",
+            showHatch && typeof remaining === "number" && projectedRemaining !== null ? `${(remaining - projectedRemaining) * 100}%` : "0%"
+          );
+        }
+        const forecastRow = $(`${name}-forecast`);
+        const forecastText = $(`${name}-forecast-text`);
+        if (forecastRow && forecastText) {
+          const showForecast = Boolean(forecast && typeof forecast.timeRemaining === "number");
+          toggleHidden(forecastRow, !showForecast);
+          if (showForecast && forecast) {
+            if (forecast.willExhaust) {
+              setText(
+                forecastText,
+                language.t("forecastDepletes", {
+                  eta: shortEta(forecast.exhaustInMs),
+                  early: shortEta(forecast.earlyByMs)
+                })
+              );
+              setAttr(forecastText, "data-alert", "true");
+            } else {
+              setAttr(forecastText, "data-alert", null);
+              setText(
+                forecastText,
+                forecast.warmingUp ? language.t("forecastWarming", { pct: percent(forecast.used) }) : language.t("forecastLeft", { pct: percent(forecast.projectedRemaining) })
+              );
+            }
+            setAttr(
+              forecastRow,
+              "title",
+              language.t("forecastBasis", {
+                remaining: percent(forecast.remaining),
+                time: percent(forecast.timeRemaining)
+              })
+            );
+          }
+        }
+        const usageRow = $(`${name}-usage`);
+        if (usageRow) {
+          const winKey = group?.id ? `${group.id}:${windowKey}` : null;
+          const resetMs = typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+          const resetMinute = Number.isFinite(resetMs) ? Math.round(resetMs / 6e4) : null;
+          const rawUsage = winKey && available && !disabled ? quotaWindowsMap?.[winKey] : null;
+          let winUsage = rawUsage && typeof rawUsage.observedTokens === "number" && rawUsage.observedTokens > 0 ? rawUsage : null;
+          if (winKey && winUsage) {
+            usageCache.windows.set(winKey, { resetMinute, usage: winUsage });
+          } else if (winKey && available && !disabled && !quotaWindowsMap && resetMinute !== null) {
+            const prev = usageCache.windows.get(winKey);
+            if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
+              const usedFrac = typeof remaining === "number" ? Math.max(0, Math.min(1, 1 - remaining)) : null;
+              const estFull = prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05 ? Math.round(prev.usage.observedTokens / usedFrac) : null;
+              winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+            }
+          } else if (winKey && quotaWindowsMap) {
+            usageCache.windows.delete(winKey);
+          }
+          const showUsage = Boolean(winUsage && winUsage.observedTokens > 0);
+          toggleHidden(usageRow, !showUsage);
+          if (showUsage && winUsage) {
+            const refText = winUsage.estimatedFullTokens ? ` (${language.t("quotaWindowFullRef", { full: compact(winUsage.estimatedFullTokens) })})` : "";
+            setText($(`${name}-usage-value`), `${compact(winUsage.observedTokens)} tok${refText}`);
+            setAttr(usageRow, "title", language.t("quotaWindowBasis"));
+          } else {
+            setAttr(usageRow, "title", null);
+          }
+        }
         const track = $(`${name}-track`);
         setAttr(track, "aria-valuenow", typeof remaining === "number" ? remaining * 100 : null);
         setAttr(track, "aria-valuemin", "0");

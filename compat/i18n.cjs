@@ -299,7 +299,18 @@ module.exports = function createDashboardI18n(...args) {
       recordingAccountStatusAuto: "Active: Auto ({account})",
       recordingAccountStatusPinned: "Active: Pinned to {account}",
       recordingAccountSaved: "Switched recording account",
-      recordingAccountFailed: "Could not update recording account"
+      recordingAccountFailed: "Could not update recording account",
+      outlookOk: "Comfortable",
+      outlookTight: "Tight",
+      outlookExhaust: "Runs out early",
+      paceIdle: "Unused",
+      forecastLeft: "~{pct} left at reset",
+      forecastDepletes: "Runs out in ~{eta}, {early} before reset",
+      forecastWarming: "Used {pct} \xB7 warming up",
+      forecastBasis: "{remaining} quota left \xB7 {time} of the window left \xB7 linear projection from this window's average usage",
+      quotaWindowUsage: "Window tokens",
+      quotaWindowFullRef: "~{full} full",
+      quotaWindowBasis: "Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache)."
     };
 
     // src/ui/i18n/dictionary-zh.ts
@@ -523,7 +534,18 @@ module.exports = function createDashboardI18n(...args) {
       recordingAccountStatusAuto: "\u5F53\u524D\uFF1A\u81EA\u52A8\u5339\u914D ({account})",
       recordingAccountStatusPinned: "\u5F53\u524D\uFF1A\u5DF2\u9501\u5B9A\u81F3 {account}",
       recordingAccountSaved: "\u5DF2\u5207\u6362\u5F53\u524D\u8BB0\u8D26\u8D26\u53F7",
-      recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25"
+      recordingAccountFailed: "\u5207\u6362\u6216\u6DFB\u52A0\u8BB0\u8D26\u8D26\u53F7\u5931\u8D25",
+      outlookOk: "\u989D\u5EA6\u5145\u88D5",
+      outlookTight: "\u989D\u5EA6\u504F\u7D27",
+      outlookExhaust: "\u91CD\u7F6E\u524D\u8017\u5C3D",
+      paceIdle: "\u6682\u672A\u6D88\u8017",
+      forecastLeft: "\u9884\u8BA1\u91CD\u7F6E\u65F6\u5269 ~{pct}",
+      forecastDepletes: "\u7EA6 {eta} \u540E\u8017\u5C3D\uFF0C\u6BD4\u91CD\u7F6E\u65E9 {early}",
+      forecastWarming: "\u5DF2\u8017 {pct} \xB7 \u91C7\u6837\u9884\u70ED\u4E2D",
+      forecastBasis: "\u5269\u4F59\u989D\u5EA6 {remaining} \xB7 \u5269\u4F59\u65F6\u95F4 {time} \xB7 \u6309\u672C\u7A97\u53E3\u5E73\u5747\u6D88\u8017\u7EBF\u6027\u63A8\u7B97",
+      quotaWindowUsage: "\u5468\u671F\u7528\u91CF",
+      quotaWindowFullRef: "\u7EA6 {full} \u6EE1\u989D",
+      quotaWindowBasis: "\u5F53\u524D\u8D26\u53F7\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u672C\u673A\u5B9E\u6D4B\u6D41\u7ECF Token\uFF1B\u4F30\u7B97\u6EE1\u989D\u4EC5\u4F5C\u540C\u6BD4\u4F8B\u53C2\u8003\uFF08\u4E0D\u540C\u6A21\u578B\u4E0E\u7F13\u5B58\u6298\u7B97\u6743\u91CD\u4E0D\u540C\uFF09\u3002"
     };
 
     // src/ui/i18n/index.ts

@@ -1,6 +1,7 @@
-import type { ModelUsageBucket, QuotaGroup, QuotaWindow } from '../../contracts/index.ts';
+import type { ModelUsageBucket, QuotaGroup, QuotaWindow, QuotaWindowUsage } from '../../contracts/index.ts';
 import { setAttr, setStyle, setText } from '../../shared/dom.ts';
 import { compact, percent } from '../../shared/format.ts';
+import { groupQuotaPace, quotaForecast, shortEta } from '../../shared/quota-forecast.ts';
 import {
   INLINE_MIX_PALETTE,
   SVG_NS,
@@ -11,6 +12,25 @@ import {
 } from '../shared/model-donut.ts';
 import { toggleHidden } from './cards.ts';
 import type { ComposerMatch, WidgetLanguage, WidgetMetricsSnapshot } from './types.ts';
+
+interface CachedWindowUsageEntry {
+  resetMinute: number | null;
+  usage: QuotaWindowUsage;
+}
+
+const inlineQuotaUsageCaches = new WeakMap<
+  ShadowRoot,
+  { account: string | null; windows: Map<string, CachedWindowUsageEntry> }
+>();
+
+function getInlineQuotaUsageCache(root: ShadowRoot) {
+  let entry = inlineQuotaUsageCaches.get(root);
+  if (!entry) {
+    entry = { account: null, windows: new Map() };
+    inlineQuotaUsageCaches.set(root, entry);
+  }
+  return entry;
+}
 
 const DONUT_RADIUS = 13;
 const DONUT_CIRC = 2 * Math.PI * DONUT_RADIUS;
@@ -128,6 +148,31 @@ export function renderQuotaSection(
   language: WidgetLanguage,
 ): void {
   const $ = (id: string) => root.getElementById(id);
+  const serverMs = typeof data.serverTime === 'string' ? Date.parse(data.serverTime) : NaN;
+  const now = Number.isFinite(serverMs) ? serverMs : Date.now();
+  const usageCache = getInlineQuotaUsageCache(root);
+  const activeAccount = data.usage?.recordingAccount ?? data.usage?.activeAccount ?? null;
+  if (data.usage && activeAccount !== usageCache.account) {
+    usageCache.account = activeAccount;
+    usageCache.windows.clear();
+  }
+  const quotaWindowsMap = data.quotaWindows ?? data.usage?.quotaWindows ?? null;
+
+  // 渲染当前分组的综合消耗节奏徽标
+  const paceBadge = $('quota-pace') as HTMLElement | null;
+  if (paceBadge) {
+    const pace = groupQuotaPace(group, now);
+    toggleHidden(paceBadge, !pace);
+    if (pace) {
+      const labelText = language.t(pace.labelKey);
+      const winLabel = language.t(pace.windowKey);
+      setText($('quota-pace-text'), labelText);
+      setAttr(paceBadge, 'data-pace', pace.pace);
+      setAttr(paceBadge, 'data-critical', pace.critical ? 'true' : null);
+      setAttr(paceBadge, 'title', pace.pace === 'idle' ? labelText : `${winLabel} · ${labelText}`);
+    }
+  }
+
   for (const [windowKey, name] of [
     ['5h', 'five'],
     ['weekly', 'week'],
@@ -137,22 +182,117 @@ export function renderQuotaSection(
     const remaining = available ? windowData.remaining : null;
     const resetAt = available ? windowData.resetAt : null;
     const disabled = available ? windowData.disabled : false;
+    const forecast = quotaForecast(windowData, windowKey, now);
 
     setText($(name), percent(remaining));
     setText($(`${name}-balance`), percent(remaining));
     setText($(`${name}-reset`), language.resetDate(resetAt));
 
     const fill = $(`${name}-fill`) as HTMLElement | null;
+    const projectedFill = $(`${name}-projected-fill`) as HTMLElement | null;
     setStyle(fill, 'width', typeof remaining === 'number' ? `${remaining * 100}%` : '0%');
     setStyle(
       fill,
       'background',
       typeof remaining === 'number' && remaining < 0.05
         ? 'var(--pulse-danger)'
-        : typeof remaining === 'number' && remaining < 0.2
+        : (typeof remaining === 'number' && remaining < 0.2) || forecast?.willExhaust
           ? 'var(--pulse-warning)'
           : '',
     );
+
+    // 实心段始终表示真实余额，斜纹尾段表示按当前速率预计重置前会继续消耗的部分
+    const projectedRemaining = forecast?.projectedRemaining ?? null;
+    const showHatch = Boolean(
+      forecast?.forecastReady &&
+        typeof remaining === 'number' &&
+        projectedRemaining !== null &&
+        projectedRemaining < remaining - 0.005,
+    );
+    if (projectedFill) {
+      setStyle(projectedFill, 'left', showHatch && projectedRemaining !== null ? `${projectedRemaining * 100}%` : '0%');
+      setStyle(
+        projectedFill,
+        'width',
+        showHatch && typeof remaining === 'number' && projectedRemaining !== null
+          ? `${(remaining - projectedRemaining) * 100}%`
+          : '0%',
+      );
+    }
+
+    const forecastRow = $(`${name}-forecast`) as HTMLElement | null;
+    const forecastText = $(`${name}-forecast-text`) as HTMLElement | null;
+    if (forecastRow && forecastText) {
+      const showForecast = Boolean(forecast && typeof forecast.timeRemaining === 'number');
+      toggleHidden(forecastRow, !showForecast);
+      if (showForecast && forecast) {
+        if (forecast.willExhaust) {
+          setText(
+            forecastText,
+            language.t('forecastDepletes', {
+              eta: shortEta(forecast.exhaustInMs),
+              early: shortEta(forecast.earlyByMs),
+            }),
+          );
+          setAttr(forecastText, 'data-alert', 'true');
+        } else {
+          setAttr(forecastText, 'data-alert', null);
+          setText(
+            forecastText,
+            forecast.warmingUp
+              ? language.t('forecastWarming', { pct: percent(forecast.used) })
+              : language.t('forecastLeft', { pct: percent(forecast.projectedRemaining) }),
+          );
+        }
+        setAttr(
+          forecastRow,
+          'title',
+          language.t('forecastBasis', {
+            remaining: percent(forecast.remaining),
+            time: percent(forecast.timeRemaining),
+          }),
+        );
+      }
+    }
+
+    const usageRow = $(`${name}-usage`) as HTMLElement | null;
+    if (usageRow) {
+      const winKey = group?.id ? `${group.id}:${windowKey}` : null;
+      const resetMs = typeof resetAt === 'string' ? Date.parse(resetAt) : NaN;
+      const resetMinute = Number.isFinite(resetMs) ? Math.round(resetMs / 60000) : null;
+      const rawUsage = winKey && available && !disabled ? quotaWindowsMap?.[winKey] : null;
+      let winUsage =
+        rawUsage && typeof rawUsage.observedTokens === 'number' && rawUsage.observedTokens > 0
+          ? rawUsage
+          : null;
+      if (winKey && winUsage) {
+        usageCache.windows.set(winKey, { resetMinute, usage: winUsage });
+      } else if (winKey && available && !disabled && !quotaWindowsMap && resetMinute !== null) {
+        const prev = usageCache.windows.get(winKey);
+        if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
+          const usedFrac = typeof remaining === 'number' ? Math.max(0, Math.min(1, 1 - remaining)) : null;
+          const estFull =
+            prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05
+              ? Math.round(prev.usage.observedTokens / usedFrac)
+              : null;
+          winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+        }
+      } else if (winKey && quotaWindowsMap) {
+        usageCache.windows.delete(winKey);
+      }
+
+      const showUsage = Boolean(winUsage && winUsage.observedTokens > 0);
+      toggleHidden(usageRow, !showUsage);
+      if (showUsage && winUsage) {
+        const refText = winUsage.estimatedFullTokens
+          ? ` (${language.t('quotaWindowFullRef', { full: compact(winUsage.estimatedFullTokens) })})`
+          : '';
+        setText($(`${name}-usage-value`), `${compact(winUsage.observedTokens)} tok${refText}`);
+        setAttr(usageRow, 'title', language.t('quotaWindowBasis'));
+      } else {
+        setAttr(usageRow, 'title', null);
+      }
+    }
 
     const track = $(`${name}-track`);
     setAttr(track, 'aria-valuenow', typeof remaining === 'number' ? remaining * 100 : null);

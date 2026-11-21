@@ -1,6 +1,7 @@
-import type { QuotaGroup, QuotaWindow, QuotaWindowAvailable, TokenSummary } from '../../contracts/index.ts';
+import type { QuotaGroup, QuotaWindow, QuotaWindowAvailable, QuotaWindowUsage, TokenSummary } from '../../contracts/index.ts';
 import { createEl, setAttr, setHidden, setStyle, setText } from '../../shared/dom.ts';
 import { compact, count, percent, rate } from '../../shared/format.ts';
+import { groupQuotaPace, quotaForecast, shortEta, type QuotaWindowKey } from '../../shared/quota-forecast.ts';
 import { formatQuotaGroupLabel, selectPreferredQuotaGroup, SVG_NS } from '../shared/model-donut.ts';
 import type { PanelDomContext, PanelMetricsSnapshot, PanelSpeedMetrics, PanelState } from './types.ts';
 
@@ -19,19 +20,34 @@ interface PopoverRowRef {
   labelEl: HTMLElement;
   numsEl: HTMLElement;
   fillEl: HTMLElement;
+  projectedFillEl: HTMLElement;
+  forecastEl: HTMLElement;
+  forecastTextEl: HTMLElement;
+  usageEl: HTMLElement;
+  usageLabelEl: HTMLElement;
+  usageValEl: HTMLElement;
 }
 
 interface PopoverGroupRef {
   block: HTMLElement;
   titleTextEl: HTMLElement;
+  paceEl: HTMLElement;
+  paceTextEl: HTMLElement;
   badgeEl: HTMLElement;
   weekRow: PopoverRowRef;
   fiveRow: PopoverRowRef;
 }
 
+interface CachedPanelWindowUsage {
+  resetMinute: number | null;
+  usage: QuotaWindowUsage;
+}
+
 interface QuotaDomCache {
   rings: Map<string, RingNodeRef>;
   popGroups: Map<string, PopoverGroupRef>;
+  windowUsageAccount: string | null;
+  windowUsage: Map<string, CachedPanelWindowUsage>;
   emptyPill: HTMLElement | null;
   emptyPop: HTMLElement | null;
   nextResetAtMs: number;
@@ -46,6 +62,8 @@ function getQuotaCache(state: PanelState): QuotaDomCache {
     cache = {
       rings: new Map(),
       popGroups: new Map(),
+      windowUsageAccount: null,
+      windowUsage: new Map(),
       emptyPill: null,
       emptyPop: null,
       nextResetAtMs: Infinity,
@@ -165,27 +183,45 @@ function createPopoverRow(): PopoverRowRef {
   meta.append(labelEl, numsEl);
   const track = createEl('div', { class: 'quota-pop-track' });
   const fillEl = createEl('i', { class: 'quota-pop-fill' });
-  track.appendChild(fillEl);
-  row.append(meta, track);
-  return { row, labelEl, numsEl, fillEl };
+  const projectedFillEl = createEl('i', { class: 'quota-pop-forecast-fill', 'aria-hidden': 'true' });
+  track.append(fillEl, projectedFillEl);
+  const forecastEl = createEl('div', { class: 'quota-pop-forecast', hidden: '' });
+  const forecastTextEl = createEl('span', { class: 'quota-pop-forecast-text' });
+  forecastEl.appendChild(forecastTextEl);
+  const usageEl = createEl('div', { class: 'quota-pop-usage', hidden: '' });
+  const usageLabelEl = createEl('span');
+  const usageValEl = createEl('span', { class: 'quota-pop-usage-val' });
+  usageEl.append(usageLabelEl, usageValEl);
+  row.append(meta, track, forecastEl, usageEl);
+  return { row, labelEl, numsEl, fillEl, projectedFillEl, forecastEl, forecastTextEl, usageEl, usageLabelEl, usageValEl };
 }
 
 function createPopoverGroup(groupId: string): PopoverGroupRef {
   const block = createEl('div', { class: 'quota-pop-group', 'data-group-id': groupId });
   const title = createEl('div', { class: 'quota-pop-title' });
-  const titleTextEl = createEl('span');
+  const titleTextEl = createEl('span', { class: 'quota-pop-title-text' });
+  const badges = createEl('span', { class: 'quota-pop-badges' });
+  const paceEl = createEl('span', { class: 'quota-pop-pace', hidden: '' });
+  const paceDot = createEl('i', { class: 'quota-pop-pace-dot', 'aria-hidden': 'true' });
+  const paceTextEl = createEl('span');
+  paceEl.append(paceDot, paceTextEl);
   const badgeEl = createEl('span', { class: 'quota-pop-badge' });
-  title.append(titleTextEl, badgeEl);
+  badges.append(paceEl, badgeEl);
+  title.append(titleTextEl, badges);
   const weekRow = createPopoverRow();
   const fiveRow = createPopoverRow();
   block.append(title, weekRow.row, fiveRow.row);
-  return { block, titleTextEl, badgeEl, weekRow, fiveRow };
+  return { block, titleTextEl, paceEl, paceTextEl, badgeEl, weekRow, fiveRow };
 }
 
 function syncPopoverRow(
   rowRef: PopoverRowRef,
   label: string,
+  windowKey: QuotaWindowKey,
+  groupId: string,
   bucket: QuotaWindowAvailable | null,
+  quotaWindows: Record<string, QuotaWindowUsage> | null | undefined,
+  usageCache: Map<string, CachedPanelWindowUsage>,
   language: PanelDomContext['language'],
   now: number,
 ): void {
@@ -205,7 +241,108 @@ function syncPopoverRow(
   } else {
     delete rowRef.numsEl.dataset.resetAt;
   }
-  applyQuotaFill(rowRef.fillEl, bucket.remaining);
+
+  const forecast = quotaForecast(bucket, windowKey, now);
+  setStyle(rowRef.fillEl, '--fill-scale', String(clampRatio(bucket.remaining)));
+  setStyle(
+    rowRef.fillEl,
+    'background',
+    typeof bucket.remaining === 'number' && bucket.remaining < 0.05
+      ? 'var(--pulse-quota-red)'
+      : (typeof bucket.remaining === 'number' && bucket.remaining < 0.2) || forecast?.willExhaust
+        ? 'var(--pulse-quota-yellow)'
+        : quotaToneColor(bucket.remaining),
+  );
+
+  // 斜纹预测尾段：标记当前节奏下在重置前预计会消耗的区间
+  const remaining = typeof bucket.remaining === 'number' ? bucket.remaining : null;
+  const projectedRemaining = forecast?.projectedRemaining ?? null;
+  const showHatch = Boolean(
+    forecast?.forecastReady &&
+      remaining !== null &&
+      projectedRemaining !== null &&
+      projectedRemaining < remaining - 0.005,
+  );
+  setStyle(
+    rowRef.projectedFillEl,
+    'left',
+    showHatch && projectedRemaining !== null ? `${projectedRemaining * 100}%` : '0%',
+  );
+  setStyle(
+    rowRef.projectedFillEl,
+    'width',
+    showHatch && remaining !== null && projectedRemaining !== null
+      ? `${(remaining - projectedRemaining) * 100}%`
+      : '0%',
+  );
+
+  const showForecast = Boolean(forecast && typeof forecast.timeRemaining === 'number');
+  setHidden(rowRef.forecastEl, !showForecast);
+  if (showForecast && forecast) {
+    if (forecast.willExhaust) {
+      setText(
+        rowRef.forecastTextEl,
+        language.t('forecastDepletes', {
+          eta: shortEta(forecast.exhaustInMs),
+          early: shortEta(forecast.earlyByMs),
+        }),
+      );
+      setAttr(rowRef.forecastTextEl, 'data-alert', 'true');
+    } else {
+      setAttr(rowRef.forecastTextEl, 'data-alert', null);
+      setText(
+        rowRef.forecastTextEl,
+        forecast.warmingUp
+          ? language.t('forecastWarming', { pct: percent(forecast.used) })
+          : language.t('forecastLeft', { pct: percent(forecast.projectedRemaining) }),
+      );
+    }
+    setAttr(
+      rowRef.forecastEl,
+      'title',
+      language.t('forecastBasis', {
+        remaining: percent(forecast.remaining),
+        time: percent(forecast.timeRemaining),
+      }),
+    );
+  }
+
+  const winKey = `${groupId}:${windowKey}`;
+  const resetMs = typeof bucket.resetAt === 'string' ? Date.parse(bucket.resetAt) : NaN;
+  const resetMinute = Number.isFinite(resetMs) ? Math.round(resetMs / 60000) : null;
+  const rawUsage = quotaWindows?.[winKey] ?? null;
+  let winUsage =
+    rawUsage && typeof rawUsage.observedTokens === 'number' && rawUsage.observedTokens > 0
+      ? rawUsage
+      : null;
+  if (winUsage) {
+    usageCache.set(winKey, { resetMinute, usage: winUsage });
+  } else if (!quotaWindows && resetMinute !== null) {
+    const prev = usageCache.get(winKey);
+    if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
+      const usedFrac = remaining !== null ? Math.max(0, Math.min(1, 1 - remaining)) : null;
+      const estFull =
+        prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05
+          ? Math.round(prev.usage.observedTokens / usedFrac)
+          : null;
+      winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+    }
+  } else if (quotaWindows) {
+    usageCache.delete(winKey);
+  }
+
+  const showUsage = Boolean(winUsage && winUsage.observedTokens > 0);
+  setHidden(rowRef.usageEl, !showUsage);
+  if (showUsage && winUsage) {
+    setText(rowRef.usageLabelEl, language.t('quotaWindowUsage'));
+    const refText = winUsage.estimatedFullTokens
+      ? ` (${language.t('quotaWindowFullRef', { full: compact(winUsage.estimatedFullTokens) })})`
+      : '';
+    setText(rowRef.usageValEl, `${compact(winUsage.observedTokens)} tok${refText}`);
+    setAttr(rowRef.usageEl, 'title', language.t('quotaWindowBasis'));
+  } else {
+    setAttr(rowRef.usageEl, 'title', null);
+  }
 }
 
 function syncRingNode(
@@ -273,7 +410,12 @@ function syncRingNode(
   setStyle(ref.letterEl, 'color', family.color);
 }
 
-export function renderQuotaRings(ctx: PanelDomContext, groups: ReadonlyArray<QuotaGroup>): void {
+export function renderQuotaRings(
+  ctx: PanelDomContext,
+  groups: ReadonlyArray<QuotaGroup>,
+  quotaWindows?: Record<string, QuotaWindowUsage> | null,
+  activeAccount?: string | null,
+): void {
   const { $, state, language } = ctx;
   const t = language.t;
   const pill = $('quota-rings-pill');
@@ -289,7 +431,15 @@ export function renderQuotaRings(ctx: PanelDomContext, groups: ReadonlyArray<Quo
     (g) => readAvailableWindow(g.windows?.weekly) || readAvailableWindow(g.windows?.['5h']),
   );
 
-  const sig = `${language.language}|${usable
+  const now = Date.now() + state.serverOffset;
+  const minuteBucket = Math.floor(now / 60000);
+  const winUsageSig = quotaWindows
+    ? Object.entries(quotaWindows)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v.observedTokens}/${v.estimatedFullTokens ?? ''}`)
+        .join(',')
+    : '';
+  const sig = `${language.language}|${minuteBucket}|${winUsageSig}|${usable
     .map((g) => {
       const w = readAvailableWindow(g.windows?.weekly);
       const f = readAvailableWindow(g.windows?.['5h']);
@@ -301,6 +451,10 @@ export function renderQuotaRings(ctx: PanelDomContext, groups: ReadonlyArray<Quo
   state.lastQuotaSig = sig;
 
   const cache = getQuotaCache(state);
+  if (activeAccount !== undefined && activeAccount !== cache.windowUsageAccount) {
+    cache.windowUsageAccount = activeAccount;
+    cache.windowUsage.clear();
+  }
   let nextResetAtMs = Infinity;
   for (const g of groups) {
     for (const windowName of ['5h', 'weekly'] as const) {
@@ -366,7 +520,6 @@ export function renderQuotaRings(ctx: PanelDomContext, groups: ReadonlyArray<Quo
     if (!gid || !cache.popGroups.has(gid)) child.remove();
   }
 
-  const now = Date.now() + state.serverOffset;
   let pillCursor: Element | null = pill.firstElementChild;
   let popCursor: Element | null = popover.firstElementChild;
 
@@ -394,10 +547,20 @@ export function renderQuotaRings(ctx: PanelDomContext, groups: ReadonlyArray<Quo
       cache.popGroups.set(g.id, popRef);
     }
     setText(popRef.titleTextEl, g.name || groupLabel(g));
+    const pace = groupQuotaPace(g, now);
+    setHidden(popRef.paceEl, !pace);
+    if (pace) {
+      const paceLabel = t(pace.labelKey);
+      const winLabel = t(pace.windowKey);
+      setText(popRef.paceTextEl, paceLabel);
+      setAttr(popRef.paceEl, 'data-pace', pace.pace);
+      setAttr(popRef.paceEl, 'data-critical', pace.critical ? 'true' : null);
+      setAttr(popRef.paceEl, 'title', pace.pace === 'idle' ? paceLabel : `${winLabel} · ${paceLabel}`);
+    }
     setHidden(popRef.badgeEl, has5h);
     if (!has5h) setText(popRef.badgeEl, t('quotaNo5hTag'));
-    syncPopoverRow(popRef.weekRow, t('week'), weekAvail, language, now);
-    syncPopoverRow(popRef.fiveRow, t('five'), fiveAvail, language, now);
+    syncPopoverRow(popRef.weekRow, t('week'), 'weekly', g.id, weekAvail, quotaWindows, cache.windowUsage, language, now);
+    syncPopoverRow(popRef.fiveRow, t('five'), '5h', g.id, fiveAvail, quotaWindows, cache.windowUsage, language, now);
     if (popRef.block !== popCursor) {
       popover.insertBefore(popRef.block, popCursor);
     } else {
@@ -412,7 +575,9 @@ export function renderQuotaAndSpeedSections(ctx: PanelDomContext, value: PanelMe
   const groups = value.groups || [];
   const speed = value.speed;
   state.group = chooseGroup(ctx, groups, speed);
-  renderQuotaRings(ctx, groups);
+  const quotaWindows = value.quotaWindows ?? value.usage?.quotaWindows ?? null;
+  const activeAccount = value.usage?.recordingAccount ?? value.usage?.activeAccount;
+  renderQuotaRings(ctx, groups, quotaWindows, activeAccount);
 
   setText($('strip-tps'), rate(speed?.tps));
   setAttr($('speed-tab'), 'title', `${rate(speed?.tps)} tok/s`);
