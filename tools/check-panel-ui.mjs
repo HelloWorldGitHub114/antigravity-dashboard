@@ -155,12 +155,14 @@ try{
    assert.deepEqual(await frame(),initialFrame,'Metric selection must preserve the outer frame');
   }
   await view.locator('#speed-tab').click();
-  await view.locator('#card-stage').waitFor({state:'hidden'});
+  await view.locator('#card-stage[hidden]').waitFor({state:'attached'});
   assert.equal(await view.locator('#card-stage').isVisible(),false,'Clicking active card tab collapses detail stage');
+  await view.locator('.widget[data-pin-bottom="false"]').waitFor({state:'attached'});
   assert.equal(await view.locator('.widget').getAttribute('data-pin-bottom'),'false','Collapsing top card unpins lower sections');
   await view.locator('#speed-tab').click();
   await view.locator('#speed-card').waitFor({state:'visible'});
   assert.equal(await view.locator('#speed-card').isVisible(),true,'Clicking collapsed card tab expands it again');
+  await view.locator('.widget[data-pin-bottom="true"]').waitFor({state:'attached'});
   assert.equal(await view.locator('.widget').getAttribute('data-pin-bottom'),'true');
   await view.locator('#speed-tab').focus();await page.keyboard.press('ArrowRight');assert.equal(await view.locator('#cache-tab').getAttribute('aria-selected'),'true');
   await page.keyboard.press('End');assert.equal(await view.locator('#context-tab').getAttribute('aria-selected'),'true');
