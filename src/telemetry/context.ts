@@ -14,6 +14,10 @@ export interface ModelContextReference {
 export interface ContextMetricsOptions {
   model?: unknown;
   sampledAt?: unknown;
+  source?: string;
+  compacted?: boolean;
+  preCompactionUsedTokens?: unknown;
+  compactionCount?: unknown;
 }
 
 const count = (value: unknown): number | null =>
@@ -34,7 +38,12 @@ const aliases = new Map<string, string>([
   ['model_placeholder_m526', 'Gemini 4 Hydrogen (Medium)'],
   ['model_placeholder_m527', 'Gemini 4 Hydrogen (Low)'],
   ['model_placeholder_m528', 'Gemini 4 Hydrogen (XHigh)'],
+  ['model_placeholder_m530', 'Gemini 4 Hydrogen (High)'],
   ['model_placeholder_m532', 'Gemini 4 Neon (High)'],
+  ['model_placeholder_m533', 'Gemini 4 Neon (Medium)'],
+  ['model_placeholder_m535', 'Gemini 4 Neon (XHigh)'],
+  ['model_placeholder_m537', 'Orchestrator (Neon)'],
+  ['model_placeholder_m198', 'Gemini 3.5 Flash Lite'],
   ['model_placeholder_m400', 'Claude Opus 5.5 (Low)'],
   ['model_placeholder_m401', 'Claude Opus 5.5 (Medium)'],
   ['model_placeholder_m402', 'Claude Opus 5.5 (High)'],
@@ -178,7 +187,14 @@ export function modelCompressionLimit(_model?: unknown): number | null {
 
 export function contextMetrics(
   metadata: unknown,
-  { model = null, sampledAt = null }: ContextMetricsOptions = {},
+  {
+    model = null,
+    sampledAt = null,
+    source = 'Antigravity context window metadata',
+    compacted = false,
+    preCompactionUsedTokens = null,
+    compactionCount = null,
+  }: ContextMetricsOptions = {},
 ): ContextMetrics | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   const meta = metadata as Record<string, unknown>;
@@ -187,6 +203,9 @@ export function contextMetrics(
   if (usedTokens === null) return null;
   const maxTokens = rawMax !== null && rawMax > 0 ? rawMax : null;
   const reference = modelContextReference(model);
+  const safePreCompaction = count(preCompactionUsedTokens);
+  const safeCompactions = count(compactionCount);
+  const isCompacted = compacted === true;
   return {
     usedTokens,
     maxTokens,
@@ -207,8 +226,10 @@ export function contextMetrics(
       typeof sampledAt === 'string' && Number.isFinite(Date.parse(sampledAt))
         ? new Date(sampledAt).toISOString()
         : null,
-    source: 'Antigravity context window metadata',
+    source: isCompacted ? 'Post-compaction estimate' : source,
     estimated: true,
+    ...(isCompacted ? { compacted: true, preCompactionUsedTokens: safePreCompaction } : {}),
+    ...(safeCompactions !== null && safeCompactions > 0 ? { compactionCount: safeCompactions } : {}),
   };
 }
 
@@ -219,6 +240,12 @@ export function safeContext(value: unknown): ContextMetrics | null {
   // arbitrary source URLs, unsupported limits or additional saved properties.
   return contextMetrics(
     { estimatedTokensUsed: raw.usedTokens, maxContextTokens: raw.maxTokens },
-    { model: raw.model, sampledAt: raw.sampledAt },
+    {
+      model: raw.model,
+      sampledAt: raw.sampledAt,
+      compacted: raw.compacted === true,
+      preCompactionUsedTokens: raw.preCompactionUsedTokens,
+      compactionCount: raw.compactionCount,
+    },
   );
 }

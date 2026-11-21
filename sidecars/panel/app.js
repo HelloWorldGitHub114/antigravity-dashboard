@@ -329,6 +329,10 @@
     context: "Context window",
     contextShort: "Ctx",
     contextUsed: "{used}% used ({remaining}% left)",
+    contextCompactedUsed: "Compacted \xB7 ~{used}% used",
+    contextCompactedNote: "Compacted (was {prev}); estimated from first-turn baseline, calibrates on next reply.",
+    contextCompactionCount: "{n}\xD7",
+    contextCompactionsTitle: "Context compactions recorded in this conversation: {n}",
     contextTokens: "{used} / {max} tok",
     contextUnknown: "Context capacity unavailable",
     contextUnavailable: "Context statistics are unavailable for this request.",
@@ -565,6 +569,10 @@
     context: "\u4E0A\u4E0B\u6587\u7A97\u53E3",
     contextShort: "\u4E0A\u4E0B\u6587",
     contextUsed: "{used}% \u5DF2\u7528\uFF08\u5269\u4F59 {remaining}%\uFF09",
+    contextCompactedUsed: "\u5DF2\u538B\u7F29 \xB7 \u7EA6 {used}% \u5DF2\u7528",
+    contextCompactedNote: "\u5DF2\u538B\u7F29\uFF08\u538B\u7F29\u524D {prev}\uFF09\uFF0C\u6309\u9996\u8F6E\u5B9E\u6D4B\u5E95\u566A\u4F30\u7B97\uFF0C\u4E0B\u6761\u56DE\u590D\u540E\u81EA\u52A8\u6821\u51C6\u3002",
+    contextCompactionCount: "{n} \u6B21",
+    contextCompactionsTitle: "\u5F53\u524D\u4F1A\u8BDD\u5DF2\u8BB0\u5F55 {n} \u6B21\u4E0A\u4E0B\u6587\u538B\u7F29",
     contextTokens: "{used} / {max} tok",
     contextUnknown: "\u4E0A\u4E0B\u6587\u5BB9\u91CF\u4E0D\u53EF\u7528",
     contextUnavailable: "\u6B64\u8BF7\u6C42\u6682\u65E0\u53EF\u7528\u4E0A\u4E0B\u6587\u7EDF\u8BA1\u3002",
@@ -8357,35 +8365,55 @@ ${FONT_POPOVER_CSS}`;
     const cache = speed?.cache;
     const context = speed?.context;
     const hasCapacity = typeof context?.usedFraction === "number";
+    const isCompacted = context?.compacted === true;
     const planModel = speed?.planModel || null;
     const activeModel = speed?.activeModel || null;
     const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
+    const usedPrefix = isCompacted ? "~" : "";
     setText(
       $("strip-context-size"),
-      context ? `${compact(context.usedTokens)} / ${context.maxTokens === null ? "\u2014" : compact(context.maxTokens)}` : "\u2014"
+      context ? `${usedPrefix}${compact(context.usedTokens)} / ${context.maxTokens === null ? "\u2014" : compact(context.maxTokens)}` : "\u2014"
     );
     setAttr(
       $("context-tab"),
       "title",
       context ? t("contextTokens", {
-        used: count(context.usedTokens),
+        used: `${usedPrefix}${count(context.usedTokens)}`,
         max: context.maxTokens === null ? "\u2014" : count(context.maxTokens)
       }) : t("contextUnknown")
     );
+    const usedPct = hasCapacity && context.usedFraction != null ? Math.round(context.usedFraction * 100) : null;
     setText(
       $("context-summary"),
-      hasCapacity && context.usedFraction != null ? t("contextUsed", {
-        used: Math.round(context.usedFraction * 100),
-        remaining: Math.round((context.remainingFraction ?? 0) * 100)
+      usedPct !== null ? isCompacted ? t("contextCompactedUsed", { used: usedPct }) : t("contextUsed", {
+        used: usedPct,
+        remaining: Math.round((context?.remainingFraction ?? 0) * 100)
       }) : t("contextUnknown")
     );
     setText(
       $("context-tokens"),
       context ? t("contextTokens", {
-        used: compact(context.usedTokens),
+        used: `${usedPrefix}${compact(context.usedTokens)}`,
         max: context.maxTokens === null ? "\u2014" : compact(context.maxTokens)
       }) : "\u2014"
     );
+    const compactions = Math.max(
+      context?.compactionCount ?? 0,
+      speed?.transcriptStats?.compactionMarkers ?? 0
+    );
+    const compactionPill = $("context-compaction-pill");
+    setHidden(compactionPill, compactions <= 0);
+    if (compactions > 0) {
+      setText(compactionPill, `\u{1F5DC} ${t("contextCompactionCount", { n: compactions })}`);
+      setAttr(compactionPill, "title", t("contextCompactionsTitle", { n: compactions }));
+    }
+    const compactedNote = $("context-compacted-note");
+    setHidden(compactedNote, !isCompacted);
+    if (isCompacted) {
+      const prevTokens = context?.preCompactionUsedTokens;
+      const prevText = typeof prevTokens === "number" && typeof context?.maxTokens === "number" && context.maxTokens > 0 ? `${Math.round(prevTokens / context.maxTokens * 100)}%` : typeof prevTokens === "number" ? `${compact(prevTokens)} tok` : "\u2014";
+      setText(compactedNote, t("contextCompactedNote", { prev: prevText }));
+    }
     setText($("context-model"), context?.model || activeModel || "\u2014");
     const sessionModelCount = speed?.modelUsage?.models?.length || 0;
     const showOrchContext = isHybrid || sessionModelCount >= 2;

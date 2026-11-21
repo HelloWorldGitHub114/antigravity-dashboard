@@ -28,9 +28,11 @@ export function renderSpeedContextCacheCards(params: {
 
   const context = speed?.context;
   const hasCapacity = typeof context?.usedFraction === 'number';
+  const isCompacted = context?.compacted === true;
   const empty = surface?.conversationState?.(composer).status === 'new' && !lastConversation && data.connection === 'live';
 
-  setText($('context-percent'), hasCapacity ? `${Math.round((context.usedFraction ?? 0) * 100)}%` : '—');
+  const usedPct = hasCapacity ? Math.round((context.usedFraction ?? 0) * 100) : null;
+  setText($('context-percent'), usedPct !== null ? `${isCompacted ? '~' : ''}${usedPct}%` : '—');
   setStyle(
     $('context-ring') as HTMLElement | null,
     '--used-angle',
@@ -38,22 +40,50 @@ export function renderSpeedContextCacheCards(params: {
   );
   setText(
     $('context-summary'),
-    hasCapacity
-      ? t('contextUsed', {
-          used: Math.round((context.usedFraction ?? 0) * 100),
-          remaining: Math.round((context.remainingFraction ?? 0) * 100),
-        })
+    hasCapacity && usedPct !== null
+      ? isCompacted
+        ? t('contextCompactedUsed', { used: usedPct })
+        : t('contextUsed', {
+            used: usedPct,
+            remaining: Math.round((context.remainingFraction ?? 0) * 100),
+          })
       : t(empty ? 'waitingRequest' : 'contextUnknown'),
   );
   setText(
     $('context-tokens'),
     context
       ? t('contextTokens', {
-          used: compact(context.usedTokens),
+          used: `${isCompacted ? '~' : ''}${compact(context.usedTokens)}`,
           max: context.maxTokens === null ? '—' : compact(context.maxTokens),
         })
       : '—',
   );
+  const compactions = Math.max(
+    context?.compactionCount ?? 0,
+    speed?.transcriptStats?.compactionMarkers ?? 0,
+  );
+  const compactionPill = $('context-compaction-pill') as HTMLElement | null;
+  if (compactionPill) {
+    toggleHidden(compactionPill, compactions <= 0);
+    if (compactions > 0) {
+      setText(compactionPill, `🗜 ${t('contextCompactionCount', { n: compactions })}`);
+      setAttr(compactionPill, 'title', t('contextCompactionsTitle', { n: compactions }));
+    }
+  }
+  const compactedNote = $('context-compacted-note') as HTMLElement | null;
+  if (compactedNote) {
+    toggleHidden(compactedNote, !isCompacted);
+    if (isCompacted) {
+      const prevTokens = context?.preCompactionUsedTokens;
+      const prevText =
+        typeof prevTokens === 'number' && typeof context?.maxTokens === 'number' && context.maxTokens > 0
+          ? `${Math.round((prevTokens / context.maxTokens) * 100)}%`
+          : typeof prevTokens === 'number'
+            ? `${compact(prevTokens)} tok`
+            : '—';
+      setText(compactedNote, t('contextCompactedNote', { prev: prevText }));
+    }
+  }
 
   const muModels = Array.isArray(speed?.modelUsage?.models) ? speed.modelUsage.models : [];
   const planModel = speed?.planModel || speed?.modelUsage?.planModel || null;

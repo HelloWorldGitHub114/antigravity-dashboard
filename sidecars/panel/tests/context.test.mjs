@@ -148,4 +148,86 @@ test('orchestrator, flash worker, and gemini 4/claude 5.5 host placeholders form
  assert.equal(normalizeModelId('MODEL_PLACEHOLDER_M669'),'gemini-flash');
  assert.equal(isOrchestratorModel('MODEL_PLACEHOLDER_M668'),true);
  assert.equal(isOrchestratorModel('MODEL_PLACEHOLDER_M669'),false);
+ assert.equal(formatModelName('MODEL_PLACEHOLDER_M535'),'Gemini 4 Neon (XHigh)');
+ assert.equal(formatModelName('MODEL_PLACEHOLDER_M533'),'Gemini 4 Neon (Medium)');
+ assert.equal(formatModelName('MODEL_PLACEHOLDER_M537'),'Orchestrator (Neon)');
+ assert.equal(formatModelName('MODEL_PLACEHOLDER_M198'),'Gemini 3.5 Flash Lite');
+});
+
+test('post-compaction checkpoint updates context immediately from dynamic session baseline and calibrates on next reply', () => {
+ const mkGen = (idx, used, max = 512000, ts = '2026-11-21T12:00:00Z') => ({
+  stepIndices: [idx],
+  chatModel: {
+   modelDisplayName: 'Gemini 4 Neon (XHigh)',
+   usage: { messageId: `m-${idx}`, inputTokens: '100', responseOutputTokens: '100', apiProvider: 'API_PROVIDER_GOOGLE_GEMINI' },
+   streamingDuration: '1s',
+   chatStartMetadata: { createdAt: ts, contextWindowMetadata: { estimatedTokensUsed: used, maxContextTokens: max } },
+  },
+ });
+
+ // 1. 第 1 次 /compact 刚结束：最新步骤为 CHECKPOINT (idx=3)，最新 generator 仍为压缩前 (idx=2, 473760)
+ //    动态采用当前会话首轮实测基线 (idx=1, 42000 —— 模拟重度 MCP 配置用户，零硬编码常数)
+ const afterFirstCompact = trajectoryMetrics({
+  trajectory: {
+   cascadeId: id,
+   steps: [
+    { i: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 2, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 3, type: 'CORTEX_STEP_TYPE_CHECKPOINT', status: 'CORTEX_STEP_STATUS_DONE', metadata: { completedAt: '2026-11-21T12:45:00Z' } },
+   ],
+   generatorMetadata: [mkGen(1, 42000), mkGen(2, 473760)],
+  },
+ });
+ assert.equal(afterFirstCompact.context?.compacted, true);
+ assert.equal(afterFirstCompact.context?.usedTokens, 42000);
+ assert.equal(afterFirstCompact.context?.maxTokens, 512000);
+ assert.equal(afterFirstCompact.context?.preCompactionUsedTokens, 473760);
+ assert.equal(afterFirstCompact.context?.compactionCount, 1);
+
+ // 2. 下一条回复落盘后 (idx=4, 51000)：立刻切回宿主精确值，解除 compacted 估算态，保留 compactionCount=1
+ const afterNextReply = trajectoryMetrics({
+  trajectory: {
+   cascadeId: id,
+   steps: [
+    { i: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 2, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 3, type: 'CORTEX_STEP_TYPE_CHECKPOINT', status: 'CORTEX_STEP_STATUS_DONE', metadata: { completedAt: '2026-11-21T12:45:00Z' } },
+    { i: 4, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+   ],
+   generatorMetadata: [mkGen(1, 42000), mkGen(2, 473760), mkGen(4, 51000)],
+  },
+ });
+ assert.equal(afterNextReply.context?.compacted, undefined);
+ assert.equal(afterNextReply.context?.usedTokens, 51000);
+ assert.equal(afterNextReply.context?.compactionCount, 1);
+
+ // 3. 第 2 次 /compact 刚结束 (idx=6)：优先复用第 1 次压缩后的真实首轮实测 (51000) 作为更贴合当前会话的基线
+ const afterSecondCompact = trajectoryMetrics({
+  trajectory: {
+   cascadeId: id,
+   steps: [
+    { i: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 2, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 3, type: 'CORTEX_STEP_TYPE_CHECKPOINT', status: 'CORTEX_STEP_STATUS_DONE', metadata: { completedAt: '2026-11-21T12:45:00Z' } },
+    { i: 4, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 5, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    { i: 6, type: 'CORTEX_STEP_TYPE_CHECKPOINT', status: 'CORTEX_STEP_STATUS_DONE', metadata: { completedAt: '2026-11-21T13:30:00Z' } },
+   ],
+   generatorMetadata: [mkGen(1, 42000), mkGen(2, 473760), mkGen(4, 51000), mkGen(5, 460000)],
+  },
+ });
+ assert.equal(afterSecondCompact.context?.compacted, true);
+ assert.equal(afterSecondCompact.context?.usedTokens, 51000);
+ assert.equal(afterSecondCompact.context?.preCompactionUsedTokens, 460000);
+ assert.equal(afterSecondCompact.context?.compactionCount, 2);
+
+ // 4. safeContext 往返保留 compacted / preCompactionUsedTokens / compactionCount 并过滤多余脏字段
+ const sanitized = safeContext({ ...afterSecondCompact.context, injected: 'bad' });
+ assert.equal(sanitized?.compacted, true);
+ assert.equal(sanitized?.preCompactionUsedTokens, 460000);
+ assert.equal(sanitized?.compactionCount, 2);
+ assert.ok(!JSON.stringify(sanitized).includes('injected'));
 });

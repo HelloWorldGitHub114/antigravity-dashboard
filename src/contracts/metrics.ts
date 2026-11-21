@@ -97,6 +97,9 @@ export interface ContextMetrics {
   sampledAt: string | null;
   source: string;
   estimated: boolean;
+  compacted?: boolean;
+  preCompactionUsedTokens?: number | null;
+  compactionCount?: number;
 }
 
 /**

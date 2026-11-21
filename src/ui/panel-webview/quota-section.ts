@@ -629,42 +629,71 @@ function renderContextAndCacheCards(
   const cache = speed?.cache;
   const context = speed?.context;
   const hasCapacity = typeof context?.usedFraction === 'number';
+  const isCompacted = context?.compacted === true;
   const planModel = speed?.planModel || null;
   const activeModel = speed?.activeModel || null;
   const isHybrid = Boolean(planModel && activeModel && planModel !== activeModel);
 
+  const usedPrefix = isCompacted ? '~' : '';
   setText(
     $('strip-context-size'),
-    context ? `${compact(context.usedTokens)} / ${context.maxTokens === null ? '—' : compact(context.maxTokens)}` : '—',
+    context
+      ? `${usedPrefix}${compact(context.usedTokens)} / ${context.maxTokens === null ? '—' : compact(context.maxTokens)}`
+      : '—',
   );
   setAttr(
     $('context-tab'),
     'title',
     context
       ? t('contextTokens', {
-          used: count(context.usedTokens),
+          used: `${usedPrefix}${count(context.usedTokens)}`,
           max: context.maxTokens === null ? '—' : count(context.maxTokens),
         })
       : t('contextUnknown'),
   );
+  const usedPct = hasCapacity && context.usedFraction != null ? Math.round(context.usedFraction * 100) : null;
   setText(
     $('context-summary'),
-    hasCapacity && context.usedFraction != null
-      ? t('contextUsed', {
-          used: Math.round(context.usedFraction * 100),
-          remaining: Math.round((context.remainingFraction ?? 0) * 100),
-        })
+    usedPct !== null
+      ? isCompacted
+        ? t('contextCompactedUsed', { used: usedPct })
+        : t('contextUsed', {
+            used: usedPct,
+            remaining: Math.round((context?.remainingFraction ?? 0) * 100),
+          })
       : t('contextUnknown'),
   );
   setText(
     $('context-tokens'),
     context
       ? t('contextTokens', {
-          used: compact(context.usedTokens),
+          used: `${usedPrefix}${compact(context.usedTokens)}`,
           max: context.maxTokens === null ? '—' : compact(context.maxTokens),
         })
       : '—',
   );
+  const compactions = Math.max(
+    context?.compactionCount ?? 0,
+    speed?.transcriptStats?.compactionMarkers ?? 0,
+  );
+  const compactionPill = $('context-compaction-pill');
+  setHidden(compactionPill, compactions <= 0);
+  if (compactions > 0) {
+    setText(compactionPill, `🗜 ${t('contextCompactionCount', { n: compactions })}`);
+    setAttr(compactionPill, 'title', t('contextCompactionsTitle', { n: compactions }));
+  }
+  const compactedNote = $('context-compacted-note');
+  setHidden(compactedNote, !isCompacted);
+  if (isCompacted) {
+    const prevTokens = context?.preCompactionUsedTokens;
+    const prevText =
+      typeof prevTokens === 'number' && typeof context?.maxTokens === 'number' && context.maxTokens > 0
+        ? `${Math.round((prevTokens / context.maxTokens) * 100)}%`
+        : typeof prevTokens === 'number'
+          ? `${compact(prevTokens)} tok`
+          : '—';
+    setText(compactedNote, t('contextCompactedNote', { prev: prevText }));
+  }
   setText($('context-model'), context?.model || activeModel || '—');
   const sessionModelCount = speed?.modelUsage?.models?.length || 0;
   const showOrchContext = isHybrid || sessionModelCount >= 2;

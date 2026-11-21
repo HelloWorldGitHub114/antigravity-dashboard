@@ -216,9 +216,10 @@ module.exports = function installAgPulseInlineWidget(...args) {
         <div class="heading"><span>${svg("cache")}<span data-i18n="cacheTitle">Token cache</span></span><span class="tag" id="cache-coverage">\u2014</span></div>
         <dl>${cacheRows}<div id="task-tokens-row" hidden><dt data-i18n="taskTotalTokens">${t("taskTotalTokens")}</dt><dd id="task-total-tokens">\u2014</dd></div><div id="subagent-tokens-row" hidden><dt id="subagent-tokens-label" data-i18n="taskTokensSubagents">${t("taskTokensSubagents")}</dt><dd id="subagent-tokens">\u2014</dd></div></dl><div id="model-mix-compact" class="model-mix-compact" data-signature="hidden" hidden><div class="model-mix-head"><span data-i18n="modelMixTitle">${t("modelMixTitle")}</span><span class="tag" id="model-mix-count"></span></div><div class="model-mix-body"><svg class="model-mix-svg" id="model-mix-svg" viewBox="0 0 36 36" aria-hidden="true"><circle class="model-mix-track" cx="18" cy="18" r="13"></circle></svg><div class="model-mix-legend" id="model-mix-legend"></div></div></div><p class="footnote" id="cache-note" hidden></p>
       </section><section class="card context-card" id="context-card" role="region" data-i18n-aria="context" hidden>
-        <div class="heading"><span>${svg("context")}<span data-i18n="context">Context window</span></span></div>
+        <div class="heading"><span>${svg("context")}<span data-i18n="context">Context window</span></span><span class="tag" id="context-compaction-pill" hidden></span></div>
         <strong id="context-summary">\u2014</strong><p id="context-tokens">\u2014</p>
         <div class="track" role="progressbar" data-i18n-aria="context" id="context-track"><i id="context-fill"></i></div>
+        <p class="footnote" id="context-compacted-note" hidden></p>
         <dl><div><dt data-i18n="contextModel">Sampled model</dt><dd id="context-model">\u2014</dd></div><div id="context-orchestrator-row" hidden><dt id="context-orchestrator-label" data-i18n="contextPlanner">${t("contextPlanner")}</dt><dd id="context-planner">\u2014</dd><dd class="orchestrator-note" id="context-orchestrator-note"></dd></div></dl>
         <div class="heading quota-heading"><span class="quota-heading-title"><span data-i18n="group">Quota group</span><span class="pace-badge" id="quota-pace" hidden><i class="pace-dot" aria-hidden="true"></i><span id="quota-pace-text"></span></span></span><div class="toolbar"><button class="group-trigger" data-i18n-aria="group" aria-haspopup="listbox" aria-expanded="false">Quota \u25BE</button><div class="group-menu" role="listbox" data-i18n-aria="selectGroup" hidden></div><button class="refresh" data-i18n-aria="refresh" aria-label="Refresh quota" title="Refresh quota"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.8 6a5.1 5.1 0 1 0 .1 4M12.8 2.5V6H9.2"/></svg></button></div></div>
         <div class="quota-details">${quotaSections}</div>
@@ -3642,8 +3643,10 @@ module.exports = function installAgPulseInlineWidget(...args) {
       toggleHidden(root.querySelector('[data-card="context"]'), false);
       const context = speed?.context;
       const hasCapacity = typeof context?.usedFraction === "number";
+      const isCompacted = context?.compacted === true;
       const empty = surface?.conversationState?.(composer).status === "new" && !lastConversation && data.connection === "live";
-      setText($("context-percent"), hasCapacity ? `${Math.round((context.usedFraction ?? 0) * 100)}%` : "\u2014");
+      const usedPct = hasCapacity ? Math.round((context.usedFraction ?? 0) * 100) : null;
+      setText($("context-percent"), usedPct !== null ? `${isCompacted ? "~" : ""}${usedPct}%` : "\u2014");
       setStyle(
         $("context-ring"),
         "--used-angle",
@@ -3651,18 +3654,39 @@ module.exports = function installAgPulseInlineWidget(...args) {
       );
       setText(
         $("context-summary"),
-        hasCapacity ? t("contextUsed", {
-          used: Math.round((context.usedFraction ?? 0) * 100),
+        hasCapacity && usedPct !== null ? isCompacted ? t("contextCompactedUsed", { used: usedPct }) : t("contextUsed", {
+          used: usedPct,
           remaining: Math.round((context.remainingFraction ?? 0) * 100)
         }) : t(empty ? "waitingRequest" : "contextUnknown")
       );
       setText(
         $("context-tokens"),
         context ? t("contextTokens", {
-          used: compact(context.usedTokens),
+          used: `${isCompacted ? "~" : ""}${compact(context.usedTokens)}`,
           max: context.maxTokens === null ? "\u2014" : compact(context.maxTokens)
         }) : "\u2014"
       );
+      const compactions = Math.max(
+        context?.compactionCount ?? 0,
+        speed?.transcriptStats?.compactionMarkers ?? 0
+      );
+      const compactionPill = $("context-compaction-pill");
+      if (compactionPill) {
+        toggleHidden(compactionPill, compactions <= 0);
+        if (compactions > 0) {
+          setText(compactionPill, `\u{1F5DC} ${t("contextCompactionCount", { n: compactions })}`);
+          setAttr(compactionPill, "title", t("contextCompactionsTitle", { n: compactions }));
+        }
+      }
+      const compactedNote = $("context-compacted-note");
+      if (compactedNote) {
+        toggleHidden(compactedNote, !isCompacted);
+        if (isCompacted) {
+          const prevTokens = context?.preCompactionUsedTokens;
+          const prevText = typeof prevTokens === "number" && typeof context?.maxTokens === "number" && context.maxTokens > 0 ? `${Math.round(prevTokens / context.maxTokens * 100)}%` : typeof prevTokens === "number" ? `${compact(prevTokens)} tok` : "\u2014";
+          setText(compactedNote, t("contextCompactedNote", { prev: prevText }));
+        }
+      }
       const muModels = Array.isArray(speed?.modelUsage?.models) ? speed.modelUsage.models : [];
       const planModel = speed?.planModel || speed?.modelUsage?.planModel || null;
       const activeModel = speed?.activeModel || speed?.modelUsage?.activeModel || context?.model || null;
