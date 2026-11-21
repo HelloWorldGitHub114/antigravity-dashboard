@@ -18,6 +18,8 @@ export function renderWaitingState(ctx: UsageDomContext): void {
   for (const metric of $('totals')?.children || []) {
     (metric as HTMLElement).title = '';
     metric.querySelector('.value')?.replaceChildren(createDomNode('span', '', '—'));
+    const costNode = metric.querySelector<HTMLElement>('.metric-cost');
+    if (costNode) costNode.textContent = '—';
   }
 }
 
@@ -60,6 +62,7 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
   for (const [id, label] of [
     ['locale', w('切换到英文', 'Switch to Chinese')],
     ['refresh', w('刷新用量', 'Refresh usage')],
+    ['pricing-settings', w('API 单价设置', 'API pricing settings')],
     ['font-settings', w('字体大小设置', 'Font size settings')],
     ['close', w('关闭', 'Close')],
   ] as const) {

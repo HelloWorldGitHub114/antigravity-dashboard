@@ -1,5 +1,6 @@
 import type {
   LanguageCode,
+  ModelPricingOverrides,
   PreferencesSnapshot,
   ProjectConversationDetail,
   ProjectUsageOverview,
@@ -46,16 +47,27 @@ export interface UsageDashboardHandle {
   dispose(): void;
 }
 
+export interface ModelCostBucket {
+  costUsd: number;
+  pricedTokens: number;
+  unpricedTokens: number;
+}
+
 export interface UsageTotalsResult {
   from: string;
   to: string;
   models: Record<string, UsageBucketCounts>;
   modelVariants: Record<string, Record<string, UsageBucketCounts>>;
+  modelCosts: Record<string, ModelCostBucket>;
+  variantCosts: Record<string, Record<string, ModelCostBucket>>;
   users: Record<string, UsageUserBucket>;
   projects?: Record<string, UsageBucketCounts>;
   legacyTokens: number;
   total: number;
   requests: number;
+  costUsd: number;
+  pricedTokens: number;
+  unpricedTokens: number;
 }
 
 export interface UsageWindow extends Window {
@@ -106,6 +118,7 @@ export interface UsageModalState {
   guideSignature: string | null;
   lastManualSig: string;
   lastAccQueryKey: string;
+  pricingOverrides: ModelPricingOverrides;
 }
 
 export interface UsageDomContext {

@@ -1,5 +1,6 @@
 // Shared local usage views. Values and model labels are inserted as text.
 import type { UsageSummarySnapshot } from '../../contracts/index.ts';
+import { sanitizePricingOverrides } from '../../contracts/preferences.ts';
 import { bindAccountSwitcher, syncAccountSwitcher } from './account-switcher.ts';
 import { UsageDayIndex, type AggregationQuery } from './aggregator.ts';
 import { mountUsageDomShell, renderKpiCards, renderOnboardingGuide, resolveUsageBridge } from './dom-shell.ts';
@@ -9,6 +10,7 @@ import { createHeatmapController } from './heatmap.ts';
 import { renderHeaderAndLabels, renderWaitingState } from './localize-modal.ts';
 import { bindManualModal, renderManualEntries } from './manual-modal.ts';
 import { UsagePalette } from './palette.ts';
+import { bindPricingModal } from './pricing-modal.ts';
 import { createProjectDetailController, type ProjectDetailController } from './project-detail.ts';
 import { createStackedBarController } from './stacked-bar.ts';
 import { createTooltipController } from './tooltip.ts';
@@ -65,6 +67,13 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     guideSignature: null,
     lastManualSig: '',
     lastAccQueryKey: '',
+    pricingOverrides: sanitizePricingOverrides(
+      options.initialPreferences &&
+        !('error' in options.initialPreferences) &&
+        'modelPricingOverrides' in options.initialPreferences
+        ? options.initialPreferences.modelPricingOverrides
+        : undefined,
+    ),
   };
 
   const { dialog, backdrop, context: ctx } = mountUsageDomShell(options, state);
@@ -77,6 +86,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     disabledModels: state.disabledModels,
     disabledUsers: state.disabledUsers,
     disabledProjects: state.disabledProjects,
+    pricingOverrides: state.pricingOverrides,
   });
 
   const tooltip = createTooltipController(ctx, palette);
@@ -200,6 +210,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     onProjectDrilldown: syncProjectDetailToActiveRange,
   });
   const manual = bindManualModal(ctx);
+  let pricingModal!: ReturnType<typeof bindPricingModal>;
   bindAccountSwitcher(ctx);
   const focusTrap = createFocusTrap(ctx, {
     onCloseYear: (restore) => heatmap.closeYear(restore),
@@ -214,6 +225,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
       return closed;
     },
     onCloseManualModal: (restore) => manual.closeManualModal(restore),
+    onClosePricingModal: (restore) => pricingModal.close(restore),
   });
 
   const render = (): void => {
@@ -239,6 +251,11 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     else chart.renderChart();
   };
 
+  pricingModal = bindPricingModal(ctx, () => {
+    state.lastKey = '';
+    if (state.value && dialog.open) render();
+  });
+
   events = bindUsageModalEvents(ctx, options, {
     palette,
     dayIndex,
@@ -249,7 +266,12 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
   });
 
   const contentKey = (data: UsageSummarySnapshot): string =>
-    JSON.stringify([{ ...data, updatedAt: undefined }, options.language.language, palette.themeSignature(options.root.host)]);
+    JSON.stringify([
+      { ...data, updatedAt: undefined },
+      options.language.language,
+      palette.themeSignature(options.root.host),
+      state.pricingOverrides,
+    ]);
 
   const themeObserver = new MutationObserver(() => {
     if (!state.disposed && state.value && dialog.open) {

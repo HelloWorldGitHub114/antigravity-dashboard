@@ -52,10 +52,29 @@ export interface QuotaWindowRawCount {
 
 export type QuotaWindowMetaMap = Record<string, { resetMinute: number; idle: boolean }>;
 
+export interface QuotaForecastOptions {
+  /** 5h 窗口进入线性预测前的最小采样时长（毫秒） */
+  minSample5hMs?: number;
+  /** 周窗口进入预测前的最小采样时长（毫秒） */
+  minSampleWeeklyMs?: number;
+  /** 5h 窗口预热期内提前熔断预警的已用比例门槛（0..1） */
+  warmupUsedThreshold5h?: number;
+  /** 周窗口预热期内提前熔断预警的已用比例门槛（0..1） */
+  warmupUsedThresholdWeekly?: number;
+  /** 周窗口首日平滑的最小等效分母时长（毫秒），避免把单次冲刺按 7×24h 放大 */
+  weeklyMinEffectiveElapsedMs?: number;
+}
+
 const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
-const MIN_SAMPLE_5H_MS = 5 * 60 * 1000;
-const MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1000;
+
+export const DEFAULT_QUOTA_FORECAST_OPTIONS: Required<QuotaForecastOptions> = {
+  minSample5hMs: 5 * 60 * 1000,
+  minSampleWeeklyMs: 12 * 60 * 60 * 1000,
+  warmupUsedThreshold5h: 0.1,
+  warmupUsedThresholdWeekly: 0.25,
+  weeklyMinEffectiveElapsedMs: 24 * 60 * 60 * 1000,
+};
 
 /**
  * 提取合法的额度剩余比例（0..1）；未启用或不可用窗口返回 null。
@@ -122,13 +141,16 @@ export function shortEta(ms: number | null | undefined): string {
 }
 
 /**
- * 基于当前窗口已流逝时长与已消耗比例，做线性耗尽预测与节奏评估。
- * 窗口刚开启且消耗不足 10% 时进入采样预热态，避免极小分母导致误报警。
+ * 基于当前窗口已流逝时长与已消耗比例，做耗尽预测与节奏评估。
+ * - 5h 窗口：前 5 分钟且消耗低于 10% 时进入预热态，之后按窗口均值线性外推。
+ * - 周窗口：前 12 小时且消耗低于 25% 时进入预热态；进入预测态后首日采用 24 小时
+ *   作为等效分母下限（把未过完的首日消耗按整天折算），满 24 小时后平滑回归跨天日均速率。
  */
 export function quotaForecast(
   bucket: QuotaWindow | null | undefined,
   windowKey: QuotaWindowKey,
   now: number = Date.now(),
+  options: QuotaForecastOptions = {},
 ): QuotaForecastResult | null {
   const remaining = quotaRemaining(bucket);
   if (remaining === null) return null;
@@ -155,16 +177,23 @@ export function quotaForecast(
       : null;
   }
 
+  const cfg = { ...DEFAULT_QUOTA_FORECAST_OPTIONS, ...options };
   const durationMs = windowKey === '5h' ? FIVE_HOUR_MS : WEEKLY_MS;
   const leftMs = Math.max(0, Math.min(durationMs, resetMs - now));
   const elapsedMs = durationMs - leftMs;
   const timeRemaining = leftMs / durationMs;
-  const elapsed = elapsedMs / durationMs;
-  const paceDelta = remaining - timeRemaining;
+  const effectiveElapsedMs =
+    windowKey === 'weekly'
+      ? Math.min(durationMs, Math.max(elapsedMs, cfg.weeklyMinEffectiveElapsedMs))
+      : elapsedMs;
+  const effectiveElapsed = effectiveElapsedMs / durationMs;
+  const paceDelta = remaining - (1 - effectiveElapsed);
 
   let pace: QuotaPaceKind =
     used < 0.0005 ? 'idle' : paceDelta < -0.05 ? 'fast' : paceDelta > 0.08 ? 'slow' : 'steady';
-  const minSampleMs = windowKey === '5h' ? MIN_SAMPLE_5H_MS : MIN_SAMPLE_WEEKLY_MS;
+  const minSampleMs = windowKey === '5h' ? cfg.minSample5hMs : cfg.minSampleWeeklyMs;
+  const warmupThreshold =
+    windowKey === '5h' ? cfg.warmupUsedThreshold5h : cfg.warmupUsedThresholdWeekly;
 
   let forecastReady = false;
   let warmingUp = false;
@@ -177,14 +206,17 @@ export function quotaForecast(
     forecastReady = true;
     projectedUsed = 0;
     projectedRemaining = 1;
-  } else if (elapsedMs < minSampleMs && used < 0.1) {
+  } else if (elapsedMs < minSampleMs && used < warmupThreshold) {
     warmingUp = true;
   } else {
-    const rawProjectedUsed = elapsed > 0 ? used / elapsed : Infinity;
+    const rawProjectedUsed = effectiveElapsed > 0 ? used / effectiveElapsed : Infinity;
     projectedUsed = Math.min(1, rawProjectedUsed);
     projectedRemaining = Math.max(0, 1 - rawProjectedUsed);
-    willExhaust = rawProjectedUsed > 1.005;
-    exhaustInMs = willExhaust && used > 0 ? Math.max(60000, Math.round(elapsedMs * (remaining / used))) : null;
+    const candidateExhaustMs =
+      used > 0 ? Math.max(60000, Math.round(effectiveElapsedMs * (remaining / used))) : null;
+    willExhaust =
+      rawProjectedUsed > 1.005 && candidateExhaustMs !== null && candidateExhaustMs < leftMs;
+    exhaustInMs = willExhaust ? candidateExhaustMs : null;
     forecastReady = true;
     if (willExhaust) pace = 'fast';
   }

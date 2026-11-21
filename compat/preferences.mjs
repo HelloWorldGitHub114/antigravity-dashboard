@@ -26,13 +26,74 @@ function validateFontScaleInput(input) {
     }
   }
 }
+var MAX_PRICING_OVERRIDE_ENTRIES = 64;
+var MAX_PRICING_KEY_LENGTH = 80;
+var MAX_USD_PER_MTOK = 1e4;
+function isValidRateNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
+}
+function roundRate(value) {
+  return Math.round(value * 1e4) / 1e4;
+}
+function sanitizePricingOverrides(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  let count = 0;
+  for (const [rawKey, rawRates] of Object.entries(raw)) {
+    if (count >= MAX_PRICING_OVERRIDE_ENTRIES) break;
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.length > MAX_PRICING_KEY_LENGTH) continue;
+    if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) continue;
+    const r = rawRates;
+    if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output)) {
+      continue;
+    }
+    const entry = {
+      input: roundRate(r.input),
+      cacheRead: roundRate(r.cacheRead),
+      output: roundRate(r.output)
+    };
+    if (r.cacheWrite !== void 0) {
+      if (!isValidRateNumber(r.cacheWrite)) continue;
+      entry.cacheWrite = roundRate(r.cacheWrite);
+    }
+    out[key] = entry;
+    count++;
+  }
+  return out;
+}
+function validatePricingOverridesInput(input) {
+  if (!Object.hasOwn(input, "modelPricingOverrides")) return;
+  const raw = input.modelPricingOverrides;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid model pricing preference");
+  }
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_PRICING_OVERRIDE_ENTRIES) {
+    throw new Error("Invalid model pricing preference");
+  }
+  for (const [rawKey, rawRates] of entries) {
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.length > MAX_PRICING_KEY_LENGTH) {
+      throw new Error("Invalid model pricing preference");
+    }
+    if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) {
+      throw new Error("Invalid model pricing preference");
+    }
+    const r = rawRates;
+    if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output) || r.cacheWrite !== void 0 && !isValidRateNumber(r.cacheWrite)) {
+      throw new Error("Invalid model pricing preference");
+    }
+  }
+}
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
   "usageGuideDismissed",
   "modelTimelineEnabled",
   "debugLaunchEnabled",
-  ...FONT_SCALE_KEYS
+  ...FONT_SCALE_KEYS,
+  "modelPricingOverrides"
 ];
 
 // src/shared/atomic-fs.ts
@@ -312,13 +373,14 @@ var PreferencesStore = class {
     try {
       const info = await stat2(this.file);
       if (this.cache && this.cache.mtimeMs === info.mtimeMs && this.cache.ctimeMs === info.ctimeMs && this.cache.size === info.size && this.cache.ino === info.ino) {
-        return { ...this.cache.value };
+        return this.cache.value.modelPricingOverrides ? { ...this.cache.value, modelPricingOverrides: { ...this.cache.value.modelPricingOverrides } } : { ...this.cache.value };
       }
       const raw = (await readFile2(this.file, "utf8")).replace(/^\uFEFF/, "");
       const value = JSON.parse(raw);
       if (!value || typeof value !== "object" || Array.isArray(value) || value.schema !== 1) {
         throw new Error("Invalid preferences schema");
       }
+      const pricingOverrides = sanitizePricingOverrides(value.modelPricingOverrides);
       const parsed = {
         language: value.language === null ? null : validateLanguage(value.language),
         languageGuideDismissed: value.languageGuideDismissed === true,
@@ -328,6 +390,7 @@ var PreferencesStore = class {
         usageFontScale: resolveFontScale(value.usageFontScale),
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
+        ...Object.keys(pricingOverrides).length > 0 ? { modelPricingOverrides: pricingOverrides } : {},
         revision: typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0
       };
       this.cache = {
@@ -337,7 +400,7 @@ var PreferencesStore = class {
         ino: info.ino,
         value: parsed
       };
-      return { ...parsed };
+      return parsed.modelPricingOverrides ? { ...parsed, modelPricingOverrides: { ...parsed.modelPricingOverrides } } : { ...parsed };
     } catch (error) {
       this.cache = null;
       if (isErrnoCode2(error, "ENOENT")) {
@@ -384,6 +447,7 @@ var PreferencesStore = class {
       throw new Error("Invalid debug launch preference");
     }
     validateFontScaleInput(input);
+    validatePricingOverridesInput(input);
     const operation = this.queue.then(async () => {
       const existing = await readJsonSafe(this.file);
       const validRecord = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : null;
@@ -397,7 +461,8 @@ var PreferencesStore = class {
         debugLaunchEnabled: validRecord?.debugLaunchEnabled === true,
         usageFontScale: resolveFontScale(validRecord?.usageFontScale),
         sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
-        inlineFontScale: resolveFontScale(validRecord?.inlineFontScale)
+        inlineFontScale: resolveFontScale(validRecord?.inlineFontScale),
+        modelPricingOverrides: sanitizePricingOverrides(validRecord?.modelPricingOverrides)
       };
       const language = hasLanguage ? input.language : previous.language;
       const languageGuideDismissed = previous.languageGuideDismissed || hasLanguage || input.languageGuideDismissed === true;
@@ -410,7 +475,9 @@ var PreferencesStore = class {
           Object.hasOwn(input, key) ? resolveFontScale(input[key]) : previous[key]
         ])
       );
+      const modelPricingOverrides = Object.hasOwn(input, "modelPricingOverrides") ? sanitizePricingOverrides(input.modelPricingOverrides) : previous.modelPricingOverrides;
       const revision = Math.max(Date.now(), prior + 1);
+      const hasPricingOverrides = Object.keys(modelPricingOverrides).length > 0;
       const diskRecord = {
         schema: 1,
         language,
@@ -419,6 +486,7 @@ var PreferencesStore = class {
         modelTimelineEnabled,
         debugLaunchEnabled,
         ...scales,
+        ...hasPricingOverrides ? { modelPricingOverrides } : {},
         revision
       };
       this.cache = null;
@@ -430,6 +498,7 @@ var PreferencesStore = class {
         modelTimelineEnabled,
         debugLaunchEnabled,
         ...scales,
+        ...hasPricingOverrides ? { modelPricingOverrides } : {},
         revision
       };
       try {
@@ -444,7 +513,7 @@ var PreferencesStore = class {
       } catch {
         this.cache = null;
       }
-      return { ...nextState };
+      return nextState.modelPricingOverrides ? { ...nextState, modelPricingOverrides: { ...nextState.modelPricingOverrides } } : { ...nextState };
     });
     this.queue = operation.then(
       () => void 0,

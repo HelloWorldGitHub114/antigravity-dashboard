@@ -1,6 +1,7 @@
 import type { LanguageCode, PreferencesSnapshot, QuotaGroup, RuntimeBridgeApi } from '../../contracts/index.ts';
 import { setAttr, setText } from '../../shared/dom.ts';
 import { compact } from '../../shared/format.ts';
+import { formatUsd, summarizeSnapshotPeriodCosts } from '../../shared/model-pricing.ts';
 import type { CardInteractionController } from './card-interactions.ts';
 import { buildWidgetShellMarkup, toggleHidden } from './cards.ts';
 import { WIDGET_CONTAINER_ID } from './composer-probe.ts';
@@ -132,7 +133,7 @@ export function mountWidgetShadowDom(options: MountShadowDomOptions): MountedSha
     section.hidden = true;
     setMarkup(
       section,
-      '<dl class="usage-summary"><div><dt id="usage-today-label"></dt><dd><strong id="usage-today"></strong><span class="usage-unit">Token</span></dd></div><div><dt id="usage-month-label"></dt><dd><strong id="usage-month"></strong><span class="usage-unit">Token</span></dd></div></dl><button type="button" id="open-usage"><span id="usage-open-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>',
+      '<dl class="usage-summary"><div><dt id="usage-today-label"></dt><dd><strong id="usage-today"></strong><span class="usage-unit">Token</span></dd><div class="usage-cost" id="usage-today-cost"></div></div><div><dt id="usage-month-label"></dt><dd><strong id="usage-month"></strong><span class="usage-unit">Token</span></dd><div class="usage-cost" id="usage-month-cost"></div></div></dl><button type="button" id="open-usage"><span id="usage-open-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>',
     );
     root.getElementById('cache-card')?.append(section);
     usageDashboard = win.__agPulseUsageFactory({
@@ -184,6 +185,24 @@ export function renderWidgetTree(params: {
     toggleHidden(root.getElementById('usage-entry'), !data.usage);
     setText(root.getElementById('usage-today'), compact(data.usage?.todayTokens));
     setText(root.getElementById('usage-month'), compact(data.usage?.monthTokens));
+    const pricingOverrides =
+      data.preferences && !('error' in data.preferences)
+        ? data.preferences.modelPricingOverrides
+        : undefined;
+    const periodCosts = summarizeSnapshotPeriodCosts(data.usage, pricingOverrides);
+    const fmtCompactCost = (tokens: number | undefined, pricedTokens: number, costUsd: number, hasUnpriced: boolean): string => {
+      if (!tokens || tokens <= 0) return '$0.00';
+      if (pricedTokens <= 0) return '';
+      return `${formatUsd(costUsd, { approx: true })}${hasUnpriced ? '+' : ''}`;
+    };
+    setText(
+      root.getElementById('usage-today-cost'),
+      fmtCompactCost(data.usage?.todayTokens, periodCosts.today.pricedTokens, periodCosts.today.costUsd, periodCosts.today.hasUnpriced),
+    );
+    setText(
+      root.getElementById('usage-month-cost'),
+      fmtCompactCost(data.usage?.monthTokens, periodCosts.month.pricedTokens, periodCosts.month.costUsd, periodCosts.month.hasUnpriced),
+    );
     usageDashboard.update(data.usage);
   }
   if (cards.hasOpenGroupMenu) return undefined;

@@ -26,7 +26,8 @@ var PREFERENCE_KEYS = [
   "usageGuideDismissed",
   "modelTimelineEnabled",
   "debugLaunchEnabled",
-  ...FONT_SCALE_KEYS
+  ...FONT_SCALE_KEYS,
+  "modelPricingOverrides"
 ];
 
 // src/platform/paths.ts

@@ -39,6 +39,97 @@ export function validateFontScaleInput(input: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Per-million-token API pricing rates (USD / 1M tokens) for a model family.
+ */
+export interface ModelPriceRates {
+  input: number;
+  cacheRead: number;
+  cacheWrite?: number;
+  output: number;
+}
+
+/**
+ * User-defined model pricing overrides keyed by canonical pricing key.
+ */
+export type ModelPricingOverrides = Record<string, ModelPriceRates>;
+
+const MAX_PRICING_OVERRIDE_ENTRIES = 64;
+const MAX_PRICING_KEY_LENGTH = 80;
+const MAX_USD_PER_MTOK = 10000;
+
+function isValidRateNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
+}
+
+function roundRate(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * Sanitize persisted or partial model pricing overrides, dropping malformed entries.
+ */
+export function sanitizePricingOverrides(raw: unknown): ModelPricingOverrides {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: ModelPricingOverrides = {};
+  let count = 0;
+  for (const [rawKey, rawRates] of Object.entries(raw as Record<string, unknown>)) {
+    if (count >= MAX_PRICING_OVERRIDE_ENTRIES) break;
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.length > MAX_PRICING_KEY_LENGTH) continue;
+    if (!rawRates || typeof rawRates !== 'object' || Array.isArray(rawRates)) continue;
+    const r = rawRates as Record<string, unknown>;
+    if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output)) {
+      continue;
+    }
+    const entry: ModelPriceRates = {
+      input: roundRate(r.input),
+      cacheRead: roundRate(r.cacheRead),
+      output: roundRate(r.output),
+    };
+    if (r.cacheWrite !== undefined) {
+      if (!isValidRateNumber(r.cacheWrite)) continue;
+      entry.cacheWrite = roundRate(r.cacheWrite);
+    }
+    out[key] = entry;
+    count++;
+  }
+  return out;
+}
+
+/**
+ * Validate `modelPricingOverrides` on an incoming preference update payload.
+ */
+export function validatePricingOverridesInput(input: Record<string, unknown>): void {
+  if (!Object.hasOwn(input, 'modelPricingOverrides')) return;
+  const raw = input.modelPricingOverrides;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Invalid model pricing preference');
+  }
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > MAX_PRICING_OVERRIDE_ENTRIES) {
+    throw new Error('Invalid model pricing preference');
+  }
+  for (const [rawKey, rawRates] of entries) {
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.length > MAX_PRICING_KEY_LENGTH) {
+      throw new Error('Invalid model pricing preference');
+    }
+    if (!rawRates || typeof rawRates !== 'object' || Array.isArray(rawRates)) {
+      throw new Error('Invalid model pricing preference');
+    }
+    const r = rawRates as Record<string, unknown>;
+    if (
+      !isValidRateNumber(r.input) ||
+      !isValidRateNumber(r.cacheRead) ||
+      !isValidRateNumber(r.output) ||
+      (r.cacheWrite !== undefined && !isValidRateNumber(r.cacheWrite))
+    ) {
+      throw new Error('Invalid model pricing preference');
+    }
+  }
+}
+
 export const PREFERENCE_KEYS = [
   'language',
   'languageGuideDismissed',
@@ -46,6 +137,7 @@ export const PREFERENCE_KEYS = [
   'modelTimelineEnabled',
   'debugLaunchEnabled',
   ...FONT_SCALE_KEYS,
+  'modelPricingOverrides',
 ] as const;
 
 export type PreferenceKey = (typeof PREFERENCE_KEYS)[number];
@@ -62,6 +154,7 @@ export interface PreferencesState {
   usageFontScale?: number;
   sidebarFontScale?: number;
   inlineFontScale?: number;
+  modelPricingOverrides?: ModelPricingOverrides;
   revision: number;
 }
 
@@ -77,6 +170,7 @@ export interface PreferencesUpdateInput {
   usageFontScale?: number;
   sidebarFontScale?: number;
   inlineFontScale?: number;
+  modelPricingOverrides?: ModelPricingOverrides;
 }
 
 /**

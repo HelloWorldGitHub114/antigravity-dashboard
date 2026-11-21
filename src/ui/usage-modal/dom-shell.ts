@@ -1,5 +1,6 @@
 import type { RuntimeBridgeApi, UsageSummarySnapshot } from '../../contracts/index.ts';
 import { compact } from '../../shared/format.ts';
+import { formatUsd, summarizeSnapshotPeriodCosts, type CostAggregate } from '../../shared/model-pricing.ts';
 import { FONT_POPOVER_CSS } from '../shared/font-popover.ts';
 import baseCss from './usage.css';
 import sectionsCss from './usage-sections.css';
@@ -19,7 +20,7 @@ const DIALOG_STYLE =
   'box-sizing:border-box;overflow:hidden;visibility:visible;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006';
 
 const PAGE_MARKUP =
-  '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">中</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">录入远程用量</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">‹</button><strong id="range-label"></strong><button id="next" aria-label="Next">›</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
+  '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">中</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="pricing-settings" type="button" class="pricing-trigger" aria-label="API pricing"><span>$</span></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">录入远程用量</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">‹</button><strong id="range-label"></strong><button id="next" aria-label="Next">›</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div id="pricing-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
 
 const INTRO_MARKUP =
   '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
@@ -198,23 +199,42 @@ export function renderOnboardingGuide(ctx: UsageDomContext, palette: UsagePalett
 }
 
 export function renderKpiCards(ctx: UsageDomContext, value: UsageSummarySnapshot): void {
-  const { $, w, compactNum, full } = ctx;
+  const { $, w, state, compactNum, full } = ctx;
   const totalsEl = $('totals');
   if (!totalsEl) return;
-  const kpis: Array<[string, number]> = [
-    [w('今日用量', 'Today'), value.todayTokens],
-    [w('本周用量', 'This week'), value.weekTokens],
-    [w('本月用量', 'This month'), value.monthTokens],
-    [w('累计用量', 'All time'), value.totalTokens],
+  const periodCosts = summarizeSnapshotPeriodCosts(value, state.pricingOverrides);
+  const kpis: Array<[string, number, CostAggregate]> = [
+    [w('今日用量', 'Today'), value.todayTokens, periodCosts.today],
+    [w('本周用量', 'This week'), value.weekTokens, periodCosts.week],
+    [w('本月用量', 'This month'), value.monthTokens, periodCosts.month],
+    [w('累计用量', 'All time'), value.totalTokens, periodCosts.total],
   ];
+  const formatKpiCost = (total: number, cost: CostAggregate): string => {
+    if (total <= 0) return '$0.00';
+    if (cost.pricedTokens <= 0) return '—';
+    return `${formatUsd(cost.costUsd, { approx: true })}${cost.hasUnpriced ? '+' : ''}`;
+  };
+  const buildKpiTitle = (total: number, cost: CostAggregate): string => {
+    const tokenPart = `${full(total)} Token`;
+    if (total <= 0) return `${tokenPart} · $0.00`;
+    if (cost.pricedTokens <= 0) {
+      return `${tokenPart} · ${w('暂无公开单价（点击右上角 $ 可自定义）', 'Unpriced (click $ in header to configure)')}`;
+    }
+    const base = `${tokenPart} · ${w('等效 API 花费', 'Est. API cost')} ${formatUsd(cost.costUsd, { precise: true })}`;
+    return cost.hasUnpriced
+      ? `${base} (${w(`另含 ${compactNum(cost.unpricedTokens)} 未定价 Token`, `excludes ${compactNum(cost.unpricedTokens)} unpriced tokens`)})`
+      : base;
+  };
+
   if (totalsEl.children.length !== 4) {
     totalsEl.replaceChildren(
-      ...kpis.map(([label, total]) => {
+      ...kpis.map(([label, total, cost]) => {
         const metric = createDomNode('div', 'metric');
         const val = createDomNode('div', 'value', compactNum(total));
         val.append(createDomNode('span', 'unit', 'Token'));
-        metric.append(createDomNode('label', '', label), val);
-        metric.title = `${full(total)} Token`;
+        const costNode = createDomNode('div', 'metric-cost', formatKpiCost(total, cost));
+        metric.append(createDomNode('label', '', label), val, costNode);
+        metric.title = buildKpiTitle(total, cost);
         return metric;
       }),
     );
@@ -222,7 +242,7 @@ export function renderKpiCards(ctx: UsageDomContext, value: UsageSummarySnapshot
   }
   [...totalsEl.children].forEach((node, idx) => {
     const metric = node as HTMLElement;
-    const [label, total] = kpis[idx];
+    const [label, total, cost] = kpis[idx];
     const lbl = metric.querySelector('label');
     const val = metric.querySelector('.value');
     if (lbl && lbl.textContent !== label) lbl.textContent = label;
@@ -237,7 +257,15 @@ export function renderKpiCards(ctx: UsageDomContext, value: UsageSummarySnapshot
     } else {
       val.replaceChildren(document.createTextNode(compactText), unit);
     }
-    const title = `${full(total)} Token`;
+    const costText = formatKpiCost(total, cost);
+    let costNode = metric.querySelector<HTMLElement>('.metric-cost');
+    if (!costNode) {
+      costNode = createDomNode('div', 'metric-cost', costText);
+      metric.append(costNode);
+    } else if (costNode.textContent !== costText) {
+      costNode.textContent = costText;
+    }
+    const title = buildKpiTitle(total, cost);
     if (metric.title !== title) metric.title = title;
   });
 }

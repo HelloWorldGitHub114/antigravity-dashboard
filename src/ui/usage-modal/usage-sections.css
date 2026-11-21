@@ -43,6 +43,7 @@ h1 { font-size: calc(24px * var(--pulse-usage-font-scale, 1)); letter-spacing: -
 .metric label { color: var(--pulse-muted); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
 .value { font-size: calc(27px * var(--pulse-usage-font-scale, 1)); letter-spacing: -.9px; margin: 5px 0 0; font-weight: 550; font-variant-numeric: tabular-nums; }
 .unit { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 5px; font-weight: 400; letter-spacing: 0; }
+.metric-cost { margin-top: 3px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; color: var(--pulse-success, var(--pulse-accent)); font-variant-numeric: tabular-nums; }
 .usage-waiting { display: grid; place-items: center; min-height: 260px; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }
 .usage-waiting[hidden] { display: none; }
 

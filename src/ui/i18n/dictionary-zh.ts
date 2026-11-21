@@ -232,6 +232,7 @@ export const ZH_DICTIONARY: I18nDictionary = {
   forecastDepletes: '约 {eta} 后耗尽，比重置早 {early}',
   forecastWarming: '已耗 {pct} · 采样预热中',
   forecastBasis: '剩余额度 {remaining} · 剩余时间 {time} · 按本窗口平均消耗线性推算',
+  forecastBasisWeekly: '剩余额度 {remaining} · 剩余时间 {time} · 前 12h（用量低于 25%）预热，首日按完整日折算，满 24h 后按跨天均值推算',
   quotaWindowUsage: '周期用量',
   quotaWindowFullRef: '约 {full} 满额',
   quotaWindowBasis: '当前账号该额度周期内本机实测流经 Token；估算满额仅作同比例参考（不同模型与缓存折算权重不同）。',

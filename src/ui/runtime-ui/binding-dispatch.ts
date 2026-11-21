@@ -17,7 +17,11 @@ import type {
   SwitchAccountRequest,
   UpdatePluginRequest,
 } from '../../contracts/index.ts';
-import { PREFERENCE_KEYS, validateFontScaleInput } from '../../contracts/preferences.ts';
+import {
+  PREFERENCE_KEYS,
+  validateFontScaleInput,
+  validatePricingOverridesInput,
+} from '../../contracts/preferences.ts';
 import { platformPaths } from '../../platform/paths.ts';
 import { GUID_RE, validatedInput } from './renderer-bridge.ts';
 import type { RuntimeSessionConnection, RuntimeUiOptions } from './types.ts';
@@ -111,6 +115,7 @@ export async function dispatchBindingCall(
       throw new Error('Invalid debug launch preference');
     }
     validateFontScaleInput(value);
+    validatePricingOverridesInput(value);
     result = Object.keys(value).length
       ? await host.preferences.set(value as PreferencesUpdateInput)
       : await host.preferences.get();

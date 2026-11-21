@@ -222,9 +222,11 @@ export default function installAgPulseInlineWidget(): void {
       win, found, theme, language, surface, bridgeHost, setMarkup, cards, guide, polling,
       onChooseLanguage: (next) => preferences.choose(next),
       onFontScaleChange: (prefs) => {
+        if (polling.data && !('error' in prefs)) polling.data.preferences = prefs;
         if ('inlineFontScale' in prefs) applyInlineFontScale(prefs.inlineFontScale);
         guide.sync(prefs);
         preferences.sync(prefs);
+        if (root) render();
       },
       onObserveComposer: observeComposer,
     });

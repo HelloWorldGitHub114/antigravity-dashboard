@@ -235,6 +235,8 @@ export const EN_DICTIONARY = {
   forecastDepletes: 'Runs out in ~{eta}, {early} before reset',
   forecastWarming: 'Used {pct} · warming up',
   forecastBasis: "{remaining} quota left · {time} of the window left · linear projection from this window's average usage",
+  forecastBasisWeekly:
+    '{remaining} quota left · {time} of the week left · warms up for 12h (under 25% used) and smooths day 1 against a 24h day',
   quotaWindowUsage: 'Window tokens',
   quotaWindowFullRef: '~{full} full',
   quotaWindowBasis:

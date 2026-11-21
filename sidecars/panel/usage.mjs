@@ -1733,8 +1733,13 @@ import { join as join6 } from "node:path";
 // src/shared/quota-forecast.ts
 var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
 var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
-var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
-var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+var DEFAULT_QUOTA_FORECAST_OPTIONS = {
+  minSample5hMs: 5 * 60 * 1e3,
+  minSampleWeeklyMs: 12 * 60 * 60 * 1e3,
+  warmupUsedThreshold5h: 0.1,
+  warmupUsedThresholdWeekly: 0.25,
+  weeklyMinEffectiveElapsedMs: 24 * 60 * 60 * 1e3
+};
 function quotaRemaining(bucket) {
   if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
   const value = bucket.remaining;

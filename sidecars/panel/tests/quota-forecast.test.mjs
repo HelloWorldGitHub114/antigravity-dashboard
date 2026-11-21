@@ -70,6 +70,88 @@ test('quotaForecast handles idle, warming-up, comfortable, tight, and early exha
   assert.equal(shortEta(exhaust?.earlyByMs), '3h');
 });
 
+test('weekly quotaForecast prevents early-week burst false alarms and smooths day 1', () => {
+  const now = Date.parse('2026-11-21T12:44:00.000Z');
+  const weekMs = 7 * 24 * 3600000;
+  const hourMs = 3600000;
+
+  // 1. 复现截图场景：刚过 3.9h，用了 9.3%（剩 90.7%）-> 低于 12h 且低于 25%，进入预热态不误报
+  const earlyBurst = quotaForecast(
+    { available: true, remaining: 0.907, resetAt: new Date(now + weekMs - 3.9 * hourMs).toISOString(), disabled: false },
+    'weekly',
+    now,
+  );
+  assert.equal(earlyBurst?.warmingUp, true);
+  assert.equal(earlyBurst?.forecastReady, false);
+  assert.equal(earlyBurst?.willExhaust, false);
+  assert.equal(earlyBurst?.outlook, null);
+
+  // 2. 分组节奏徽标不应被刚预热的周窗口拉黄，应正常依据 5h 窗口判为充裕（ok）
+  const group = {
+    id: 'gemini',
+    name: 'Gemini Models',
+    description: '',
+    windows: {
+      '5h': {
+        available: true,
+        id: 'gemini-5h',
+        remaining: 0.644,
+        amount: null,
+        resetAt: new Date(now + 1.1 * hourMs).toISOString(), // 3.9h elapsed, 35.6% used -> ~54.3% left
+        expired: false,
+        disabled: false,
+        description: '',
+      },
+      weekly: {
+        available: true,
+        id: 'gemini-weekly',
+        remaining: 0.907,
+        amount: null,
+        resetAt: new Date(now + weekMs - 3.9 * hourMs).toISOString(),
+        expired: false,
+        disabled: false,
+        description: '',
+      },
+    },
+  };
+  const pace = groupQuotaPace(group, now);
+  assert.equal(pace?.window, '5h');
+  assert.equal(pace?.pace, 'ok');
+  assert.equal(pace?.labelKey, 'outlookOk');
+
+  // 3. 满 12h 但未满 24h（例如已过 14h 用了 10%）：按首日 24h 分母兜底折算 -> 7 天约用 70%，预计剩 30%（ok）
+  const dayOneSmoothed = quotaForecast(
+    { available: true, remaining: 0.9, resetAt: new Date(now + weekMs - 14 * hourMs).toISOString(), disabled: false },
+    'weekly',
+    now,
+  );
+  assert.equal(dayOneSmoothed?.warmingUp, false);
+  assert.equal(dayOneSmoothed?.willExhaust, false);
+  assert.equal(dayOneSmoothed?.outlook, 'ok');
+  assert.ok(Math.abs((dayOneSmoothed?.projectedRemaining ?? 0) - 0.3) < 0.001);
+
+  // 4. 早期高危熔断：哪怕只过了 4h，若已烧掉 30%（>= 25% 熔断线），立即预警按首日 24h 折算耗尽
+  const heavyBurn = quotaForecast(
+    { available: true, remaining: 0.7, resetAt: new Date(now + weekMs - 4 * hourMs).toISOString(), disabled: false },
+    'weekly',
+    now,
+  );
+  assert.equal(heavyBurn?.warmingUp, false);
+  assert.equal(heavyBurn?.willExhaust, true);
+  assert.equal(heavyBurn?.outlook, 'exhaust');
+  assert.equal(shortEta(heavyBurn?.exhaustInMs), '2d 8h');
+
+  // 5. 满 24h 后（例如已过 48h 用掉 50%），无缝退化为跨天线性外推 -> 再过 2d 耗尽，比重置早 3d
+  const multiDay = quotaForecast(
+    { available: true, remaining: 0.5, resetAt: new Date(now + weekMs - 48 * hourMs).toISOString(), disabled: false },
+    'weekly',
+    now,
+  );
+  assert.equal(multiDay?.willExhaust, true);
+  assert.equal(shortEta(multiDay?.exhaustInMs), '2d');
+  assert.equal(shortEta(multiDay?.earlyByMs), '3d');
+});
+
 test('groupQuotaPace selects the most at-risk window and flags critical urgency', () => {
   const now = Date.parse('2026-11-21T12:00:00.000Z');
   const group = {

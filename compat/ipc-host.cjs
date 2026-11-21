@@ -49,13 +49,44 @@ module.exports = function installAgPulseIpc(...args) {
         }
       }
     }
+    var MAX_PRICING_OVERRIDE_ENTRIES = 64;
+    var MAX_PRICING_KEY_LENGTH = 80;
+    var MAX_USD_PER_MTOK = 1e4;
+    function isValidRateNumber(value) {
+      return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
+    }
+    function validatePricingOverridesInput(input) {
+      if (!Object.hasOwn(input, "modelPricingOverrides")) return;
+      const raw = input.modelPricingOverrides;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error("Invalid model pricing preference");
+      }
+      const entries = Object.entries(raw);
+      if (entries.length > MAX_PRICING_OVERRIDE_ENTRIES) {
+        throw new Error("Invalid model pricing preference");
+      }
+      for (const [rawKey, rawRates] of entries) {
+        const key = rawKey.trim().toLowerCase();
+        if (!key || key.length > MAX_PRICING_KEY_LENGTH) {
+          throw new Error("Invalid model pricing preference");
+        }
+        if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) {
+          throw new Error("Invalid model pricing preference");
+        }
+        const r = rawRates;
+        if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output) || r.cacheWrite !== void 0 && !isValidRateNumber(r.cacheWrite)) {
+          throw new Error("Invalid model pricing preference");
+        }
+      }
+    }
     var PREFERENCE_KEYS = [
       "language",
       "languageGuideDismissed",
       "usageGuideDismissed",
       "modelTimelineEnabled",
       "debugLaunchEnabled",
-      ...FONT_SCALE_KEYS
+      ...FONT_SCALE_KEYS,
+      "modelPricingOverrides"
     ];
 
     // src/shared/logger.ts
@@ -614,6 +645,7 @@ module.exports = function installAgPulseIpc(...args) {
               throw new Error("Invalid timeline preference");
             }
             validateFontScaleInput(input);
+            validatePricingOverridesInput(input);
             if (!preferenceStore) {
               const file = path.join(
                 os.homedir(),

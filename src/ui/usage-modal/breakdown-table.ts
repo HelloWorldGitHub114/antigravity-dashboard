@@ -1,7 +1,12 @@
+import {
+  formatRateSummary,
+  formatUsd,
+  resolveModelPricing,
+} from '../../shared/model-pricing.ts';
 import type { AggregationQuery, UsageDayIndex } from './aggregator.ts';
 import { createDomNode } from './dom-shell.ts';
 import { formatModelName, variantLabel, type UsagePalette } from './palette.ts';
-import type { UsageDomContext } from './types.ts';
+import type { ModelCostBucket, UsageDomContext } from './types.ts';
 
 export function renderChartSummaryAndTable(
   ctx: UsageDomContext,
@@ -30,8 +35,16 @@ export function renderChartSummaryAndTable(
       : `${state.selectedBar.from} – ${state.selectedBar.to}`
     : '';
 
+  const showSummaryCost =
+    state.dimension !== 'project' &&
+    (activeTotals.pricedTokens > 0 || activeTotals.total === 0) &&
+    !(state.dimension === 'user' && state.disabledUsers.size > 0);
+  const summaryCostText = showSummaryCost
+    ? ` · ${formatUsd(activeTotals.costUsd, { approx: true })}${activeTotals.unpricedTokens > 0 ? '+' : ''}`
+    : '';
   chartSummary.replaceChildren(
     createDomNode('strong', '', `${compactNum(activeTotals.total)} Token`),
+    ...(summaryCostText ? [createDomNode('strong', 'cost-inline', summaryCostText)] : []),
     document.createTextNode(
       ` · ${w(`${full(activeTotals.requests)} 次请求`, `${full(activeTotals.requests)} requests`)}${rangeLabelStr ? ` · ${rangeLabelStr}` : ''}`,
     ),
@@ -183,10 +196,32 @@ export function renderChartSummaryAndTable(
       bodyFrag.append(row);
     }
   } else if (state.modelViewMode === 'detailed') {
+    const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+    const makeCostTd = (
+      costBucket: ModelCostBucket | undefined,
+      totalTokens: number,
+      sampleModel: string,
+    ): HTMLTableCellElement => {
+      const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
+      const text = totalTokens <= 0 ? '$0.00' : hasPriced ? `${formatUsd(costBucket!.costUsd)}${costBucket!.unpricedTokens > 0 ? '+' : ''}` : '—';
+      const td = createDomNode('td', hasPriced || totalTokens <= 0 ? 'cost-cell' : 'cost-cell muted', text);
+      const pricing = resolveModelPricing(sampleModel, activeToDate, state.pricingOverrides);
+      if (pricing) {
+        const rateText = formatRateSummary(pricing.rates, ctx.zh());
+        const exact = hasPriced ? `${formatUsd(costBucket!.costUsd, { precise: true })} · ` : '';
+        const note = ctx.zh() ? pricing.noteZh : pricing.noteEn;
+        td.title = `${exact}${rateText}${note ? ` (${note})` : ''}`;
+      } else {
+        td.title = w('未收录公开单价，可点击右上角 $ 自定义', 'No built-in rate; click $ in header to configure');
+      }
+      return td;
+    };
+
     tableHead.replaceChildren(
       ...[
         w('模型', 'Model'),
         w('总 Token', 'Total tokens'),
+        w('等效花费', 'Est. cost'),
         w('未缓存输入', 'Uncached input'),
         w('缓存读取', 'Cache read'),
         w('缓存写入', 'Cache write'),
@@ -201,15 +236,39 @@ export function renderChartSummaryAndTable(
       label.append(dot, document.createTextNode(formatModelName(model)));
       row.append(
         label,
-        ...[r.total, r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode('td', '', full(n))),
+        createDomNode('td', '', full(r.total)),
+        makeCostTd(activeTotals.modelCosts?.[model], r.total, model),
+        ...[r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode('td', '', full(n))),
       );
       bodyFrag.append(row);
     }
   } else {
+    const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+    const makeCostTd = (
+      costBucket: ModelCostBucket | undefined,
+      totalTokens: number,
+      sampleModel: string,
+    ): HTMLTableCellElement => {
+      const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
+      const text = totalTokens <= 0 ? '$0.00' : hasPriced ? `${formatUsd(costBucket!.costUsd)}${costBucket!.unpricedTokens > 0 ? '+' : ''}` : '—';
+      const td = createDomNode('td', hasPriced || totalTokens <= 0 ? 'cost-cell' : 'cost-cell muted', text);
+      const pricing = resolveModelPricing(sampleModel, activeToDate, state.pricingOverrides);
+      if (pricing) {
+        const rateText = formatRateSummary(pricing.rates, ctx.zh());
+        const exact = hasPriced ? `${formatUsd(costBucket!.costUsd, { precise: true })} · ` : '';
+        const note = ctx.zh() ? pricing.noteZh : pricing.noteEn;
+        td.title = `${exact}${rateText}${note ? ` (${note})` : ''}`;
+      } else {
+        td.title = w('未收录公开单价，可点击右上角 $ 自定义', 'No built-in rate; click $ in header to configure');
+      }
+      return td;
+    };
+
     tableHead.replaceChildren(
       ...[
         w('模型', 'Model'),
         w('总 Token', 'Total tokens'),
+        w('等效花费', 'Est. cost'),
         w('未缓存输入', 'Uncached input'),
         w('缓存读取', 'Cache read'),
         w('缓存写入', 'Cache write'),
@@ -253,9 +312,12 @@ export function renderChartSummaryAndTable(
         createDomNode('span', 'model-variant-count', countText),
         chevron,
       );
+      const sampleModel = variants[0]?.[0] || groupKey;
       row.append(
         label,
-        ...[r.total, r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode('td', '', full(n))),
+        createDomNode('td', '', full(r.total)),
+        makeCostTd(activeTotals.modelCosts?.[groupKey], r.total, sampleModel),
+        ...[r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode('td', '', full(n))),
       );
       bodyFrag.append(row);
 
@@ -273,7 +335,9 @@ export function renderChartSummaryAndTable(
           );
           vRow.append(
             vLabel,
-            ...[vr.total, vr.uncached, vr.cacheRead, vr.cacheWrite, vr.output].map((n) => createDomNode('td', '', full(n))),
+            createDomNode('td', '', full(vr.total)),
+            makeCostTd(activeTotals.variantCosts?.[groupKey]?.[rawModel], vr.total, rawModel),
+            ...[vr.uncached, vr.cacheRead, vr.cacheWrite, vr.output].map((n) => createDomNode('td', '', full(n))),
           );
           bodyFrag.append(vRow);
         }

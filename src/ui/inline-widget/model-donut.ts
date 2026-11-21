@@ -247,7 +247,7 @@ export function renderQuotaSection(
         setAttr(
           forecastRow,
           'title',
-          language.t('forecastBasis', {
+          language.t(windowKey === 'weekly' ? 'forecastBasisWeekly' : 'forecastBasis', {
             remaining: percent(forecast.remaining),
             time: percent(forecast.timeRemaining),
           }),

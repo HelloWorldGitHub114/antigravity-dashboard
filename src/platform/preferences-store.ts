@@ -12,7 +12,9 @@ import {
   FONT_SCALE_KEYS,
   PREFERENCE_KEYS,
   resolveFontScale,
+  sanitizePricingOverrides,
   validateFontScaleInput,
+  validatePricingOverridesInput,
 } from '../contracts/preferences.ts';
 import { atomicWriteJson, readJsonSafe } from '../shared/atomic-fs.ts';
 import { platformPaths } from './paths.ts';
@@ -75,13 +77,16 @@ export class PreferencesStore {
         this.cache.size === info.size &&
         this.cache.ino === info.ino
       ) {
-        return { ...this.cache.value };
+        return this.cache.value.modelPricingOverrides
+          ? { ...this.cache.value, modelPricingOverrides: { ...this.cache.value.modelPricingOverrides } }
+          : { ...this.cache.value };
       }
       const raw = (await readFile(this.file, 'utf8')).replace(/^\uFEFF/, '');
       const value = JSON.parse(raw) as Record<string, unknown> | null;
       if (!value || typeof value !== 'object' || Array.isArray(value) || value.schema !== 1) {
         throw new Error('Invalid preferences schema');
       }
+      const pricingOverrides = sanitizePricingOverrides(value.modelPricingOverrides);
       const parsed: PreferencesState = {
         language: value.language === null ? null : validateLanguage(value.language),
         languageGuideDismissed: value.languageGuideDismissed === true,
@@ -91,6 +96,7 @@ export class PreferencesStore {
         usageFontScale: resolveFontScale(value.usageFontScale),
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
+        ...(Object.keys(pricingOverrides).length > 0 ? { modelPricingOverrides: pricingOverrides } : {}),
         revision:
           typeof value.revision === 'number' &&
           Number.isSafeInteger(value.revision) &&
@@ -105,7 +111,9 @@ export class PreferencesStore {
         ino: info.ino,
         value: parsed,
       };
-      return { ...parsed };
+      return parsed.modelPricingOverrides
+        ? { ...parsed, modelPricingOverrides: { ...parsed.modelPricingOverrides } }
+        : { ...parsed };
     } catch (error) {
       this.cache = null;
       if (isErrnoCode(error, 'ENOENT')) {
@@ -159,6 +167,7 @@ export class PreferencesStore {
       throw new Error('Invalid debug launch preference');
     }
     validateFontScaleInput(input as Record<string, unknown>);
+    validatePricingOverridesInput(input as Record<string, unknown>);
 
     const operation = this.queue.then(async (): Promise<PreferencesState> => {
       const existing = await readJsonSafe<Record<string, unknown>>(this.file);
@@ -183,6 +192,7 @@ export class PreferencesStore {
         usageFontScale: resolveFontScale(validRecord?.usageFontScale),
         sidebarFontScale: resolveFontScale(validRecord?.sidebarFontScale),
         inlineFontScale: resolveFontScale(validRecord?.inlineFontScale),
+        modelPricingOverrides: sanitizePricingOverrides(validRecord?.modelPricingOverrides),
       };
 
       const language: LanguageCode | null = hasLanguage
@@ -204,8 +214,12 @@ export class PreferencesStore {
           Object.hasOwn(input, key) ? resolveFontScale(input[key]) : previous[key],
         ]),
       ) as Record<(typeof FONT_SCALE_KEYS)[number], number>;
+      const modelPricingOverrides = Object.hasOwn(input, 'modelPricingOverrides')
+        ? sanitizePricingOverrides(input.modelPricingOverrides)
+        : previous.modelPricingOverrides;
       const revision = Math.max(Date.now(), prior + 1);
 
+      const hasPricingOverrides = Object.keys(modelPricingOverrides).length > 0;
       const diskRecord: PreferencesDiskRecord = {
         schema: 1,
         language,
@@ -214,6 +228,7 @@ export class PreferencesStore {
         modelTimelineEnabled,
         debugLaunchEnabled,
         ...scales,
+        ...(hasPricingOverrides ? { modelPricingOverrides } : {}),
         revision,
       };
       this.cache = null;
@@ -226,6 +241,7 @@ export class PreferencesStore {
         modelTimelineEnabled,
         debugLaunchEnabled,
         ...scales,
+        ...(hasPricingOverrides ? { modelPricingOverrides } : {}),
         revision,
       };
       try {
@@ -240,7 +256,9 @@ export class PreferencesStore {
       } catch {
         this.cache = null;
       }
-      return { ...nextState };
+      return nextState.modelPricingOverrides
+        ? { ...nextState, modelPricingOverrides: { ...nextState.modelPricingOverrides } }
+        : { ...nextState };
     });
 
     this.queue = operation.then(

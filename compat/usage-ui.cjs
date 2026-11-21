@@ -26,6 +26,65 @@ module.exports = function createUsageDashboard(...args) {
       default: () => createUsageDashboard
     });
 
+    // src/contracts/preferences.ts
+    var FONT_SCALE_KEYS = [
+      "usageFontScale",
+      "sidebarFontScale",
+      "inlineFontScale"
+    ];
+    var FONT_SCALE_MIN = 0.8;
+    var FONT_SCALE_MAX = 1.5;
+    function resolveFontScale(value, fallback = 1) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+      const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
+      return Math.round(clamped * 100) / 100;
+    }
+    var MAX_PRICING_OVERRIDE_ENTRIES = 64;
+    var MAX_PRICING_KEY_LENGTH = 80;
+    var MAX_USD_PER_MTOK = 1e4;
+    function isValidRateNumber(value) {
+      return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
+    }
+    function roundRate(value) {
+      return Math.round(value * 1e4) / 1e4;
+    }
+    function sanitizePricingOverrides(raw) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      const out = {};
+      let count = 0;
+      for (const [rawKey, rawRates] of Object.entries(raw)) {
+        if (count >= MAX_PRICING_OVERRIDE_ENTRIES) break;
+        const key = rawKey.trim().toLowerCase();
+        if (!key || key.length > MAX_PRICING_KEY_LENGTH) continue;
+        if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) continue;
+        const r = rawRates;
+        if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output)) {
+          continue;
+        }
+        const entry = {
+          input: roundRate(r.input),
+          cacheRead: roundRate(r.cacheRead),
+          output: roundRate(r.output)
+        };
+        if (r.cacheWrite !== void 0) {
+          if (!isValidRateNumber(r.cacheWrite)) continue;
+          entry.cacheWrite = roundRate(r.cacheWrite);
+        }
+        out[key] = entry;
+        count++;
+      }
+      return out;
+    }
+    var PREFERENCE_KEYS = [
+      "language",
+      "languageGuideDismissed",
+      "usageGuideDismissed",
+      "modelTimelineEnabled",
+      "debugLaunchEnabled",
+      ...FONT_SCALE_KEYS,
+      "modelPricingOverrides"
+    ];
+
     // src/shared/format.ts
     var rateFormatter = new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 1,
@@ -64,27 +123,264 @@ module.exports = function createUsageDashboard(...args) {
       return String(value);
     }
 
-    // src/contracts/preferences.ts
-    var FONT_SCALE_KEYS = [
-      "usageFontScale",
-      "sidebarFontScale",
-      "inlineFontScale"
+    // src/shared/model-pricing.ts
+    var ONE_MILLION = 1e6;
+    var BUILTIN_MODEL_PRICING = [
+      {
+        key: "gemini-4-neon",
+        label: "Gemini 4 Neon",
+        rates: { input: 3, cacheRead: 0.15, cacheWrite: 3.75, output: 15 }
+      },
+      {
+        key: "gemini-4-carbon",
+        label: "Gemini 4 Carbon",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2, output: 10 },
+        schedule: [
+          {
+            effectiveFrom: "2026-12-01",
+            rates: { input: 4, cacheRead: 0.2, cacheWrite: 4, output: 20 }
+          }
+        ],
+        noteZh: "11/30 \u524D\u4F18\u60E0\u4EF7 $2/$10\uFF0C12/1 \u8D77\u6807\u51C6\u4EF7 $4/$20",
+        noteEn: "Intro $2/$10 through Nov 30; $4/$20 from Dec 1"
+      },
+      {
+        key: "gemini-4-argon",
+        label: "Gemini 4 Argon",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2, output: 10 },
+        schedule: [
+          {
+            effectiveFrom: "2026-12-01",
+            rates: { input: 4, cacheRead: 0.2, cacheWrite: 4, output: 20 }
+          }
+        ],
+        noteZh: "11/30 \u524D\u4F18\u60E0\u4EF7 $2/$10\uFF0C12/1 \u8D77\u6807\u51C6\u4EF7 $4/$20",
+        noteEn: "Intro $2/$10 through Nov 30; $4/$20 from Dec 1"
+      },
+      {
+        key: "gemini-4-hydrogen",
+        label: "Gemini 4 Hydrogen",
+        rates: { input: 1.5, cacheRead: 0.075, cacheWrite: 1.5, output: 7.5 }
+      },
+      {
+        key: "gemini-3.8-flash",
+        label: "Gemini 3.8 Flash",
+        rates: { input: 0.75, cacheRead: 0.075, cacheWrite: 0.75, output: 3.75 },
+        schedule: [
+          {
+            effectiveFrom: "2027-01-01",
+            rates: { input: 1.5, cacheRead: 0.15, cacheWrite: 1.5, output: 7.5 }
+          }
+        ],
+        noteZh: "2026 \u5E74\u5E95\u524D\u4F18\u60E0\u4EF7 $0.75/$3.75\uFF0C2027/1/1 \u8D77 $1.5/$7.5",
+        noteEn: "Intro $0.75/$3.75 through Dec 31; $1.5/$7.5 from Jan 1"
+      },
+      {
+        key: "gemini-3.5-flash-lite",
+        label: "Gemini 3.5 Flash Lite",
+        rates: { input: 0.3, cacheRead: 0.03, cacheWrite: 0.3, output: 2.5 }
+      },
+      {
+        key: "claude-opus-5.5",
+        label: "Claude Opus 5.5",
+        rates: { input: 4, cacheRead: 0.2, cacheWrite: 5, output: 20 }
+      },
+      {
+        key: "claude-sonnet-5.5",
+        label: "Claude Sonnet 5.5",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10 }
+      },
+      {
+        key: "gpt-oss-120b",
+        label: "GPT-OSS 120B",
+        rates: { input: 0.15, cacheRead: 0.075, cacheWrite: 0.15, output: 0.6 },
+        noteZh: "\u5F00\u6E90\u6743\u91CD\u6A21\u578B\uFF0C\u53C2\u8003\u4E3B\u6D41\u6258\u7BA1\u57FA\u51C6\u4EF7",
+        noteEn: "Open-weight baseline reference rate"
+      }
     ];
-    var FONT_SCALE_MIN = 0.8;
-    var FONT_SCALE_MAX = 1.5;
-    function resolveFontScale(value, fallback = 1) {
-      if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-      const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
-      return Math.round(clamped * 100) / 100;
+    var BUILTIN_BY_KEY = new Map(
+      BUILTIN_MODEL_PRICING.map((spec) => [spec.key, spec])
+    );
+    var SUFFIX_CLEAN_RE = /\s*\((?:xhigh|high|medium|low|thinking|tiered|trial|preview(?:\b[^)]*)?|exp(?:erimental)?(?:\b[^)]*)?|fast|quality|orchestrator|\d{4}-\d{2}-\d{2})\)\s*$/i;
+    var BARE_SUFFIX_CLEAN_RE = /(?:[\s-]+(?:xhigh|high|medium|low|thinking|tiered|trial|preview(?:[\s-]+[a-z0-9]{1,10})*|exp(?:erimental)?(?:[\s-]+[a-z0-9]{1,10})*|latest|n|\d{4}-\d{2}-\d{2}|\d{8}))$/i;
+    function resolvePricingKey(rawModel) {
+      const raw = String(rawModel || "").trim();
+      if (!raw) return "";
+      const lower = raw.toLowerCase();
+      if (/\bneon\b/.test(lower)) return "gemini-4-neon";
+      if (/\bcarbon\b/.test(lower)) return "gemini-4-carbon";
+      if (/\bargon\b/.test(lower)) return "gemini-4-argon";
+      if (/\bhydrogen\b/.test(lower)) return "gemini-4-hydrogen";
+      if (/gemini[\s-]*3[.-]8[\s-]*flash/.test(lower)) return "gemini-3.8-flash";
+      if (/gemini[\s-]*3[.-]5[\s-]*flash[\s-]*lite/.test(lower)) return "gemini-3.5-flash-lite";
+      if (/claude[\s-]*opus[\s-]*5[.-]5|opus[\s-]*5[.-]5/.test(lower)) return "claude-opus-5.5";
+      if (/claude[\s-]*sonnet[\s-]*5[.-]5|sonnet[\s-]*5[.-]5/.test(lower)) return "claude-sonnet-5.5";
+      if (/gpt[\s-]*oss[\s-]*120b/.test(lower)) return "gpt-oss-120b";
+      let cleaned = raw;
+      for (let i = 0; i < 6; i++) {
+        const next = cleaned.replace(SUFFIX_CLEAN_RE, "").replace(BARE_SUFFIX_CLEAN_RE, "").trim();
+        if (next === cleaned || !next) break;
+        cleaned = next;
+      }
+      cleaned = cleaned.replace(/(?<![\d.])(\d)-(\d)(?![\d.])/g, "$1.$2");
+      return cleaned.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
     }
-    var PREFERENCE_KEYS = [
-      "language",
-      "languageGuideDismissed",
-      "usageGuideDismissed",
-      "modelTimelineEnabled",
-      "debugLaunchEnabled",
-      ...FONT_SCALE_KEYS
-    ];
+    function resolveBuiltinRatesForDate(spec, dateStr) {
+      let active = spec.rates;
+      if (spec.schedule?.length && dateStr) {
+        for (const tier of spec.schedule) {
+          if (dateStr >= tier.effectiveFrom) active = tier.rates;
+        }
+      }
+      return active;
+    }
+    function resolveModelPricing(rawModel, dateStr, overrides) {
+      const key = resolvePricingKey(rawModel);
+      if (!key) return null;
+      const spec = BUILTIN_BY_KEY.get(key);
+      const custom = overrides?.[key];
+      if (custom) {
+        return {
+          key,
+          label: spec?.label || String(rawModel || key),
+          rates: custom,
+          source: "override",
+          noteZh: spec?.noteZh,
+          noteEn: spec?.noteEn
+        };
+      }
+      if (!spec) return null;
+      const rates = resolveBuiltinRatesForDate(spec, dateStr);
+      const nextScheduled = dateStr && spec.schedule ? spec.schedule.find((tier) => dateStr < tier.effectiveFrom) ?? null : null;
+      return {
+        key: spec.key,
+        label: spec.label,
+        rates,
+        source: "builtin",
+        scheduledChange: nextScheduled,
+        noteZh: spec.noteZh,
+        noteEn: spec.noteEn
+      };
+    }
+    function calculateBucketCost(rawModel, counts, dateStr, overrides) {
+      const resolved = resolveModelPricing(rawModel, dateStr, overrides);
+      if (!resolved) return null;
+      const { rates } = resolved;
+      const cacheWriteRate = rates.cacheWrite ?? rates.input;
+      const usd = ((counts.uncached || 0) * rates.input + (counts.cacheRead || 0) * rates.cacheRead + (counts.cacheWrite || 0) * cacheWriteRate + (counts.output || 0) * rates.output) / ONE_MILLION;
+      return Number.isFinite(usd) && usd >= 0 ? usd : 0;
+    }
+    function startOfWeekUtc(date) {
+      const d = /* @__PURE__ */ new Date(`${date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+      return d.toISOString().slice(0, 10);
+    }
+    function emptyCostAggregate() {
+      return { costUsd: 0, pricedTokens: 0, unpricedTokens: 0, hasUnpriced: false };
+    }
+    function addDayToAggregate(target, day, overrides) {
+      for (const [model, counts] of Object.entries(day.models || {})) {
+        const cost = calculateBucketCost(model, counts, day.date, overrides);
+        if (cost === null) {
+          if ((counts.total || 0) > 0) {
+            target.unpricedTokens += counts.total || 0;
+            target.hasUnpriced = true;
+          }
+        } else {
+          target.costUsd += cost;
+          target.pricedTokens += counts.total || 0;
+        }
+      }
+    }
+    function summarizeSnapshotPeriodCosts(value, overrides) {
+      const today = emptyCostAggregate();
+      const week = emptyCostAggregate();
+      const month = emptyCostAggregate();
+      const total = emptyCostAggregate();
+      if (!value?.today) return { today, week, month, total };
+      const todayStr = value.today;
+      const weekStartStr = startOfWeekUtc(todayStr);
+      const monthPrefix = todayStr.slice(0, 7);
+      for (const day of value.days || []) {
+        if (!day?.date) continue;
+        addDayToAggregate(total, day, overrides);
+        if (day.date === todayStr) addDayToAggregate(today, day, overrides);
+        if (day.date >= weekStartStr && day.date <= todayStr) addDayToAggregate(week, day, overrides);
+        if (day.date.slice(0, 7) === monthPrefix && day.date <= todayStr) {
+          addDayToAggregate(month, day, overrides);
+        }
+      }
+      if ((value.unknownTokens || 0) > 0) {
+        total.unpricedTokens += value.unknownTokens;
+        total.hasUnpriced = true;
+      }
+      return { today, week, month, total };
+    }
+    function formatUsd(amount, options = {}) {
+      if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) return "\u2014";
+      const prefix = options.approx ? "\u2248 " : "";
+      if (amount === 0) return `${prefix}$0.00`;
+      if (options.precise) {
+        const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
+        return `${prefix}$${amount.toLocaleString("en-US", {
+          minimumFractionDigits: Math.min(2, digits),
+          maximumFractionDigits: digits
+        })}`;
+      }
+      if (amount < 0.01) return `${prefix}<$0.01`;
+      return `${prefix}$${amount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}`;
+    }
+    function formatRateSummary(rates, zh = true) {
+      const num = (v) => `$${Number(v.toFixed(4))}`;
+      const writePart = rates.cacheWrite !== void 0 && rates.cacheWrite !== rates.input ? zh ? ` \xB7 \u7F13\u5B58\u5199 ${num(rates.cacheWrite)}` : ` \xB7 write ${num(rates.cacheWrite)}` : "";
+      return zh ? `\u8F93\u5165 ${num(rates.input)} \xB7 \u7F13\u5B58\u8BFB ${num(rates.cacheRead)}${writePart} \xB7 \u8F93\u51FA ${num(rates.output)} / 1M tok` : `In ${num(rates.input)} \xB7 Cache ${num(rates.cacheRead)}${writePart} \xB7 Out ${num(rates.output)} / 1M tok`;
+    }
+    function listConfigurablePricingRows(knownModels, overrides, dateStr) {
+      const safeOverrides = sanitizePricingOverrides(overrides);
+      const rows = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const spec of BUILTIN_MODEL_PRICING) {
+        seen.add(spec.key);
+        const defaultRates = resolveBuiltinRatesForDate(spec, dateStr);
+        const custom = safeOverrides[spec.key];
+        rows.push({
+          key: spec.key,
+          label: spec.label,
+          builtin: true,
+          isOverridden: Boolean(custom),
+          effectiveRates: custom ? { ...custom } : { ...defaultRates },
+          defaultRates: { ...defaultRates },
+          noteZh: spec.noteZh,
+          noteEn: spec.noteEn
+        });
+      }
+      const extraLabelByKey = /* @__PURE__ */ new Map();
+      for (const rawModel of knownModels) {
+        const key = resolvePricingKey(rawModel);
+        if (!key || seen.has(key) || extraLabelByKey.has(key)) continue;
+        extraLabelByKey.set(key, rawModel);
+      }
+      for (const key of Object.keys(safeOverrides)) {
+        if (!seen.has(key) && !extraLabelByKey.has(key)) {
+          extraLabelByKey.set(key, key);
+        }
+      }
+      for (const [key, label] of [...extraLabelByKey.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        const custom = safeOverrides[key];
+        rows.push({
+          key,
+          label,
+          builtin: false,
+          isOverridden: Boolean(custom),
+          effectiveRates: custom ? { ...custom } : { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
+          defaultRates: null
+        });
+      }
+      return rows;
+    }
 
     // src/ui/shared/font-popover.ts
     var FONT_POPOVER_MIN_PCT = Math.round(FONT_SCALE_MIN * 100);
@@ -379,7 +675,7 @@ module.exports = function createUsageDashboard(...args) {
     }
 
     // src/ui/usage-modal/usage.css
-    var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-reassign-btn { flex: none; padding: 0 6px; height: 19px; line-height: 17px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); cursor: pointer; }\n.proj-reassign-btn:hover { color: var(--pulse-foreground); border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }\n.proj-reassign-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 7px 4px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-reassign-select { flex: 1; min-width: 120px; height: 24px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--pulse-border); background: var(--pulse-background); color: var(--pulse-foreground); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-action-btn.is-primary { background: var(--pulse-accent); border-color: var(--pulse-accent); color: #fff; }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .other-models:not([hidden]),\n  .hourly-content:not([hidden]) { animation: none !important; }\n  .bar-segment,\n  .proj-bar-fill,\n  .hourly-chevron,\n  .picker-chevron,\n  .year-chevron,\n  .proj-bar-caret,\n  .hourly-pt,\n  .proj-donut-seg { transition: opacity 100ms ease !important; }\n  .modal-layer,\n  .modal-card,\n  .tip { transition: opacity 90ms ease !important; }\n  .heat button { transition: background-color 140ms ease !important; }\n  button,\n  #usage-intro-done { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease !important; }\n  button:active,\n  #usage-intro-done:active,\n  .heat button:not(:disabled):hover,\n  .heat button:not(:disabled):focus-visible { transform: none !important; scale: none !important; }\n}\n';
+    var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger,\n.actions button.pricing-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n.chart-summary .cost-inline { color: var(--pulse-success, var(--pulse-accent)); font-variant-numeric: tabular-nums; }\n.table td.cost-cell { font-variant-numeric: tabular-nums; color: var(--pulse-success, var(--pulse-foreground)); font-weight: 500; }\n.table tr.model-variant-row td.cost-cell { font-weight: 400; opacity: .9; }\n.table td.cost-cell.muted { color: var(--pulse-muted); font-weight: 400; }\n.pricing-modal-card { width: min(700px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 48px)); }\n.pricing-desc { margin: -6px 0 0; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); line-height: 1.55; color: var(--pulse-muted); }\n.pricing-form { display: flex; flex-direction: column; gap: 12px; min-height: 0; }\n.pricing-table-wrap { overflow: auto; max-height: min(420px, calc(100dvh - 230px)); border: 1px solid var(--pulse-border); border-radius: 9px; }\n.pricing-table { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.pricing-table th { position: sticky; top: 0; z-index: 1; background: var(--pulse-control); color: var(--pulse-muted); font-weight: 500; text-align: right; padding: 8px 8px; border-bottom: 1px solid var(--pulse-separator); white-space: nowrap; }\n.pricing-table th:first-child { text-align: left; padding-left: 12px; }\n.pricing-table td { padding: 7px 8px; border-bottom: 1px solid var(--pulse-separator); text-align: right; vertical-align: middle; }\n.pricing-table tr:last-child td { border-bottom: 0; }\n.pricing-model-cell { text-align: left !important; padding-left: 12px !important; min-width: 170px; }\n.pricing-model-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.pricing-model-name { font-weight: 500; color: var(--pulse-foreground); }\n.pricing-badge { padding: 0 5px; border-radius: 999px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 14%, transparent); }\n.pricing-badge[hidden] { display: none; }\n.pricing-model-note { margin-top: 2px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); line-height: 1.35; }\n.pricing-num-input { width: 68px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); text-align: right; font-variant-numeric: tabular-nums; }\n.pricing-num-input:focus { outline: 2px solid var(--pulse-accent); outline-offset: -1px; background: var(--pulse-background); }\n.pricing-row-action { width: 54px; padding-right: 10px !important; }\n.pricing-row-reset { padding: 3px 7px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-row-reset:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }\n.pricing-modal-footer .modal-actions { margin-top: 0; }\n.pricing-reset-all { padding: 5px 10px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-reset-all:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-status { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: auto; }\n.pricing-status.is-error { color: var(--pulse-danger, #e5484d); }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-reassign-btn { flex: none; padding: 0 6px; height: 19px; line-height: 17px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); cursor: pointer; }\n.proj-reassign-btn:hover { color: var(--pulse-foreground); border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }\n.proj-reassign-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 7px 4px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-reassign-select { flex: 1; min-width: 120px; height: 24px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--pulse-border); background: var(--pulse-background); color: var(--pulse-foreground); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-action-btn.is-primary { background: var(--pulse-accent); border-color: var(--pulse-accent); color: #fff; }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .other-models:not([hidden]),\n  .hourly-content:not([hidden]) { animation: none !important; }\n  .bar-segment,\n  .proj-bar-fill,\n  .hourly-chevron,\n  .picker-chevron,\n  .year-chevron,\n  .proj-bar-caret,\n  .hourly-pt,\n  .proj-donut-seg { transition: opacity 100ms ease !important; }\n  .modal-layer,\n  .modal-card,\n  .tip { transition: opacity 90ms ease !important; }\n  .heat button { transition: background-color 140ms ease !important; }\n  button,\n  #usage-intro-done { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease !important; }\n  button:active,\n  #usage-intro-done:active,\n  .heat button:not(:disabled):hover,\n  .heat button:not(:disabled):focus-visible { transform: none !important; scale: none !important; }\n}\n';
 
     // src/ui/usage-modal/usage-sections.css
     var usage_sections_default = `:host {
@@ -427,6 +723,7 @@ module.exports = function createUsageDashboard(...args) {
   .metric label { color: var(--pulse-muted); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
   .value { font-size: calc(27px * var(--pulse-usage-font-scale, 1)); letter-spacing: -.9px; margin: 5px 0 0; font-weight: 550; font-variant-numeric: tabular-nums; }
   .unit { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 5px; font-weight: 400; letter-spacing: 0; }
+  .metric-cost { margin-top: 3px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; color: var(--pulse-success, var(--pulse-accent)); font-variant-numeric: tabular-nums; }
   .usage-waiting { display: grid; place-items: center; min-height: 260px; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }
   .usage-waiting[hidden] { display: none; }
 
@@ -512,7 +809,7 @@ module.exports = function createUsageDashboard(...args) {
     }
     var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;border-radius:18px;pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0}}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open])::backdrop{pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open::backdrop,#usage-dashboard[open]::backdrop{opacity:0}}@media(prefers-reduced-motion:no-preference){#usage-dashboard{scale:.98;transition:opacity 140ms ease,scale 150ms cubic-bezier(.2,.9,.3,1),display 150ms,overlay 150ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){scale:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0;scale:.975}}#usage-dashboard::backdrop{transition:opacity 140ms ease,display 140ms,overlay 140ms;transition-behavior:allow-discrete}}@media(max-width:640px){#usage-dashboard{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:12px}}@media(max-width:480px){#usage-dashboard{width:100vw;height:100dvh;border-radius:0;border-width:0}}";
     var DIALOG_STYLE = "box-sizing:border-box;overflow:hidden;visibility:visible;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
-    var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
+    var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="pricing-settings" type="button" class="pricing-trigger" aria-label="API pricing"><span>$</span></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div id="pricing-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
     var INTRO_MARKUP = '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
     function createDomNode(tag, className = "", content) {
       const n = document.createElement(tag);
@@ -662,23 +959,39 @@ module.exports = function createUsageDashboard(...args) {
       void dialog;
     }
     function renderKpiCards(ctx, value) {
-      const { $, w, compactNum, full } = ctx;
+      const { $, w, state, compactNum, full } = ctx;
       const totalsEl = $("totals");
       if (!totalsEl) return;
+      const periodCosts = summarizeSnapshotPeriodCosts(value, state.pricingOverrides);
       const kpis = [
-        [w("\u4ECA\u65E5\u7528\u91CF", "Today"), value.todayTokens],
-        [w("\u672C\u5468\u7528\u91CF", "This week"), value.weekTokens],
-        [w("\u672C\u6708\u7528\u91CF", "This month"), value.monthTokens],
-        [w("\u7D2F\u8BA1\u7528\u91CF", "All time"), value.totalTokens]
+        [w("\u4ECA\u65E5\u7528\u91CF", "Today"), value.todayTokens, periodCosts.today],
+        [w("\u672C\u5468\u7528\u91CF", "This week"), value.weekTokens, periodCosts.week],
+        [w("\u672C\u6708\u7528\u91CF", "This month"), value.monthTokens, periodCosts.month],
+        [w("\u7D2F\u8BA1\u7528\u91CF", "All time"), value.totalTokens, periodCosts.total]
       ];
+      const formatKpiCost = (total, cost) => {
+        if (total <= 0) return "$0.00";
+        if (cost.pricedTokens <= 0) return "\u2014";
+        return `${formatUsd(cost.costUsd, { approx: true })}${cost.hasUnpriced ? "+" : ""}`;
+      };
+      const buildKpiTitle = (total, cost) => {
+        const tokenPart = `${full(total)} Token`;
+        if (total <= 0) return `${tokenPart} \xB7 $0.00`;
+        if (cost.pricedTokens <= 0) {
+          return `${tokenPart} \xB7 ${w("\u6682\u65E0\u516C\u5F00\u5355\u4EF7\uFF08\u70B9\u51FB\u53F3\u4E0A\u89D2 $ \u53EF\u81EA\u5B9A\u4E49\uFF09", "Unpriced (click $ in header to configure)")}`;
+        }
+        const base = `${tokenPart} \xB7 ${w("\u7B49\u6548 API \u82B1\u8D39", "Est. API cost")} ${formatUsd(cost.costUsd, { precise: true })}`;
+        return cost.hasUnpriced ? `${base} (${w(`\u53E6\u542B ${compactNum(cost.unpricedTokens)} \u672A\u5B9A\u4EF7 Token`, `excludes ${compactNum(cost.unpricedTokens)} unpriced tokens`)})` : base;
+      };
       if (totalsEl.children.length !== 4) {
         totalsEl.replaceChildren(
-          ...kpis.map(([label, total]) => {
+          ...kpis.map(([label, total, cost]) => {
             const metric = createDomNode("div", "metric");
             const val = createDomNode("div", "value", compactNum(total));
             val.append(createDomNode("span", "unit", "Token"));
-            metric.append(createDomNode("label", "", label), val);
-            metric.title = `${full(total)} Token`;
+            const costNode = createDomNode("div", "metric-cost", formatKpiCost(total, cost));
+            metric.append(createDomNode("label", "", label), val, costNode);
+            metric.title = buildKpiTitle(total, cost);
             return metric;
           })
         );
@@ -686,7 +999,7 @@ module.exports = function createUsageDashboard(...args) {
       }
       [...totalsEl.children].forEach((node, idx) => {
         const metric = node;
-        const [label, total] = kpis[idx];
+        const [label, total, cost] = kpis[idx];
         const lbl = metric.querySelector("label");
         const val = metric.querySelector(".value");
         if (lbl && lbl.textContent !== label) lbl.textContent = label;
@@ -701,7 +1014,15 @@ module.exports = function createUsageDashboard(...args) {
         } else {
           val.replaceChildren(document.createTextNode(compactText), unit);
         }
-        const title = `${full(total)} Token`;
+        const costText = formatKpiCost(total, cost);
+        let costNode = metric.querySelector(".metric-cost");
+        if (!costNode) {
+          costNode = createDomNode("div", "metric-cost", costText);
+          metric.append(costNode);
+        } else if (costNode.textContent !== costText) {
+          costNode.textContent = costText;
+        }
+        const title = buildKpiTitle(total, cost);
         if (metric.title !== title) metric.title = title;
       });
     }
@@ -724,6 +1045,8 @@ module.exports = function createUsageDashboard(...args) {
       for (const metric of $("totals")?.children || []) {
         metric.title = "";
         metric.querySelector(".value")?.replaceChildren(createDomNode("span", "", "\u2014"));
+        const costNode = metric.querySelector(".metric-cost");
+        if (costNode) costNode.textContent = "\u2014";
       }
     }
     function renderSubtitle(ctx, hostLabel = ctx.options.hostLabel ?? "Antigravity") {
@@ -758,6 +1081,7 @@ module.exports = function createUsageDashboard(...args) {
       for (const [id, label] of [
         ["locale", w("\u5207\u6362\u5230\u82F1\u6587", "Switch to Chinese")],
         ["refresh", w("\u5237\u65B0\u7528\u91CF", "Refresh usage")],
+        ["pricing-settings", w("API \u5355\u4EF7\u8BBE\u7F6E", "API pricing settings")],
         ["font-settings", w("\u5B57\u4F53\u5927\u5C0F\u8BBE\u7F6E", "Font size settings")],
         ["close", w("\u5173\u95ED", "Close")]
       ]) {
@@ -1118,6 +1442,9 @@ module.exports = function createUsageDashboard(...args) {
     function createEmptyBucket() {
       return { total: 0, requests: 0, uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
     }
+    function createEmptyCostBucket() {
+      return { costUsd: 0, pricedTokens: 0, unpricedTokens: 0 };
+    }
     var UsageDayIndex = class {
       dayMap = /* @__PURE__ */ new Map();
       sortedDays = [];
@@ -1150,11 +1477,16 @@ module.exports = function createUsageDashboard(...args) {
       totals(from, to, query, filter = false) {
         const models = {};
         const modelVariants = {};
+        const modelCosts = {};
+        const variantCosts = {};
         const users = {};
         const projects = {};
         let legacyTokens = 0;
         let total = 0;
         let requests = 0;
+        let costUsd = 0;
+        let pricedTokens = 0;
+        let unpricedTokens = 0;
         if (query.dimension === "project") {
           const accumProj = (day) => {
             if (!day) return;
@@ -1182,7 +1514,22 @@ module.exports = function createUsageDashboard(...args) {
               accumProj(day);
             }
           }
-          return { from, to, models, modelVariants, users, projects, legacyTokens, total, requests };
+          return {
+            from,
+            to,
+            models,
+            modelVariants,
+            modelCosts,
+            variantCosts,
+            users,
+            projects,
+            legacyTokens,
+            total,
+            requests,
+            costUsd: 0,
+            pricedTokens: 0,
+            unpricedTokens: total
+          };
         }
         const accum = (day) => {
           if (!day) return;
@@ -1192,14 +1539,36 @@ module.exports = function createUsageDashboard(...args) {
             if (filter && query.dimension === "model" && query.disabledModels.has(key)) continue;
             const m = models[key] ??= createEmptyBucket();
             for (const k of COUNT_KEYS) m[k] += r[k] || 0;
+            const rowCost = calculateBucketCost(rawModel, r, day.date, query.pricingOverrides);
+            const mc = modelCosts[key] ??= createEmptyCostBucket();
+            if (rowCost === null) {
+              mc.unpricedTokens += r.total || 0;
+            } else {
+              mc.costUsd += rowCost;
+              mc.pricedTokens += r.total || 0;
+            }
             if (query.dimension === "model") {
               const gv = modelVariants[key] ??= {};
               const v = gv[rawModel] ??= createEmptyBucket();
               for (const k of COUNT_KEYS) v[k] += r[k] || 0;
-            }
-            if (query.dimension === "model") {
+              const gvc = variantCosts[key] ??= {};
+              const vc = gvc[rawModel] ??= createEmptyCostBucket();
+              if (rowCost === null) {
+                vc.unpricedTokens += r.total || 0;
+              } else {
+                vc.costUsd += rowCost;
+                vc.pricedTokens += r.total || 0;
+              }
               total += r.total || 0;
               requests += r.requests || 0;
+            }
+            if (query.dimension === "model" || !(filter && query.disabledUsers.size > 0)) {
+              if (rowCost === null) {
+                unpricedTokens += r.total || 0;
+              } else {
+                costUsd += rowCost;
+                pricedTokens += r.total || 0;
+              }
             }
           }
           for (const [u, r] of Object.entries(day.users || {})) {
@@ -1233,7 +1602,21 @@ module.exports = function createUsageDashboard(...args) {
             accum(day);
           }
         }
-        return { from, to, models, modelVariants, users, legacyTokens, total, requests };
+        return {
+          from,
+          to,
+          models,
+          modelVariants,
+          modelCosts,
+          variantCosts,
+          users,
+          legacyTokens,
+          total,
+          requests,
+          costUsd,
+          pricedTokens,
+          unpricedTokens
+        };
       }
       aggregateHourlyRange(start, end) {
         const hours = Array(24).fill(0);
@@ -1457,8 +1840,13 @@ module.exports = function createUsageDashboard(...args) {
           requests: 0,
           models: {},
           modelVariants: {},
+          modelCosts: {},
+          variantCosts: {},
           users: {},
-          legacyTokens: 0
+          legacyTokens: 0,
+          costUsd: 0,
+          pricedTokens: 0,
+          unpricedTokens: 0
         };
         const bar = svgEl("rect", { x: (p.x - wPlot / 46).toFixed(1), y: padT, width: (wPlot / 23).toFixed(1), height: hPlot, fill: "transparent", class: "hourly-hover", "data-h": p.hour, "data-v": p.val });
         bar.style.cursor = "pointer";
@@ -1652,6 +2040,18 @@ module.exports = function createUsageDashboard(...args) {
           }
         }
       }) : null;
+      const applyPricingOverrides = (raw) => {
+        const next = sanitizePricingOverrides(raw);
+        const prevJson = JSON.stringify(state.pricingOverrides);
+        const nextJson = JSON.stringify(next);
+        if (prevJson === nextJson) return false;
+        state.pricingOverrides = next;
+        return true;
+      };
+      const initPricing = options.initialPreferences && !("error" in options.initialPreferences) && "modelPricingOverrides" in options.initialPreferences ? options.initialPreferences.modelPricingOverrides : void 0;
+      if (initPricing !== void 0) {
+        state.pricingOverrides = sanitizePricingOverrides(initPricing);
+      }
       let prefsLoaded = Boolean(options.initialPreferences && !("error" in options.initialPreferences));
       const loadPreferencesIfNeeded = () => {
         fontPopover?.localize();
@@ -1663,7 +2063,9 @@ module.exports = function createUsageDashboard(...args) {
           if (state.disposed || !prefs || typeof prefs !== "object" || "error" in prefs) return;
           fontPopover?.sync(prefs);
           applyUsageFontScale(prefs.usageFontScale);
+          const pricingChanged = applyPricingOverrides(prefs.modelPricingOverrides);
           options.onPreferencesSaved?.(prefs);
+          if (pricingChanged && state.value && dialog.open) render();
         }).catch(() => {
           prefsLoaded = false;
         });
@@ -1878,6 +2280,9 @@ module.exports = function createUsageDashboard(...args) {
           prefsLoaded = true;
           fontPopover?.sync(prefs);
           if ("usageFontScale" in prefs) applyUsageFontScale(prefs.usageFontScale);
+          if (("modelPricingOverrides" in prefs || "revision" in prefs) && applyPricingOverrides(prefs.modelPricingOverrides)) {
+            if (state.value && dialog.open) render();
+          }
         },
         closeSubPopovers,
         loadPreferencesIfNeeded,
@@ -1925,8 +2330,10 @@ module.exports = function createUsageDashboard(...args) {
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopImmediatePropagation();
+          const pricingModal = $("pricing-modal");
           const manualModal = $("manual-modal");
-          if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
+          if (pricingModal && !pricingModal.hidden) handlers.onClosePricingModal?.();
+          else if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
           else if (handlers.onIsYearOpen()) handlers.onCloseYear();
           else if (handlers.onCloseSubPopovers?.()) return;
           else close();
@@ -2008,7 +2415,11 @@ module.exports = function createUsageDashboard(...args) {
         if (!state.value) return;
         const bucket = state.selected || dayIndex.totals(state.value.today, state.value.today, getQuery());
         text("selection-title", bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`);
-        text("selection-value", `${full(bucket.total)} Token \xB7 ${w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`)}`);
+        const costPart = bucket.pricedTokens > 0 ? ` \xB7 ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? "+" : ""}` : "";
+        text(
+          "selection-value",
+          `${full(bucket.total)} Token${costPart} \xB7 ${w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`)}`
+        );
       };
       const syncYear = () => {
         text("year-label", String(state.year));
@@ -2145,7 +2556,14 @@ module.exports = function createUsageDashboard(...args) {
         $("weekdays")?.replaceChildren(weekdaysFrag);
         text("heat-sub", state.heatMode === "day" ? w("\u6BCF\u683C\u4EE3\u8868\u4E00\u5929", "Each square is one day") : w("\u6BCF\u683C\u4EE3\u8868\u4E00\u5468 \xB7 \u5468\u4E00\u5F00\u59CB", "Each square is one week \xB7 starts Monday"));
         const annual = dayIndex.totals(`${state.year}-01-01`, `${state.year}-12-31`, query);
-        text("heat-summary", w(`${state.year} \u5E74 \xB7 ${full(annual.total)} Token`, `${state.year} \xB7 ${full(annual.total)} tokens`));
+        const annualCost = annual.pricedTokens > 0 ? ` \xB7 ${formatUsd(annual.costUsd, { approx: true })}${annual.unpricedTokens > 0 ? "+" : ""}` : "";
+        text(
+          "heat-summary",
+          w(
+            `${state.year} \u5E74 \xB7 ${full(annual.total)} Token${annualCost}`,
+            `${state.year} \xB7 ${full(annual.total)} tokens${annualCost}`
+          )
+        );
         for (const b of view.querySelectorAll("[data-heat]")) {
           b.setAttribute("aria-pressed", String(b.dataset.heat === state.heatMode));
         }
@@ -2373,6 +2791,262 @@ module.exports = function createUsageDashboard(...args) {
         }
       });
       return { closeManualModal };
+    }
+
+    // src/ui/usage-modal/pricing-modal.ts
+    var RATE_EPSILON = 1e-6;
+    function ratesMatch(a, b) {
+      return Math.abs(a.input - b.input) < RATE_EPSILON && Math.abs(a.cacheRead - b.cacheRead) < RATE_EPSILON && Math.abs((a.cacheWrite ?? a.input) - (b.cacheWrite ?? b.input)) < RATE_EPSILON && Math.abs(a.output - b.output) < RATE_EPSILON;
+    }
+    function formatRateInput(value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return "0";
+      return String(Number(value.toFixed(4)));
+    }
+    function parseRateInput(raw) {
+      const trimmed = raw.trim();
+      if (!trimmed) return 0;
+      const num = Number(trimmed);
+      if (!Number.isFinite(num) || num < 0 || num > 1e4) return null;
+      return Math.round(num * 1e4) / 1e4;
+    }
+    function bindPricingModal(ctx, onChanged) {
+      const { $, state, options, w, zh } = ctx;
+      const modal = $("pricing-modal");
+      let saving = false;
+      const isOpen = () => Boolean(modal && !modal.hidden);
+      const close = (restore = true) => {
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        if (restore) $("pricing-settings")?.focus({ preventScroll: true });
+      };
+      let rowControls = [];
+      const renderModalContent = () => {
+        if (!modal) return;
+        const knownModels = new Set(state.value?.models || []);
+        for (const day of state.value?.days || []) {
+          for (const m of Object.keys(day.models || {})) knownModels.add(m);
+        }
+        const rows = listConfigurablePricingRows(
+          [...knownModels],
+          state.pricingOverrides,
+          state.value?.today || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
+        );
+        rowControls = [];
+        const card = createDomNode("div", "modal-card pricing-modal-card");
+        const title = createDomNode("h3", "modal-title", w("API \u53C2\u8003\u5355\u4EF7\u8BBE\u7F6E", "API Reference Pricing"));
+        const desc = createDomNode(
+          "p",
+          "pricing-desc",
+          w(
+            "\u5355\u4F4D\uFF1A\u7F8E\u5143 / 100 \u4E07 Token\uFF08Global \u53E3\u5F84\uFF0C\u601D\u8003 Token \u6309\u8F93\u51FA\u8BA1\uFF09\u3002\u5185\u7F6E\u4F18\u60E0\u671F\u6A21\u578B\u6309\u8BF7\u6C42\u65E5\u671F\u81EA\u52A8\u5207\u4EF7\uFF1B\u624B\u52A8\u6539\u4EF7\u540E\u5373\u65F6\u751F\u6548\u5E76\u672C\u5730\u4FDD\u5B58\u3002",
+            "USD per 1M tokens (Global standard; thinking tokens billed as output). Built-in promo models switch rates automatically by date; custom overrides apply immediately."
+          )
+        );
+        const form = createDomNode("form", "pricing-form");
+        const tableWrap = createDomNode("div", "pricing-table-wrap");
+        const table = createDomNode("table", "pricing-table");
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        for (const colLabel of [
+          w("\u6A21\u578B", "Model"),
+          w("\u8F93\u5165", "Input"),
+          w("\u7F13\u5B58\u8BFB", "Cache read"),
+          w("\u7F13\u5B58\u5199", "Cache write"),
+          w("\u8F93\u51FA", "Output"),
+          ""
+        ]) {
+          headRow.append(createDomNode("th", "", colLabel));
+        }
+        thead.append(headRow);
+        table.append(thead);
+        const tbody = document.createElement("tbody");
+        const makeNumInput = (val, ariaLabel) => {
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = "0";
+          input.max = "10000";
+          input.step = "any";
+          input.className = "pricing-num-input";
+          input.value = formatRateInput(val);
+          input.setAttribute("aria-label", ariaLabel);
+          return input;
+        };
+        for (const row of rows) {
+          const tr = document.createElement("tr");
+          const nameTd = createDomNode("td", "pricing-model-cell");
+          const nameRow = createDomNode("div", "pricing-model-name-row");
+          nameRow.append(createDomNode("span", "pricing-model-name", row.label));
+          const badgeEl = createDomNode(
+            "span",
+            "pricing-badge",
+            row.isOverridden ? w("\u81EA\u5B9A\u4E49", "Custom") : row.builtin ? "" : w("\u672A\u5B9A\u4EF7", "Unpriced")
+          );
+          badgeEl.hidden = !badgeEl.textContent;
+          nameRow.append(badgeEl);
+          nameTd.append(nameRow);
+          const noteText = zh() ? row.noteZh : row.noteEn;
+          if (noteText) {
+            nameTd.append(createDomNode("div", "pricing-model-note", noteText));
+          }
+          const inputEl = makeNumInput(row.effectiveRates.input, `${row.label} ${w("\u8F93\u5165\u5355\u4EF7", "input rate")}`);
+          const cacheReadEl = makeNumInput(row.effectiveRates.cacheRead, `${row.label} ${w("\u7F13\u5B58\u8BFB\u5355\u4EF7", "cache read rate")}`);
+          const cacheWriteEl = makeNumInput(
+            row.effectiveRates.cacheWrite ?? row.effectiveRates.input,
+            `${row.label} ${w("\u7F13\u5B58\u5199\u5355\u4EF7", "cache write rate")}`
+          );
+          const outputEl = makeNumInput(row.effectiveRates.output, `${row.label} ${w("\u8F93\u51FA\u5355\u4EF7", "output rate")}`);
+          const actionTd = createDomNode("td", "pricing-row-action");
+          const resetBtn = createDomNode(
+            "button",
+            "pricing-row-reset",
+            row.builtin ? w("\u6062\u590D", "Reset") : w("\u6E05\u9664", "Clear")
+          );
+          resetBtn.type = "button";
+          resetBtn.disabled = !row.isOverridden;
+          const syncRowBadge = () => {
+            const curIn = parseRateInput(inputEl.value);
+            const curRd = parseRateInput(cacheReadEl.value);
+            const curWr = parseRateInput(cacheWriteEl.value);
+            const curOut = parseRateInput(outputEl.value);
+            if (curIn === null || curRd === null || curWr === null || curOut === null) return;
+            const cur = { input: curIn, cacheRead: curRd, cacheWrite: curWr, output: curOut };
+            if (row.defaultRates) {
+              const modified = !ratesMatch(cur, row.defaultRates);
+              badgeEl.textContent = modified ? w("\u81EA\u5B9A\u4E49", "Custom") : "";
+              badgeEl.hidden = !modified;
+              resetBtn.disabled = !modified;
+            } else {
+              const hasAny = curIn > 0 || curRd > 0 || curWr > 0 || curOut > 0;
+              badgeEl.textContent = hasAny ? w("\u81EA\u5B9A\u4E49", "Custom") : w("\u672A\u5B9A\u4EF7", "Unpriced");
+              badgeEl.hidden = false;
+              resetBtn.disabled = !hasAny;
+            }
+          };
+          for (const el2 of [inputEl, cacheReadEl, cacheWriteEl, outputEl]) {
+            el2.addEventListener("input", syncRowBadge);
+          }
+          resetBtn.addEventListener("click", () => {
+            const target = row.defaultRates ?? { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+            inputEl.value = formatRateInput(target.input);
+            cacheReadEl.value = formatRateInput(target.cacheRead);
+            cacheWriteEl.value = formatRateInput(target.cacheWrite ?? target.input);
+            outputEl.value = formatRateInput(target.output);
+            syncRowBadge();
+          });
+          const wrapTd = (input) => {
+            const td = document.createElement("td");
+            td.append(input);
+            return td;
+          };
+          actionTd.append(resetBtn);
+          tr.append(
+            nameTd,
+            wrapTd(inputEl),
+            wrapTd(cacheReadEl),
+            wrapTd(cacheWriteEl),
+            wrapTd(outputEl),
+            actionTd
+          );
+          tbody.append(tr);
+          rowControls.push({ row, inputEl, cacheReadEl, cacheWriteEl, outputEl, badgeEl, resetBtn });
+        }
+        table.append(tbody);
+        tableWrap.append(table);
+        const statusEl = createDomNode("span", "pricing-status");
+        statusEl.setAttribute("role", "status");
+        const footer = createDomNode("div", "pricing-modal-footer");
+        const resetAllBtn = createDomNode("button", "pricing-reset-all", w("\u5168\u90E8\u6062\u590D\u5B98\u65B9\u9ED8\u8BA4", "Reset all defaults"));
+        resetAllBtn.type = "button";
+        resetAllBtn.disabled = Object.keys(state.pricingOverrides || {}).length === 0;
+        const actions = createDomNode("div", "modal-actions");
+        const cancelBtn = createDomNode("button", "", w("\u53D6\u6D88", "Cancel"));
+        cancelBtn.type = "button";
+        const saveBtn = createDomNode("button", "btn-primary", w("\u4FDD\u5B58\u5355\u4EF7", "Save rates"));
+        saveBtn.type = "submit";
+        actions.append(cancelBtn, saveBtn);
+        footer.append(resetAllBtn, statusEl, actions);
+        const persistOverrides = async (nextOverrides, closeAfter) => {
+          if (saving) return;
+          saving = true;
+          saveBtn.disabled = true;
+          resetAllBtn.disabled = true;
+          statusEl.textContent = w("\u4FDD\u5B58\u4E2D\u2026", "Saving\u2026");
+          statusEl.classList.remove("is-error");
+          const cleaned = sanitizePricingOverrides(nextOverrides);
+          const bridge = resolveUsageBridge(options);
+          try {
+            if (typeof bridge?.setPreferences === "function") {
+              const saved = await bridge.setPreferences({ modelPricingOverrides: cleaned });
+              if (saved && typeof saved === "object" && "error" in saved) {
+                throw new Error(saved.error);
+              }
+              if (saved && typeof saved === "object") {
+                state.pricingOverrides = sanitizePricingOverrides(saved.modelPricingOverrides);
+                options.onPreferencesSaved?.(saved);
+              } else {
+                state.pricingOverrides = cleaned;
+              }
+            } else {
+              state.pricingOverrides = cleaned;
+            }
+            onChanged();
+            if (closeAfter) {
+              close();
+            } else {
+              renderModalContent();
+            }
+          } catch {
+            statusEl.textContent = w("\u5355\u4EF7\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002", "Could not save pricing rates.");
+            statusEl.classList.add("is-error");
+          } finally {
+            saving = false;
+            saveBtn.disabled = false;
+            resetAllBtn.disabled = Object.keys(state.pricingOverrides || {}).length === 0;
+          }
+        };
+        cancelBtn.addEventListener("click", () => close());
+        resetAllBtn.addEventListener("click", () => {
+          void persistOverrides({}, false);
+        });
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const nextOverrides = {};
+          for (const ctrl of rowControls) {
+            const input = parseRateInput(ctrl.inputEl.value);
+            const cacheRead = parseRateInput(ctrl.cacheReadEl.value);
+            const cacheWrite = parseRateInput(ctrl.cacheWriteEl.value);
+            const output = parseRateInput(ctrl.outputEl.value);
+            if (input === null || cacheRead === null || cacheWrite === null || output === null) {
+              statusEl.textContent = w("\u5355\u4EF7\u9700\u4E3A 0\uFF5E10000 \u4E4B\u95F4\u7684\u6709\u6548\u6570\u5B57\u3002", "Rates must be valid numbers between 0 and 10000.");
+              statusEl.classList.add("is-error");
+              return;
+            }
+            const rates = { input, cacheRead, cacheWrite, output };
+            if (ctrl.row.defaultRates) {
+              if (!ratesMatch(rates, ctrl.row.defaultRates)) {
+                nextOverrides[ctrl.row.key] = rates;
+              }
+            } else if (input > 0 || cacheRead > 0 || cacheWrite > 0 || output > 0) {
+              nextOverrides[ctrl.row.key] = rates;
+            }
+          }
+          void persistOverrides(nextOverrides, true);
+        });
+        form.append(tableWrap, footer);
+        card.append(title, desc, form);
+        modal.replaceChildren(card);
+      };
+      const open = () => {
+        if (!modal) return;
+        renderModalContent();
+        modal.hidden = false;
+        rowControls[0]?.inputEl.focus({ preventScroll: true });
+      };
+      $("pricing-settings")?.addEventListener("click", open);
+      modal?.addEventListener("click", (event) => {
+        if (event.target === modal) close();
+      });
+      return { open, close, isOpen };
     }
 
     // src/ui/shared/model-donut.ts
@@ -3095,8 +3769,11 @@ module.exports = function createUsageDashboard(...args) {
       const query = getQuery();
       const activeTotals = state.selectedBar ? dayIndex.totals(state.selectedBar.from, state.selectedBar.to, query, true) : dayIndex.totals(state.currentBuckets[0].from, state.currentBuckets.at(-1).to, query, true);
       const rangeLabelStr = state.selectedBar ? state.selectedBar.from === state.selectedBar.to ? state.selectedBar.from : `${state.selectedBar.from} \u2013 ${state.selectedBar.to}` : "";
+      const showSummaryCost = state.dimension !== "project" && (activeTotals.pricedTokens > 0 || activeTotals.total === 0) && !(state.dimension === "user" && state.disabledUsers.size > 0);
+      const summaryCostText = showSummaryCost ? ` \xB7 ${formatUsd(activeTotals.costUsd, { approx: true })}${activeTotals.unpricedTokens > 0 ? "+" : ""}` : "";
       chartSummary.replaceChildren(
         createDomNode("strong", "", `${compactNum(activeTotals.total)} Token`),
+        ...summaryCostText ? [createDomNode("strong", "cost-inline", summaryCostText)] : [],
         document.createTextNode(
           ` \xB7 ${w(`${full(activeTotals.requests)} \u6B21\u8BF7\u6C42`, `${full(activeTotals.requests)} requests`)}${rangeLabelStr ? ` \xB7 ${rangeLabelStr}` : ""}`
         )
@@ -3230,10 +3907,27 @@ module.exports = function createUsageDashboard(...args) {
           bodyFrag.append(row);
         }
       } else if (state.modelViewMode === "detailed") {
+        const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+        const makeCostTd = (costBucket, totalTokens, sampleModel) => {
+          const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
+          const text = totalTokens <= 0 ? "$0.00" : hasPriced ? `${formatUsd(costBucket.costUsd)}${costBucket.unpricedTokens > 0 ? "+" : ""}` : "\u2014";
+          const td = createDomNode("td", hasPriced || totalTokens <= 0 ? "cost-cell" : "cost-cell muted", text);
+          const pricing = resolveModelPricing(sampleModel, activeToDate, state.pricingOverrides);
+          if (pricing) {
+            const rateText = formatRateSummary(pricing.rates, ctx.zh());
+            const exact = hasPriced ? `${formatUsd(costBucket.costUsd, { precise: true })} \xB7 ` : "";
+            const note = ctx.zh() ? pricing.noteZh : pricing.noteEn;
+            td.title = `${exact}${rateText}${note ? ` (${note})` : ""}`;
+          } else {
+            td.title = w("\u672A\u6536\u5F55\u516C\u5F00\u5355\u4EF7\uFF0C\u53EF\u70B9\u51FB\u53F3\u4E0A\u89D2 $ \u81EA\u5B9A\u4E49", "No built-in rate; click $ in header to configure");
+          }
+          return td;
+        };
         tableHead.replaceChildren(
           ...[
             w("\u6A21\u578B", "Model"),
             w("\u603B Token", "Total tokens"),
+            w("\u7B49\u6548\u82B1\u8D39", "Est. cost"),
             w("\u672A\u7F13\u5B58\u8F93\u5165", "Uncached input"),
             w("\u7F13\u5B58\u8BFB\u53D6", "Cache read"),
             w("\u7F13\u5B58\u5199\u5165", "Cache write"),
@@ -3248,15 +3942,34 @@ module.exports = function createUsageDashboard(...args) {
           label.append(dot, document.createTextNode(formatModelName(model)));
           row.append(
             label,
-            ...[r.total, r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode("td", "", full(n)))
+            createDomNode("td", "", full(r.total)),
+            makeCostTd(activeTotals.modelCosts?.[model], r.total, model),
+            ...[r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode("td", "", full(n)))
           );
           bodyFrag.append(row);
         }
       } else {
+        const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+        const makeCostTd = (costBucket, totalTokens, sampleModel) => {
+          const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
+          const text = totalTokens <= 0 ? "$0.00" : hasPriced ? `${formatUsd(costBucket.costUsd)}${costBucket.unpricedTokens > 0 ? "+" : ""}` : "\u2014";
+          const td = createDomNode("td", hasPriced || totalTokens <= 0 ? "cost-cell" : "cost-cell muted", text);
+          const pricing = resolveModelPricing(sampleModel, activeToDate, state.pricingOverrides);
+          if (pricing) {
+            const rateText = formatRateSummary(pricing.rates, ctx.zh());
+            const exact = hasPriced ? `${formatUsd(costBucket.costUsd, { precise: true })} \xB7 ` : "";
+            const note = ctx.zh() ? pricing.noteZh : pricing.noteEn;
+            td.title = `${exact}${rateText}${note ? ` (${note})` : ""}`;
+          } else {
+            td.title = w("\u672A\u6536\u5F55\u516C\u5F00\u5355\u4EF7\uFF0C\u53EF\u70B9\u51FB\u53F3\u4E0A\u89D2 $ \u81EA\u5B9A\u4E49", "No built-in rate; click $ in header to configure");
+          }
+          return td;
+        };
         tableHead.replaceChildren(
           ...[
             w("\u6A21\u578B", "Model"),
             w("\u603B Token", "Total tokens"),
+            w("\u7B49\u6548\u82B1\u8D39", "Est. cost"),
             w("\u672A\u7F13\u5B58\u8F93\u5165", "Uncached input"),
             w("\u7F13\u5B58\u8BFB\u53D6", "Cache read"),
             w("\u7F13\u5B58\u5199\u5165", "Cache write"),
@@ -3300,9 +4013,12 @@ module.exports = function createUsageDashboard(...args) {
             createDomNode("span", "model-variant-count", countText),
             chevron
           );
+          const sampleModel = variants[0]?.[0] || groupKey;
           row.append(
             label,
-            ...[r.total, r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode("td", "", full(n)))
+            createDomNode("td", "", full(r.total)),
+            makeCostTd(activeTotals.modelCosts?.[groupKey], r.total, sampleModel),
+            ...[r.uncached, r.cacheRead, r.cacheWrite, r.output].map((n) => createDomNode("td", "", full(n)))
           );
           bodyFrag.append(row);
           if (isExpanded) {
@@ -3319,7 +4035,9 @@ module.exports = function createUsageDashboard(...args) {
               );
               vRow.append(
                 vLabel,
-                ...[vr.total, vr.uncached, vr.cacheRead, vr.cacheWrite, vr.output].map((n) => createDomNode("td", "", full(n)))
+                createDomNode("td", "", full(vr.total)),
+                makeCostTd(activeTotals.variantCosts?.[groupKey]?.[rawModel], vr.total, rawModel),
+                ...[vr.uncached, vr.cacheRead, vr.cacheWrite, vr.output].map((n) => createDomNode("td", "", full(n)))
               );
               bodyFrag.append(vRow);
             }
@@ -3657,10 +4375,12 @@ module.exports = function createUsageDashboard(...args) {
         tipTarget = target;
         tipItem = activeItem;
         highlightItem(activeItem);
+        const showBucketCost = bucket.pricedTokens > 0 && (state.tab === "overview" || state.dimension === "model" || state.dimension === "user" && state.disabledUsers.size === 0);
+        const costMeta = showBucketCost ? ` \xB7 ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? "+" : ""}` : "";
         tip.replaceChildren(
           createDomNode("div", "tip-title", bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`),
           createDomNode("strong", "", `${full(bucket.total)} Token`),
-          createDomNode("div", "muted", w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`))
+          createDomNode("div", "muted", `${w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`)}${costMeta}`)
         );
         if (state.dimension === "project") {
           const projName = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p.name]));
@@ -3695,7 +4415,9 @@ module.exports = function createUsageDashboard(...args) {
             const dot = createDomNode("i", "dot");
             dot.style.setProperty("--model-color", palette.modelColor(model, state.modelViewMode));
             label.append(dot, document.createTextNode(modelLabel(model, state.modelViewMode)));
-            const amount = createDomNode("span", "", compactNum(r2.total));
+            const mCost = bucket.modelCosts?.[model];
+            const costSuffix = mCost && mCost.pricedTokens > 0 ? ` \xB7 ${formatUsd(mCost.costUsd)}` : "";
+            const amount = createDomNode("span", "", `${compactNum(r2.total)}${costSuffix}`);
             amount.append(createDomNode("span", "model-share", bucket.total ? `${(r2.total / bucket.total * 100).toFixed(1)}%` : "0%"));
             row.append(label, amount);
             tip.append(row);
@@ -3781,7 +4503,10 @@ module.exports = function createUsageDashboard(...args) {
         guideError: false,
         guideSignature: null,
         lastManualSig: "",
-        lastAccQueryKey: ""
+        lastAccQueryKey: "",
+        pricingOverrides: sanitizePricingOverrides(
+          options.initialPreferences && !("error" in options.initialPreferences) && "modelPricingOverrides" in options.initialPreferences ? options.initialPreferences.modelPricingOverrides : void 0
+        )
       };
       const { dialog, backdrop, context: ctx } = mountUsageDomShell(options, state);
       const { $ } = ctx;
@@ -3792,7 +4517,8 @@ module.exports = function createUsageDashboard(...args) {
         modelViewMode: state.modelViewMode,
         disabledModels: state.disabledModels,
         disabledUsers: state.disabledUsers,
-        disabledProjects: state.disabledProjects
+        disabledProjects: state.disabledProjects,
+        pricingOverrides: state.pricingOverrides
       });
       const tooltip = createTooltipController(ctx, palette);
       const heatmap = createHeatmapController(ctx, dayIndex, tooltip, getQuery);
@@ -3907,6 +4633,7 @@ module.exports = function createUsageDashboard(...args) {
         onProjectDrilldown: syncProjectDetailToActiveRange
       });
       const manual = bindManualModal(ctx);
+      let pricingModal;
       bindAccountSwitcher(ctx);
       const focusTrap = createFocusTrap(ctx, {
         onCloseYear: (restore) => heatmap.closeYear(restore),
@@ -3920,7 +4647,8 @@ module.exports = function createUsageDashboard(...args) {
           if (events?.closeSubPopovers()) closed = true;
           return closed;
         },
-        onCloseManualModal: (restore) => manual.closeManualModal(restore)
+        onCloseManualModal: (restore) => manual.closeManualModal(restore),
+        onClosePricingModal: (restore) => pricingModal.close(restore)
       });
       const render = () => {
         renderOnboardingGuide(ctx, palette);
@@ -3941,6 +4669,10 @@ module.exports = function createUsageDashboard(...args) {
         if (state.tab === "overview") heatmap.renderHeat();
         else chart.renderChart();
       };
+      pricingModal = bindPricingModal(ctx, () => {
+        state.lastKey = "";
+        if (state.value && dialog.open) render();
+      });
       events = bindUsageModalEvents(ctx, options, {
         palette,
         dayIndex,
@@ -3949,7 +4681,12 @@ module.exports = function createUsageDashboard(...args) {
         chart,
         render
       });
-      const contentKey = (data) => JSON.stringify([{ ...data, updatedAt: void 0 }, options.language.language, palette.themeSignature(options.root.host)]);
+      const contentKey = (data) => JSON.stringify([
+        { ...data, updatedAt: void 0 },
+        options.language.language,
+        palette.themeSignature(options.root.host),
+        state.pricingOverrides
+      ]);
       const themeObserver = new MutationObserver(() => {
         if (!state.disposed && state.value && dialog.open) {
           const key = contentKey(state.value);

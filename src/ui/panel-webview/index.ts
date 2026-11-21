@@ -557,6 +557,7 @@ function initPanel(): void {
         if (state.snapshot?.usage) localUsage?.update(state.snapshot.usage);
       },
       onPreferencesSaved: (saved) => {
+        if (state.snapshot && !('error' in saved)) state.snapshot.preferences = saved;
         ctx.preferences.sync(saved);
         ctx.settingsPopover?.syncPreferences(saved);
         if ('sidebarFontScale' in saved) {

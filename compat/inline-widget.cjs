@@ -46,7 +46,8 @@ module.exports = function installAgPulseInlineWidget(...args) {
       "usageGuideDismissed",
       "modelTimelineEnabled",
       "debugLaunchEnabled",
-      ...FONT_SCALE_KEYS
+      ...FONT_SCALE_KEYS,
+      "modelPricingOverrides"
     ];
 
     // src/shared/dom.ts
@@ -1669,6 +1670,217 @@ module.exports = function installAgPulseInlineWidget(...args) {
       return String(value);
     }
 
+    // src/shared/model-pricing.ts
+    var ONE_MILLION = 1e6;
+    var BUILTIN_MODEL_PRICING = [
+      {
+        key: "gemini-4-neon",
+        label: "Gemini 4 Neon",
+        rates: { input: 3, cacheRead: 0.15, cacheWrite: 3.75, output: 15 }
+      },
+      {
+        key: "gemini-4-carbon",
+        label: "Gemini 4 Carbon",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2, output: 10 },
+        schedule: [
+          {
+            effectiveFrom: "2026-12-01",
+            rates: { input: 4, cacheRead: 0.2, cacheWrite: 4, output: 20 }
+          }
+        ],
+        noteZh: "11/30 \u524D\u4F18\u60E0\u4EF7 $2/$10\uFF0C12/1 \u8D77\u6807\u51C6\u4EF7 $4/$20",
+        noteEn: "Intro $2/$10 through Nov 30; $4/$20 from Dec 1"
+      },
+      {
+        key: "gemini-4-argon",
+        label: "Gemini 4 Argon",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2, output: 10 },
+        schedule: [
+          {
+            effectiveFrom: "2026-12-01",
+            rates: { input: 4, cacheRead: 0.2, cacheWrite: 4, output: 20 }
+          }
+        ],
+        noteZh: "11/30 \u524D\u4F18\u60E0\u4EF7 $2/$10\uFF0C12/1 \u8D77\u6807\u51C6\u4EF7 $4/$20",
+        noteEn: "Intro $2/$10 through Nov 30; $4/$20 from Dec 1"
+      },
+      {
+        key: "gemini-4-hydrogen",
+        label: "Gemini 4 Hydrogen",
+        rates: { input: 1.5, cacheRead: 0.075, cacheWrite: 1.5, output: 7.5 }
+      },
+      {
+        key: "gemini-3.8-flash",
+        label: "Gemini 3.8 Flash",
+        rates: { input: 0.75, cacheRead: 0.075, cacheWrite: 0.75, output: 3.75 },
+        schedule: [
+          {
+            effectiveFrom: "2027-01-01",
+            rates: { input: 1.5, cacheRead: 0.15, cacheWrite: 1.5, output: 7.5 }
+          }
+        ],
+        noteZh: "2026 \u5E74\u5E95\u524D\u4F18\u60E0\u4EF7 $0.75/$3.75\uFF0C2027/1/1 \u8D77 $1.5/$7.5",
+        noteEn: "Intro $0.75/$3.75 through Dec 31; $1.5/$7.5 from Jan 1"
+      },
+      {
+        key: "gemini-3.5-flash-lite",
+        label: "Gemini 3.5 Flash Lite",
+        rates: { input: 0.3, cacheRead: 0.03, cacheWrite: 0.3, output: 2.5 }
+      },
+      {
+        key: "claude-opus-5.5",
+        label: "Claude Opus 5.5",
+        rates: { input: 4, cacheRead: 0.2, cacheWrite: 5, output: 20 }
+      },
+      {
+        key: "claude-sonnet-5.5",
+        label: "Claude Sonnet 5.5",
+        rates: { input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10 }
+      },
+      {
+        key: "gpt-oss-120b",
+        label: "GPT-OSS 120B",
+        rates: { input: 0.15, cacheRead: 0.075, cacheWrite: 0.15, output: 0.6 },
+        noteZh: "\u5F00\u6E90\u6743\u91CD\u6A21\u578B\uFF0C\u53C2\u8003\u4E3B\u6D41\u6258\u7BA1\u57FA\u51C6\u4EF7",
+        noteEn: "Open-weight baseline reference rate"
+      }
+    ];
+    var BUILTIN_BY_KEY = new Map(
+      BUILTIN_MODEL_PRICING.map((spec) => [spec.key, spec])
+    );
+    var SUFFIX_CLEAN_RE = /\s*\((?:xhigh|high|medium|low|thinking|tiered|trial|preview(?:\b[^)]*)?|exp(?:erimental)?(?:\b[^)]*)?|fast|quality|orchestrator|\d{4}-\d{2}-\d{2})\)\s*$/i;
+    var BARE_SUFFIX_CLEAN_RE = /(?:[\s-]+(?:xhigh|high|medium|low|thinking|tiered|trial|preview(?:[\s-]+[a-z0-9]{1,10})*|exp(?:erimental)?(?:[\s-]+[a-z0-9]{1,10})*|latest|n|\d{4}-\d{2}-\d{2}|\d{8}))$/i;
+    function resolvePricingKey(rawModel) {
+      const raw = String(rawModel || "").trim();
+      if (!raw) return "";
+      const lower = raw.toLowerCase();
+      if (/\bneon\b/.test(lower)) return "gemini-4-neon";
+      if (/\bcarbon\b/.test(lower)) return "gemini-4-carbon";
+      if (/\bargon\b/.test(lower)) return "gemini-4-argon";
+      if (/\bhydrogen\b/.test(lower)) return "gemini-4-hydrogen";
+      if (/gemini[\s-]*3[.-]8[\s-]*flash/.test(lower)) return "gemini-3.8-flash";
+      if (/gemini[\s-]*3[.-]5[\s-]*flash[\s-]*lite/.test(lower)) return "gemini-3.5-flash-lite";
+      if (/claude[\s-]*opus[\s-]*5[.-]5|opus[\s-]*5[.-]5/.test(lower)) return "claude-opus-5.5";
+      if (/claude[\s-]*sonnet[\s-]*5[.-]5|sonnet[\s-]*5[.-]5/.test(lower)) return "claude-sonnet-5.5";
+      if (/gpt[\s-]*oss[\s-]*120b/.test(lower)) return "gpt-oss-120b";
+      let cleaned = raw;
+      for (let i = 0; i < 6; i++) {
+        const next = cleaned.replace(SUFFIX_CLEAN_RE, "").replace(BARE_SUFFIX_CLEAN_RE, "").trim();
+        if (next === cleaned || !next) break;
+        cleaned = next;
+      }
+      cleaned = cleaned.replace(/(?<![\d.])(\d)-(\d)(?![\d.])/g, "$1.$2");
+      return cleaned.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+    }
+    function resolveBuiltinRatesForDate(spec, dateStr) {
+      let active = spec.rates;
+      if (spec.schedule?.length && dateStr) {
+        for (const tier of spec.schedule) {
+          if (dateStr >= tier.effectiveFrom) active = tier.rates;
+        }
+      }
+      return active;
+    }
+    function resolveModelPricing(rawModel, dateStr, overrides) {
+      const key = resolvePricingKey(rawModel);
+      if (!key) return null;
+      const spec = BUILTIN_BY_KEY.get(key);
+      const custom = overrides?.[key];
+      if (custom) {
+        return {
+          key,
+          label: spec?.label || String(rawModel || key),
+          rates: custom,
+          source: "override",
+          noteZh: spec?.noteZh,
+          noteEn: spec?.noteEn
+        };
+      }
+      if (!spec) return null;
+      const rates = resolveBuiltinRatesForDate(spec, dateStr);
+      const nextScheduled = dateStr && spec.schedule ? spec.schedule.find((tier) => dateStr < tier.effectiveFrom) ?? null : null;
+      return {
+        key: spec.key,
+        label: spec.label,
+        rates,
+        source: "builtin",
+        scheduledChange: nextScheduled,
+        noteZh: spec.noteZh,
+        noteEn: spec.noteEn
+      };
+    }
+    function calculateBucketCost(rawModel, counts, dateStr, overrides) {
+      const resolved = resolveModelPricing(rawModel, dateStr, overrides);
+      if (!resolved) return null;
+      const { rates } = resolved;
+      const cacheWriteRate = rates.cacheWrite ?? rates.input;
+      const usd = ((counts.uncached || 0) * rates.input + (counts.cacheRead || 0) * rates.cacheRead + (counts.cacheWrite || 0) * cacheWriteRate + (counts.output || 0) * rates.output) / ONE_MILLION;
+      return Number.isFinite(usd) && usd >= 0 ? usd : 0;
+    }
+    function startOfWeekUtc(date) {
+      const d = /* @__PURE__ */ new Date(`${date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+      return d.toISOString().slice(0, 10);
+    }
+    function emptyCostAggregate() {
+      return { costUsd: 0, pricedTokens: 0, unpricedTokens: 0, hasUnpriced: false };
+    }
+    function addDayToAggregate(target, day, overrides) {
+      for (const [model, counts] of Object.entries(day.models || {})) {
+        const cost = calculateBucketCost(model, counts, day.date, overrides);
+        if (cost === null) {
+          if ((counts.total || 0) > 0) {
+            target.unpricedTokens += counts.total || 0;
+            target.hasUnpriced = true;
+          }
+        } else {
+          target.costUsd += cost;
+          target.pricedTokens += counts.total || 0;
+        }
+      }
+    }
+    function summarizeSnapshotPeriodCosts(value, overrides) {
+      const today = emptyCostAggregate();
+      const week = emptyCostAggregate();
+      const month = emptyCostAggregate();
+      const total = emptyCostAggregate();
+      if (!value?.today) return { today, week, month, total };
+      const todayStr = value.today;
+      const weekStartStr = startOfWeekUtc(todayStr);
+      const monthPrefix = todayStr.slice(0, 7);
+      for (const day of value.days || []) {
+        if (!day?.date) continue;
+        addDayToAggregate(total, day, overrides);
+        if (day.date === todayStr) addDayToAggregate(today, day, overrides);
+        if (day.date >= weekStartStr && day.date <= todayStr) addDayToAggregate(week, day, overrides);
+        if (day.date.slice(0, 7) === monthPrefix && day.date <= todayStr) {
+          addDayToAggregate(month, day, overrides);
+        }
+      }
+      if ((value.unknownTokens || 0) > 0) {
+        total.unpricedTokens += value.unknownTokens;
+        total.hasUnpriced = true;
+      }
+      return { today, week, month, total };
+    }
+    function formatUsd(amount, options = {}) {
+      if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) return "\u2014";
+      const prefix = options.approx ? "\u2248 " : "";
+      if (amount === 0) return `${prefix}$0.00`;
+      if (options.precise) {
+        const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
+        return `${prefix}$${amount.toLocaleString("en-US", {
+          minimumFractionDigits: Math.min(2, digits),
+          maximumFractionDigits: digits
+        })}`;
+      }
+      if (amount < 0.01) return `${prefix}<$0.01`;
+      return `${prefix}$${amount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}`;
+    }
+
     // src/ui/inline-widget/inline.css
     var inline_default = `:host {
     color-scheme: var(--pulse-scheme);
@@ -2839,6 +3051,19 @@ module.exports = function installAgPulseInlineWidget(...args) {
     color: var(--pulse-muted);
   }
 
+  .usage-cost {
+    margin-top: 2px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+    line-height: 14px;
+    font-weight: 500;
+    color: var(--pulse-success, var(--pulse-accent));
+    font-variant-numeric: tabular-nums;
+  }
+
+  .usage-cost:empty {
+    display: none;
+  }
+
   #open-usage {
     display: flex;
     align-items: center;
@@ -2897,8 +3122,13 @@ module.exports = function installAgPulseInlineWidget(...args) {
     // src/shared/quota-forecast.ts
     var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
     var WEEKLY_MS = 7 * 24 * 60 * 60 * 1e3;
-    var MIN_SAMPLE_5H_MS = 5 * 60 * 1e3;
-    var MIN_SAMPLE_WEEKLY_MS = 60 * 60 * 1e3;
+    var DEFAULT_QUOTA_FORECAST_OPTIONS = {
+      minSample5hMs: 5 * 60 * 1e3,
+      minSampleWeeklyMs: 12 * 60 * 60 * 1e3,
+      warmupUsedThreshold5h: 0.1,
+      warmupUsedThresholdWeekly: 0.25,
+      weeklyMinEffectiveElapsedMs: 24 * 60 * 60 * 1e3
+    };
     function quotaRemaining(bucket) {
       if (!bucket || bucket.available !== true || bucket.disabled === true) return null;
       const value = bucket.remaining;
@@ -2919,7 +3149,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       const h = totalH % 24;
       return `${d}d${h ? ` ${h}h` : ""}`;
     }
-    function quotaForecast(bucket, windowKey, now = Date.now()) {
+    function quotaForecast(bucket, windowKey, now = Date.now(), options = {}) {
       const remaining = quotaRemaining(bucket);
       if (remaining === null) return null;
       const used = Math.max(0, Math.min(1, 1 - remaining));
@@ -2942,14 +3172,17 @@ module.exports = function installAgPulseInlineWidget(...args) {
           outlook: "idle"
         } : null;
       }
+      const cfg = { ...DEFAULT_QUOTA_FORECAST_OPTIONS, ...options };
       const durationMs = windowKey === "5h" ? FIVE_HOUR_MS : WEEKLY_MS;
       const leftMs = Math.max(0, Math.min(durationMs, resetMs - now));
       const elapsedMs = durationMs - leftMs;
       const timeRemaining = leftMs / durationMs;
-      const elapsed = elapsedMs / durationMs;
-      const paceDelta = remaining - timeRemaining;
+      const effectiveElapsedMs = windowKey === "weekly" ? Math.min(durationMs, Math.max(elapsedMs, cfg.weeklyMinEffectiveElapsedMs)) : elapsedMs;
+      const effectiveElapsed = effectiveElapsedMs / durationMs;
+      const paceDelta = remaining - (1 - effectiveElapsed);
       let pace = used < 5e-4 ? "idle" : paceDelta < -0.05 ? "fast" : paceDelta > 0.08 ? "slow" : "steady";
-      const minSampleMs = windowKey === "5h" ? MIN_SAMPLE_5H_MS : MIN_SAMPLE_WEEKLY_MS;
+      const minSampleMs = windowKey === "5h" ? cfg.minSample5hMs : cfg.minSampleWeeklyMs;
+      const warmupThreshold = windowKey === "5h" ? cfg.warmupUsedThreshold5h : cfg.warmupUsedThresholdWeekly;
       let forecastReady = false;
       let warmingUp = false;
       let projectedUsed = null;
@@ -2960,14 +3193,15 @@ module.exports = function installAgPulseInlineWidget(...args) {
         forecastReady = true;
         projectedUsed = 0;
         projectedRemaining = 1;
-      } else if (elapsedMs < minSampleMs && used < 0.1) {
+      } else if (elapsedMs < minSampleMs && used < warmupThreshold) {
         warmingUp = true;
       } else {
-        const rawProjectedUsed = elapsed > 0 ? used / elapsed : Infinity;
+        const rawProjectedUsed = effectiveElapsed > 0 ? used / effectiveElapsed : Infinity;
         projectedUsed = Math.min(1, rawProjectedUsed);
         projectedRemaining = Math.max(0, 1 - rawProjectedUsed);
-        willExhaust = rawProjectedUsed > 1.005;
-        exhaustInMs = willExhaust && used > 0 ? Math.max(6e4, Math.round(elapsedMs * (remaining / used))) : null;
+        const candidateExhaustMs = used > 0 ? Math.max(6e4, Math.round(effectiveElapsedMs * (remaining / used))) : null;
+        willExhaust = rawProjectedUsed > 1.005 && candidateExhaustMs !== null && candidateExhaustMs < leftMs;
+        exhaustInMs = willExhaust ? candidateExhaustMs : null;
         forecastReady = true;
         if (willExhaust) pace = "fast";
       }
@@ -3320,7 +3554,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
             setAttr(
               forecastRow,
               "title",
-              language.t("forecastBasis", {
+              language.t(windowKey === "weekly" ? "forecastBasisWeekly" : "forecastBasis", {
                 remaining: percent(forecast.remaining),
                 time: percent(forecast.timeRemaining)
               })
@@ -3613,7 +3847,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         section.hidden = true;
         setMarkup2(
           section,
-          '<dl class="usage-summary"><div><dt id="usage-today-label"></dt><dd><strong id="usage-today"></strong><span class="usage-unit">Token</span></dd></div><div><dt id="usage-month-label"></dt><dd><strong id="usage-month"></strong><span class="usage-unit">Token</span></dd></div></dl><button type="button" id="open-usage"><span id="usage-open-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>'
+          '<dl class="usage-summary"><div><dt id="usage-today-label"></dt><dd><strong id="usage-today"></strong><span class="usage-unit">Token</span></dd><div class="usage-cost" id="usage-today-cost"></div></div><div><dt id="usage-month-label"></dt><dd><strong id="usage-month"></strong><span class="usage-unit">Token</span></dd><div class="usage-cost" id="usage-month-cost"></div></div></dl><button type="button" id="open-usage"><span id="usage-open-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>'
         );
         root.getElementById("cache-card")?.append(section);
         usageDashboard = win.__agPulseUsageFactory({
@@ -3651,6 +3885,21 @@ module.exports = function installAgPulseInlineWidget(...args) {
         toggleHidden(root.getElementById("usage-entry"), !data.usage);
         setText(root.getElementById("usage-today"), compact(data.usage?.todayTokens));
         setText(root.getElementById("usage-month"), compact(data.usage?.monthTokens));
+        const pricingOverrides = data.preferences && !("error" in data.preferences) ? data.preferences.modelPricingOverrides : void 0;
+        const periodCosts = summarizeSnapshotPeriodCosts(data.usage, pricingOverrides);
+        const fmtCompactCost = (tokens, pricedTokens, costUsd, hasUnpriced) => {
+          if (!tokens || tokens <= 0) return "$0.00";
+          if (pricedTokens <= 0) return "";
+          return `${formatUsd(costUsd, { approx: true })}${hasUnpriced ? "+" : ""}`;
+        };
+        setText(
+          root.getElementById("usage-today-cost"),
+          fmtCompactCost(data.usage?.todayTokens, periodCosts.today.pricedTokens, periodCosts.today.costUsd, periodCosts.today.hasUnpriced)
+        );
+        setText(
+          root.getElementById("usage-month-cost"),
+          fmtCompactCost(data.usage?.monthTokens, periodCosts.month.pricedTokens, periodCosts.month.costUsd, periodCosts.month.hasUnpriced)
+        );
         usageDashboard.update(data.usage);
       }
       if (cards.hasOpenGroupMenu) return void 0;
@@ -4143,9 +4392,11 @@ module.exports = function installAgPulseInlineWidget(...args) {
           polling,
           onChooseLanguage: (next) => preferences.choose(next),
           onFontScaleChange: (prefs) => {
+            if (polling.data && !("error" in prefs)) polling.data.preferences = prefs;
             if ("inlineFontScale" in prefs) applyInlineFontScale(prefs.inlineFontScale);
             guide.sync(prefs);
             preferences.sync(prefs);
+            if (root) render();
           },
           onObserveComposer: observeComposer
         });

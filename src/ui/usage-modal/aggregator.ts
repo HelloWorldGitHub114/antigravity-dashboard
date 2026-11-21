@@ -1,4 +1,5 @@
 import type {
+  ModelPricingOverrides,
   ProjectUsageDayBucket,
   ProjectUsageOverview,
   UsageBucketCounts,
@@ -6,8 +7,15 @@ import type {
   UsageSummarySnapshot,
   UsageUserBucket,
 } from '../../contracts/index.ts';
+import { calculateBucketCost } from '../../shared/model-pricing.ts';
 import { effectiveModelKey } from './palette.ts';
-import type { ModelViewMode, UsageDimension, UsagePeriod, UsageTotalsResult } from './types.ts';
+import type {
+  ModelCostBucket,
+  ModelViewMode,
+  UsageDimension,
+  UsagePeriod,
+  UsageTotalsResult,
+} from './types.ts';
 
 export function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
@@ -32,6 +40,7 @@ export interface AggregationQuery {
   disabledModels: Set<string>;
   disabledUsers: Set<string>;
   disabledProjects?: Set<string>;
+  pricingOverrides?: ModelPricingOverrides;
 }
 
 const COUNT_KEYS: ReadonlyArray<keyof UsageBucketCounts> = [
@@ -45,6 +54,10 @@ const COUNT_KEYS: ReadonlyArray<keyof UsageBucketCounts> = [
 
 function createEmptyBucket(): UsageBucketCounts {
   return { total: 0, requests: 0, uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+}
+
+function createEmptyCostBucket(): ModelCostBucket {
+  return { costUsd: 0, pricedTokens: 0, unpricedTokens: 0 };
 }
 
 export class UsageDayIndex {
@@ -82,11 +95,16 @@ export class UsageDayIndex {
   totals(from: string, to: string, query: AggregationQuery, filter = false): UsageTotalsResult {
     const models: Record<string, UsageBucketCounts> = {};
     const modelVariants: Record<string, Record<string, UsageBucketCounts>> = {};
+    const modelCosts: Record<string, ModelCostBucket> = {};
+    const variantCosts: Record<string, Record<string, ModelCostBucket>> = {};
     const users: Record<string, UsageUserBucket> = {};
     const projects: Record<string, UsageBucketCounts> = {};
     let legacyTokens = 0;
     let total = 0;
     let requests = 0;
+    let costUsd = 0;
+    let pricedTokens = 0;
+    let unpricedTokens = 0;
 
     if (query.dimension === 'project') {
       const accumProj = (day: ProjectUsageDayBucket | undefined): void => {
@@ -115,7 +133,22 @@ export class UsageDayIndex {
           accumProj(day);
         }
       }
-      return { from, to, models, modelVariants, users, projects, legacyTokens, total, requests };
+      return {
+        from,
+        to,
+        models,
+        modelVariants,
+        modelCosts,
+        variantCosts,
+        users,
+        projects,
+        legacyTokens,
+        total,
+        requests,
+        costUsd: 0,
+        pricedTokens: 0,
+        unpricedTokens: total,
+      };
     }
 
     const accum = (day: UsageDayBucket | undefined): void => {
@@ -126,14 +159,37 @@ export class UsageDayIndex {
         if (filter && query.dimension === 'model' && query.disabledModels.has(key)) continue;
         const m = (models[key] ??= createEmptyBucket());
         for (const k of COUNT_KEYS) m[k] += r[k] || 0;
+        const rowCost = calculateBucketCost(rawModel, r, day.date, query.pricingOverrides);
+        const mc = (modelCosts[key] ??= createEmptyCostBucket());
+        if (rowCost === null) {
+          mc.unpricedTokens += r.total || 0;
+        } else {
+          mc.costUsd += rowCost;
+          mc.pricedTokens += r.total || 0;
+        }
         if (query.dimension === 'model') {
           const gv = (modelVariants[key] ??= {});
           const v = (gv[rawModel] ??= createEmptyBucket());
           for (const k of COUNT_KEYS) v[k] += r[k] || 0;
-        }
-        if (query.dimension === 'model') {
+          const gvc = (variantCosts[key] ??= {});
+          const vc = (gvc[rawModel] ??= createEmptyCostBucket());
+          if (rowCost === null) {
+            vc.unpricedTokens += r.total || 0;
+          } else {
+            vc.costUsd += rowCost;
+            vc.pricedTokens += r.total || 0;
+          }
           total += r.total || 0;
           requests += r.requests || 0;
+        }
+        // 按用户维度未过滤单个用户时，日级模型总额仍与总用量一致，可安全累加等效美元
+        if (query.dimension === 'model' || !(filter && query.disabledUsers.size > 0)) {
+          if (rowCost === null) {
+            unpricedTokens += r.total || 0;
+          } else {
+            costUsd += rowCost;
+            pricedTokens += r.total || 0;
+          }
         }
       }
       for (const [u, r] of Object.entries(day.users || {})) {
@@ -168,7 +224,21 @@ export class UsageDayIndex {
         accum(day);
       }
     }
-    return { from, to, models, modelVariants, users, legacyTokens, total, requests };
+    return {
+      from,
+      to,
+      models,
+      modelVariants,
+      modelCosts,
+      variantCosts,
+      users,
+      legacyTokens,
+      total,
+      requests,
+      costUsd,
+      pricedTokens,
+      unpricedTokens,
+    };
   }
 
   aggregateHourlyRange(start: string, end: string): number[] {

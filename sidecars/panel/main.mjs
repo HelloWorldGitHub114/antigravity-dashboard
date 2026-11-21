@@ -1995,7 +1995,7 @@ var runVertexMetrics = async (input) => {
 var errorMessage2 = (error) => error instanceof Error ? error.message : String(error);
 var prefError2 = (error) => {
   const msg = errorMessage2(error);
-  return msg === "Invalid timeline preference" || msg === "Invalid font scale preference" || msg === "Invalid debug launch preference" ? msg : "Language preference could not be saved";
+  return msg === "Invalid timeline preference" || msg === "Invalid font scale preference" || msg === "Invalid debug launch preference" || msg === "Invalid model pricing preference" ? msg : "Language preference could not be saved";
 };
 if (isSidecar) {
   const { SidecarApp, Response } = await loadSidecarSdk();

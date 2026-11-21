@@ -221,8 +221,13 @@ export function renderHourlySpline(
       requests: 0,
       models: {},
       modelVariants: {},
+      modelCosts: {},
+      variantCosts: {},
       users: {},
       legacyTokens: 0,
+      costUsd: 0,
+      pricedTokens: 0,
+      unpricedTokens: 0,
     };
     const bar = svgEl('rect', { x: (p.x - wPlot / 46).toFixed(1), y: padT, width: (wPlot / 23).toFixed(1), height: hPlot, fill: 'transparent', class: 'hourly-hover', 'data-h': p.hour, 'data-v': p.val });
     bar.style.cursor = 'pointer';

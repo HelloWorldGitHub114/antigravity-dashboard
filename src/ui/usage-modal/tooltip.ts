@@ -1,3 +1,4 @@
+import { formatUsd } from '../../shared/model-pricing.ts';
 import { createDomNode } from './dom-shell.ts';
 import { modelLabel, type UsagePalette } from './palette.ts';
 import type { UsageDomContext, UsageTotalsResult } from './types.ts';
@@ -43,10 +44,18 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
     tipItem = activeItem;
     highlightItem(activeItem);
 
+    const showBucketCost =
+      bucket.pricedTokens > 0 &&
+      (state.tab === 'overview' ||
+        state.dimension === 'model' ||
+        (state.dimension === 'user' && state.disabledUsers.size === 0));
+    const costMeta = showBucketCost
+      ? ` · ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? '+' : ''}`
+      : '';
     tip.replaceChildren(
       createDomNode('div', 'tip-title', bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`),
       createDomNode('strong', '', `${full(bucket.total)} Token`),
-      createDomNode('div', 'muted', w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)),
+      createDomNode('div', 'muted', `${w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)}${costMeta}`),
     );
 
     if (state.dimension === 'project') {
@@ -82,7 +91,9 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
         const dot = createDomNode('i', 'dot');
         dot.style.setProperty('--model-color', palette.modelColor(model, state.modelViewMode));
         label.append(dot, document.createTextNode(modelLabel(model, state.modelViewMode)));
-        const amount = createDomNode('span', '', compactNum(r.total));
+        const mCost = bucket.modelCosts?.[model];
+        const costSuffix = mCost && mCost.pricedTokens > 0 ? ` · ${formatUsd(mCost.costUsd)}` : '';
+        const amount = createDomNode('span', '', `${compactNum(r.total)}${costSuffix}`);
         amount.append(createDomNode('span', 'model-share', bucket.total ? `${((r.total / bucket.total) * 100).toFixed(1)}%` : '0%'));
         row.append(label, amount);
         tip.append(row);

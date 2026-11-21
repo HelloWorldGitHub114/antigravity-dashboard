@@ -5,6 +5,7 @@ export interface FocusTrapHandlers {
   onIsYearOpen: () => boolean;
   onCloseSubPopovers?: () => boolean;
   onCloseManualModal: (restore?: boolean) => void;
+  onClosePricingModal?: (restore?: boolean) => void;
 }
 
 export interface FocusTrapController {
@@ -51,8 +52,10 @@ export function createFocusTrap(ctx: UsageDomContext, handlers: FocusTrapHandler
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
+      const pricingModal = $('pricing-modal');
       const manualModal = $('manual-modal');
-      if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
+      if (pricingModal && !pricingModal.hidden) handlers.onClosePricingModal?.();
+      else if (manualModal && !manualModal.hidden) handlers.onCloseManualModal();
       else if (handlers.onIsYearOpen()) handlers.onCloseYear();
       else if (handlers.onCloseSubPopovers?.()) return;
       else close();

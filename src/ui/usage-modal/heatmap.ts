@@ -1,3 +1,4 @@
+import { formatUsd } from '../../shared/model-pricing.ts';
 import { addDays, startOfWeek, type AggregationQuery, type UsageDayIndex } from './aggregator.ts';
 import { createDomNode } from './dom-shell.ts';
 import type { TooltipController } from './tooltip.ts';
@@ -29,7 +30,14 @@ export function createHeatmapController(
     if (!state.value) return;
     const bucket = state.selected || dayIndex.totals(state.value.today, state.value.today, getQuery());
     text('selection-title', bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`);
-    text('selection-value', `${full(bucket.total)} Token · ${w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)}`);
+    const costPart =
+      bucket.pricedTokens > 0
+        ? ` · ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? '+' : ''}`
+        : '';
+    text(
+      'selection-value',
+      `${full(bucket.total)} Token${costPart} · ${w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)}`,
+    );
   };
 
   const syncYear = (): void => {
@@ -179,7 +187,17 @@ export function createHeatmapController(
 
     text('heat-sub', state.heatMode === 'day' ? w('每格代表一天', 'Each square is one day') : w('每格代表一周 · 周一开始', 'Each square is one week · starts Monday'));
     const annual = dayIndex.totals(`${state.year}-01-01`, `${state.year}-12-31`, query);
-    text('heat-summary', w(`${state.year} 年 · ${full(annual.total)} Token`, `${state.year} · ${full(annual.total)} tokens`));
+    const annualCost =
+      annual.pricedTokens > 0
+        ? ` · ${formatUsd(annual.costUsd, { approx: true })}${annual.unpricedTokens > 0 ? '+' : ''}`
+        : '';
+    text(
+      'heat-summary',
+      w(
+        `${state.year} 年 · ${full(annual.total)} Token${annualCost}`,
+        `${state.year} · ${full(annual.total)} tokens${annualCost}`,
+      ),
+    );
     for (const b of view.querySelectorAll<HTMLElement>('[data-heat]')) {
       b.setAttribute('aria-pressed', String(b.dataset.heat === state.heatMode));
     }

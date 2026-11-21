@@ -1167,6 +1167,19 @@ select {
   color: var(--pulse-muted);
 }
 
+.usage-cost {
+  margin-top: 2px;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  line-height: 14px;
+  font-weight: 500;
+  color: var(--pulse-success, var(--pulse-accent));
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-cost:empty {
+  display: none;
+}
+
 #open-usage {
   display: flex;
   align-items: center;

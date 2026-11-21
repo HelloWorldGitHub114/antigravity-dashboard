@@ -15,6 +15,7 @@ export {
 export { trajectoryMetrics } from './trajectory.ts';
 export { quotaMetrics } from './quota.ts';
 export {
+  DEFAULT_QUOTA_FORECAST_OPTIONS,
   quotaRemaining,
   quotaModelFamily,
   classifyQuotaGroupId,
@@ -24,3 +25,14 @@ export {
   buildQuotaWindowSpecs,
   finalizeQuotaWindows,
 } from '../../shared/quota-forecast.ts';
+export {
+  BUILTIN_MODEL_PRICING,
+  resolvePricingKey,
+  resolveBuiltinRatesForDate,
+  resolveModelPricing,
+  calculateBucketCost,
+  summarizeSnapshotPeriodCosts,
+  formatUsd,
+  formatRateSummary,
+  listConfigurablePricingRows,
+} from '../../shared/model-pricing.ts';

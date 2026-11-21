@@ -1,5 +1,5 @@
 import type { PreferencesSnapshot } from '../../contracts/index.ts';
-import { resolveFontScale } from '../../contracts/preferences.ts';
+import { resolveFontScale, sanitizePricingOverrides } from '../../contracts/preferences.ts';
 import { createFontPopover } from '../shared/font-popover.ts';
 import type { UsageDayIndex } from './aggregator.ts';
 import { addDays, shiftMonth } from './aggregator.ts';
@@ -84,6 +84,24 @@ export function bindUsageModalEvents(
       })
     : null;
 
+  const applyPricingOverrides = (raw: unknown): boolean => {
+    const next = sanitizePricingOverrides(raw);
+    const prevJson = JSON.stringify(state.pricingOverrides);
+    const nextJson = JSON.stringify(next);
+    if (prevJson === nextJson) return false;
+    state.pricingOverrides = next;
+    return true;
+  };
+  const initPricing =
+    options.initialPreferences &&
+    !('error' in options.initialPreferences) &&
+    'modelPricingOverrides' in options.initialPreferences
+      ? options.initialPreferences.modelPricingOverrides
+      : undefined;
+  if (initPricing !== undefined) {
+    state.pricingOverrides = sanitizePricingOverrides(initPricing);
+  }
+
   let prefsLoaded = Boolean(options.initialPreferences && !('error' in options.initialPreferences));
   const loadPreferencesIfNeeded = (): void => {
     fontPopover?.localize();
@@ -97,7 +115,9 @@ export function bindUsageModalEvents(
         if (state.disposed || !prefs || typeof prefs !== 'object' || 'error' in prefs) return;
         fontPopover?.sync(prefs);
         applyUsageFontScale(prefs.usageFontScale);
+        const pricingChanged = applyPricingOverrides(prefs.modelPricingOverrides);
         options.onPreferencesSaved?.(prefs);
+        if (pricingChanged && state.value && dialog.open) render();
       })
       .catch(() => {
         prefsLoaded = false;
@@ -336,6 +356,12 @@ export function bindUsageModalEvents(
       prefsLoaded = true;
       fontPopover?.sync(prefs);
       if ('usageFontScale' in prefs) applyUsageFontScale(prefs.usageFontScale);
+      if (
+        ('modelPricingOverrides' in prefs || 'revision' in prefs) &&
+        applyPricingOverrides(prefs.modelPricingOverrides)
+      ) {
+        if (state.value && dialog.open) render();
+      }
     },
     closeSubPopovers,
     loadPreferencesIfNeeded,

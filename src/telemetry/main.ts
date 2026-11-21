@@ -449,7 +449,8 @@ const prefError = (error: unknown): string => {
   const msg = errorMessage(error);
   return msg === 'Invalid timeline preference' ||
     msg === 'Invalid font scale preference' ||
-    msg === 'Invalid debug launch preference'
+    msg === 'Invalid debug launch preference' ||
+    msg === 'Invalid model pricing preference'
     ? msg
     : 'Language preference could not be saved';
 };
