@@ -2278,7 +2278,7 @@ ${FONT_CONTROL_CSS}
   }
 
   // src/ui/usage-modal/usage.css
-  var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger,\n.actions button.pricing-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n.chart-summary .cost-inline { color: var(--pulse-success, var(--pulse-accent)); font-variant-numeric: tabular-nums; }\n.table td.cost-cell { font-variant-numeric: tabular-nums; color: var(--pulse-success, var(--pulse-foreground)); font-weight: 500; }\n.table tr.model-variant-row td.cost-cell { font-weight: 400; opacity: .9; }\n.table td.cost-cell.muted { color: var(--pulse-muted); font-weight: 400; }\n.pricing-modal-card { width: min(700px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 48px)); }\n.pricing-desc { margin: -6px 0 0; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); line-height: 1.55; color: var(--pulse-muted); }\n.pricing-form { display: flex; flex-direction: column; gap: 12px; min-height: 0; }\n.pricing-table-wrap { overflow: auto; max-height: min(420px, calc(100dvh - 230px)); border: 1px solid var(--pulse-border); border-radius: 9px; }\n.pricing-table { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.pricing-table th { position: sticky; top: 0; z-index: 1; background: var(--pulse-control); color: var(--pulse-muted); font-weight: 500; text-align: right; padding: 8px 8px; border-bottom: 1px solid var(--pulse-separator); white-space: nowrap; }\n.pricing-table th:first-child { text-align: left; padding-left: 12px; }\n.pricing-table td { padding: 7px 8px; border-bottom: 1px solid var(--pulse-separator); text-align: right; vertical-align: middle; }\n.pricing-table tr:last-child td { border-bottom: 0; }\n.pricing-model-cell { text-align: left !important; padding-left: 12px !important; min-width: 170px; }\n.pricing-model-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.pricing-model-name { font-weight: 500; color: var(--pulse-foreground); }\n.pricing-badge { padding: 0 5px; border-radius: 999px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 14%, transparent); }\n.pricing-badge[hidden] { display: none; }\n.pricing-model-note { margin-top: 2px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); line-height: 1.35; }\n.pricing-num-input { width: 68px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); text-align: right; font-variant-numeric: tabular-nums; }\n.pricing-num-input:focus { outline: 2px solid var(--pulse-accent); outline-offset: -1px; background: var(--pulse-background); }\n.pricing-row-action { width: 54px; padding-right: 10px !important; }\n.pricing-row-reset { padding: 3px 7px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-row-reset:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }\n.pricing-modal-footer .modal-actions { margin-top: 0; }\n.pricing-reset-all { padding: 5px 10px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-reset-all:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-status { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: auto; }\n.pricing-status.is-error { color: var(--pulse-danger, #e5484d); }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-reassign-btn { flex: none; padding: 0 6px; height: 19px; line-height: 17px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); cursor: pointer; }\n.proj-reassign-btn:hover { color: var(--pulse-foreground); border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }\n.proj-reassign-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 7px 4px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-reassign-select { flex: 1; min-width: 120px; height: 24px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--pulse-border); background: var(--pulse-background); color: var(--pulse-foreground); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-action-btn.is-primary { background: var(--pulse-accent); border-color: var(--pulse-accent); color: #fff; }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .other-models:not([hidden]),\n  .hourly-content:not([hidden]) { animation: none !important; }\n  .bar-segment,\n  .proj-bar-fill,\n  .hourly-chevron,\n  .picker-chevron,\n  .year-chevron,\n  .proj-bar-caret,\n  .hourly-pt,\n  .proj-donut-seg { transition: opacity 100ms ease !important; }\n  .modal-layer,\n  .modal-card,\n  .tip { transition: opacity 90ms ease !important; }\n  .heat button { transition: background-color 140ms ease !important; }\n  button,\n  #usage-intro-done { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease !important; }\n  button:active,\n  #usage-intro-done:active,\n  .heat button:not(:disabled):hover,\n  .heat button:not(:disabled):focus-visible { transform: none !important; scale: none !important; }\n}\n';
+  var usage_default = '.chart-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n.range { display: flex; align-items: center; gap: 10px; }\n.range[hidden] { display: none; }\n.range button { height: 26px; width: 26px; border: 0; }\n.range button:not(:disabled):hover { background: var(--pulse-hover); }\n.range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }\n.range.is-cycle strong { min-width: 172px; white-space: nowrap; }\n.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }\n.legend button {\n  display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;\n  border-radius: 3px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-color: transparent; background: transparent; color: var(--pulse-muted);\n}\n.legend button:hover, .legend button[aria-pressed=true] { color: var(--pulse-foreground); }\n.legend button[aria-pressed=false] { opacity: .4; text-decoration: line-through; }\n.dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; background: var(--model-color); }\n.legend .dot { width: 7px; height: 7px; border-radius: 50%; }\n.chart-wrap { overflow-x: auto; border-bottom: 1px solid var(--pulse-separator); padding-top: 6px; padding-bottom: 17px; margin-bottom: 18px; }\n.chart { height: 246px; display: flex; gap: 16px; min-width: 650px; }\n.axis { width: 42px; flex: none; position: relative; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.axis span { position: absolute; right: 0; transform: translateY(50%); }\n.plot { position: relative; flex: 1; display: flex; align-items: stretch; gap: 5px; padding: 0 1px; }\n.grid-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--pulse-separator); opacity: .45; pointer-events: none; }\n.grid-line:first-child { opacity: .85; }\n.bar-column {\n  position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end;\n  border: 0; border-radius: 4px; background: transparent; padding: 0; margin-bottom: 19px;\n}\n.bar-column:hover { background: color-mix(in srgb, var(--pulse-hover) 55%, transparent); }\n.bar-column:active { transform: none; }\n.bar-column.selected { background: color-mix(in srgb, var(--pulse-accent) 10%, transparent); outline: 2px solid var(--pulse-accent); outline-offset: 2px; border-radius: 4px; }\n.stack { display: flex; flex-direction: column-reverse; width: 62%; max-width: 30px; margin-inline: auto; gap: 0; pointer-events: none; border-radius: 4px 4px 0 0; overflow: hidden; }\n.bar-segment {\n  display: block; flex: none; width: 100%; min-height: 0; border-radius: 0;\n  pointer-events: auto; background: var(--model-color);\n  transition: height 240ms cubic-bezier(.22, 1, .36, 1), opacity 140ms ease;\n}\n.bar-segment.legacy { background: var(--pulse-muted) !important; opacity: 0.55; outline: 1px dashed var(--pulse-border); }\n.plot[data-highlight] .bar-segment:not([data-highlight=true]) { opacity: .24; }\n.x-label, .axis { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); }\n.x-label { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); color: var(--pulse-muted); white-space: nowrap; }\n.empty-bar { height: 1px; opacity: .35; width: 100%; background: var(--pulse-track); border-radius: 2px; }\n.chart-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--pulse-muted); font-size: calc(12px * var(--pulse-usage-font-scale, 1)); pointer-events: none; }\n.chart-summary { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.chart-summary strong { color: var(--pulse-foreground); font-weight: 500; }\n\n.dim-toggle { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 12px; vertical-align: middle; }\n.dim-toggle[hidden] { display: none; }\n.dim-toggle + .dim-toggle { margin-left: 4px; }\n.dim-toggle button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.dim-toggle button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; box-shadow: 0 1px 2px #0002; }\n.hourly-mode-seg { display: inline-flex; padding: 2px; background: var(--pulse-hover); border-radius: 6px; gap: 2px; margin-left: 8px; vertical-align: middle; }\n.hourly-mode-seg button { border: 0; padding: 2px 8px; border-radius: 4px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); cursor: pointer; background: transparent; }\n.hourly-mode-seg button[aria-pressed=true] { background: var(--pulse-control); color: var(--pulse-foreground); font-weight: 500; }\n#toggle-all-models { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: transparent; border: 1px dashed var(--pulse-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; }\n#toggle-all-models:hover { background: var(--pulse-hover); }\n@keyframes pulse-reveal { from { opacity: .15; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n.other-models { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; padding-top: 6px; border-top: 1px dashed var(--pulse-separator); margin-top: 4px; }\n.other-models[hidden] { display: none; }\n.other-models:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.custom-range-controls { display: flex; align-items: center; gap: 6px; }\n.custom-range-controls input[type=date] { padding: 3px 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); }\n.custom-range-controls[hidden] { display: none; }\n.reset-drilldown { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-hover); color: var(--pulse-foreground); cursor: pointer; }\n.reset-drilldown[hidden] { display: none; }\n.reset-drilldown:hover { background: var(--pulse-control); }\n\n.hourly-section { margin: 18px 0; border: 1px solid var(--pulse-border); border-radius: 12px; background: var(--pulse-control); overflow: hidden; }\n.hourly-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }\n.hourly-toggle { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--pulse-foreground); cursor: pointer; padding: 0; text-align: left; flex: 1; min-width: 0; }\n.hourly-toggle:hover { color: var(--pulse-accent); }\n.hourly-toggle:active { transform: none; }\n#hourly-title { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.hourly-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); flex: none; }\n.hourly-toggle[aria-expanded=true] .hourly-chevron { transform: rotate(180deg); }\n.hourly-content { padding: 10px 16px 16px; border-top: 1px solid var(--pulse-separator); }\n.hourly-content[hidden] { display: none; }\n.hourly-content:not([hidden]) { animation: pulse-reveal 160ms cubic-bezier(.22, 1, .36, 1); }\n.hourly-chart-wrap { width: 100%; overflow-x: auto; }\n.hourly-chart-wrap svg { width: 100%; max-width: 100%; height: auto; display: block; }\n.hourly-crosshair, .hourly-focus-ring { transition: opacity 120ms ease; pointer-events: none; }\n.hourly-pt { transition: r 120ms ease, fill-opacity 120ms ease; }\n\n.table-wrap { overflow: auto; }\n.table { width: 100%; border-collapse: collapse; text-align: right; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); white-space: nowrap; }\n.table th { font-weight: 400; color: var(--pulse-muted); padding: 8px 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table td { padding: 12px; border-bottom: 1px solid var(--pulse-separator); }\n.table th:first-child, .table td:first-child { text-align: left; padding-left: 0; }\n.table td:first-child span { margin-right: 7px; }\n.table tr:last-child td { border-bottom: 0; }\n.table .dot { border-radius: 50%; }\n.model-group-row { cursor: pointer; transition: background-color 140ms ease; }\n.model-group-row:hover { background: color-mix(in srgb, var(--pulse-hover) 65%, transparent); }\n.model-group-row:focus-visible { outline: 2px solid var(--pulse-accent); outline-offset: -2px; }\n.model-group-row[aria-expanded=true] { background: color-mix(in srgb, var(--pulse-control) 45%, transparent); }\n.model-group-name { font-weight: 500; color: var(--pulse-foreground); }\n.model-variant-count { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-hover); vertical-align: middle; }\n.model-group-chevron { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; transition: color 140ms ease; }\n.model-group-row:hover .model-group-chevron, .model-group-row[aria-expanded=true] .model-group-chevron { color: var(--pulse-foreground); }\n.model-variant-row { background: color-mix(in srgb, var(--pulse-control) 28%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.model-variant-row td { padding-top: 8px; padding-bottom: 8px; border-bottom-style: dashed; }\n.table .model-variant-row td:first-child { padding-left: 18px; }\n.variant-branch { color: var(--pulse-subtle); opacity: .75; margin-right: 6px !important; }\n.variant-name { color: var(--pulse-label); }\n.variant-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: 0 !important; }\n\n.manual-section { margin-top: 24px; border-top: 1px solid var(--pulse-separator); padding-top: 18px; }\n.btn-delete { padding: 2px 8px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); border-radius: 4px; border: 1px solid var(--pulse-border); background: transparent; color: var(--pulse-danger, #e5484d); cursor: pointer; }\n.btn-delete:hover { background: color-mix(in srgb, var(--pulse-danger, #e5484d) 15%, transparent); }\n.modal-layer { position: fixed; inset: 0; background: #0008; backdrop-filter: blur(3px); z-index: 99; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 1; transition: opacity 150ms ease; }\n.modal-layer[hidden] { display: none; }\n@starting-style { .modal-layer:not([hidden]) { opacity: 0; } .modal-layer:not([hidden]) .modal-card { opacity: 0; transform: translateY(8px) scale(.97); } }\n.modal-card { width: min(440px, calc(100vw - 32px)); background: var(--pulse-background); border: 1px solid var(--pulse-border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 40px var(--pulse-shadow); display: flex; flex-direction: column; gap: 14px; opacity: 1; transform: none; transition: opacity 160ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1); }\n.modal-title { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 600; margin: 0; }\n.modal-form { display: flex; flex-direction: column; gap: 12px; }\n.form-row { display: flex; flex-direction: column; gap: 4px; }\n.form-row.two-col { flex-direction: row; gap: 10px; }\n.form-row.two-col > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.form-row label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.form-row input, .form-row select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }\n.modal-actions button { padding: 6px 14px; border-radius: 6px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); }\n.btn-primary { background: var(--pulse-accent); color: #fff; border-color: var(--pulse-accent); }\n\n.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }\n.alert { color: var(--pulse-warning); margin-top: 12px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.tip { position: fixed; z-index: 20; max-width: 280px; padding: 12px 14px; border: 1px solid var(--pulse-border); border-radius: 9px; background: var(--pulse-menu); box-shadow: 0 8px 30px var(--pulse-shadow); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); pointer-events: none; opacity: 1; transition: opacity 120ms ease, transform 120ms cubic-bezier(.22, 1, .36, 1); }\n.tip[hidden] { display: none; }\n@starting-style { .tip:not([hidden]) { opacity: .15; transform: translateY(3px); } }\n.tip .tip-title { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-bottom: 5px; }\n.tip strong { font-size: calc(16px * var(--pulse-usage-font-scale, 1)); font-weight: 550; }\n.tip-model { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 5px; padding: 3px 0; }\n.tip-model.dimmed { opacity: .5; }\n.tip-model.active { font-weight: 600; }\n.tip-model .dot { margin-right: 6px; }\n.model-share { font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-left: 9px; }\n\n.actions button.font-trigger,\n.actions button.pricing-trigger { width: 32px; height: 32px; padding: 0; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 700; }\n.chart-summary .cost-inline { color: var(--pulse-success, var(--pulse-accent)); font-variant-numeric: tabular-nums; }\n.table td.cost-cell { font-variant-numeric: tabular-nums; color: var(--pulse-success, var(--pulse-foreground)); font-weight: 500; }\n.table tr.model-variant-row td.cost-cell { font-weight: 400; opacity: .9; }\n.table td.cost-cell.muted { color: var(--pulse-muted); font-weight: 400; }\n.pricing-modal-card { width: min(700px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 48px)); }\n.pricing-desc { margin: -6px 0 0; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); line-height: 1.55; color: var(--pulse-muted); }\n.pricing-form { display: flex; flex-direction: column; gap: 12px; min-height: 0; }\n.pricing-table-wrap { overflow: auto; max-height: min(420px, calc(100dvh - 230px)); border: 1px solid var(--pulse-border); border-radius: 9px; }\n.pricing-table { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.pricing-table th { position: sticky; top: 0; z-index: 1; background: var(--pulse-control); color: var(--pulse-muted); font-weight: 500; text-align: right; padding: 8px 8px; border-bottom: 1px solid var(--pulse-separator); white-space: nowrap; }\n.pricing-table th:first-child { text-align: left; padding-left: 12px; }\n.pricing-table td { padding: 7px 8px; border-bottom: 1px solid var(--pulse-separator); text-align: right; vertical-align: middle; }\n.pricing-table tr:last-child td { border-bottom: 0; }\n.pricing-model-cell { text-align: left !important; padding-left: 12px !important; min-width: 170px; }\n.pricing-model-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.pricing-model-name { font-weight: 500; color: var(--pulse-foreground); }\n.pricing-badge { padding: 0 5px; border-radius: 999px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 14%, transparent); }\n.pricing-badge[hidden] { display: none; }\n.pricing-model-note { margin-top: 2px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); line-height: 1.35; }\n.pricing-num-input { width: 68px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-foreground); font: inherit; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); text-align: right; font-variant-numeric: tabular-nums; }\n.pricing-num-input:focus { outline: 2px solid var(--pulse-accent); outline-offset: -1px; background: var(--pulse-background); }\n.pricing-row-action { width: 54px; padding-right: 10px !important; }\n.pricing-row-reset { padding: 3px 7px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-row-reset:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }\n.pricing-modal-footer .modal-actions { margin-top: 0; }\n.pricing-reset-all { padding: 5px 10px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: transparent; border: 1px solid var(--pulse-border); }\n.pricing-reset-all:hover:not(:disabled) { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.pricing-status { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); margin-right: auto; }\n.pricing-status.is-error { color: var(--pulse-danger, #e5484d); }\n#details > .section-head { flex-wrap: wrap; }\n.detail-heading-group { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }\n.detail-picker-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.detail-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }\n.picker { position: relative; flex: none; }\n.picker-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--pulse-border); border-radius: 7px; background: var(--pulse-control); color: var(--pulse-foreground); font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 500; cursor: pointer; }\n.picker-trigger:hover, .picker-trigger[aria-expanded=true] { background: var(--pulse-hover); }\n.picker-chevron { width: 12px; height: 12px; fill: none; stroke: var(--pulse-muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms cubic-bezier(.23, 1, .32, 1); }\n.picker-trigger[aria-expanded=true] .picker-chevron { transform: rotate(180deg); }\n.picker-menu { position: fixed; inset: auto; margin: 0; padding: 5px; min-width: 148px; max-width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; border: 1px solid var(--pulse-border); border-radius: 10px; background: var(--pulse-menu); color: var(--pulse-foreground); box-shadow: 0 8px 26px var(--pulse-shadow); z-index: 25; }\n.picker-menu::backdrop { background: transparent; pointer-events: none; }\n.picker-option { width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(12px * var(--pulse-usage-font-scale, 1)); text-align: left; background: transparent; color: var(--pulse-foreground); cursor: pointer; }\n.picker-option:hover, .picker-option:focus-visible { background: var(--pulse-hover); }\n.picker-option[aria-selected=true] { background: color-mix(in srgb, var(--pulse-accent) 12%, var(--pulse-menu)); }\n.picker-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.picker-hint { margin-left: auto; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); font-variant-numeric: tabular-nums; flex: none; }\n.picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }\n.picker-option[aria-selected=true] .picker-check { opacity: 1; }\n.project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }\n.cycle-controls { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.cycle-controls[hidden] { display: none; }\n.cycle-window-seg { padding: 2px; border-radius: 7px; }\n.cycle-window-seg button { padding: 3px 9px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }\n.cycle-status-note[hidden] { display: none; }\n.table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }\n.table tr.project-row:hover { background: var(--pulse-hover); }\n.table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }\n.project-kind-badge { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.project-open-cue { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-accent); margin-left: 6px; }\n.project-detail-section { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid var(--pulse-border); border-radius: 12px; background: color-mix(in srgb, var(--pulse-control) 42%, transparent); }\n.project-detail-section[hidden] { display: none; }\n.project-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }\n.project-detail-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.project-detail-title-group h2 { margin: 0; font-size: calc(13px * var(--pulse-usage-font-scale, 1)); font-weight: 600; }\n.project-detail-empty { padding: 22px 12px; text-align: center; color: var(--pulse-muted); font-size: calc(11.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }\n.proj-bar-panel, .proj-donut-panel { min-width: 0; overflow: hidden; }\n.proj-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }\n.proj-panel-label { font-size: calc(11px * var(--pulse-usage-font-scale, 1)); font-weight: 600; color: var(--pulse-muted); margin: 0; }\n.proj-panel-head > .proj-panel-label, .proj-donut-panel > .proj-panel-label { margin-bottom: 0; }\n.proj-donut-panel > .proj-panel-label { margin-bottom: 10px; }\n.proj-panel-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.proj-action-btn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--pulse-border); background: var(--pulse-control); color: var(--pulse-muted); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; }\n.proj-action-btn:hover { background: var(--pulse-hover); color: var(--pulse-foreground); }\n.proj-action-btn[aria-pressed="true"] { border-color: color-mix(in srgb, var(--pulse-accent) 45%, var(--pulse-border)); color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 10%, var(--pulse-control)); }\n.proj-bars { display: grid; gap: 6px; max-height: 310px; overflow-y: auto; padding-right: 4px; align-content: start; }\n.proj-bars.is-all { max-height: 440px; }\n.proj-bar-group { display: grid; gap: 3px; }\n.proj-bar-row { display: grid; gap: 4px; padding: 5px 7px; border-radius: 7px; cursor: pointer; transition: background-color 120ms ease; min-width: 0; }\n.proj-bar-row:hover, .proj-bar-row.is-active { background: var(--pulse-hover); }\n.proj-bar-caret { flex: none; width: 12px; text-align: center; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); transition: transform 120ms ease; }\n.proj-bar-row[aria-expanded="true"] .proj-bar-caret { color: var(--pulse-accent); }\n.proj-subagent-list { display: grid; gap: 4px; margin: 2px 0 4px 16px; padding-left: 10px; border-left: 1.5px solid color-mix(in srgb, var(--pulse-border) 85%, transparent); }\n.proj-subagent-row { display: grid; gap: 3px; padding: 4px 7px; border-radius: 6px; cursor: default; min-width: 0; transition: background-color 120ms ease; }\n.proj-subagent-row:hover { background: var(--pulse-hover); }\n.proj-subagent-row .proj-bar-meta { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-subagent-row .proj-bar-track { height: 5px; opacity: .82; }\n.proj-bar-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); min-width: 0; }\n.proj-bar-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }\n.proj-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); font-weight: 500; min-width: 0; }\n.proj-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); }\n.proj-reassign-btn { flex: none; padding: 0 6px; height: 19px; line-height: 17px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); background: var(--pulse-control); border: 1px solid var(--pulse-border); cursor: pointer; }\n.proj-reassign-btn:hover { color: var(--pulse-foreground); border-color: color-mix(in srgb, var(--pulse-accent) 55%, var(--pulse-border)); }\n.proj-reassign-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 7px 4px; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-reassign-select { flex: 1; min-width: 120px; height: 24px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--pulse-border); background: var(--pulse-background); color: var(--pulse-foreground); font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-action-btn.is-primary { background: var(--pulse-accent); border-color: var(--pulse-accent); color: #fff; }\n.proj-bar-val { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); }\n.proj-bar-track { height: 7px; border-radius: 999px; background: color-mix(in srgb, var(--pulse-border) 55%, transparent); overflow: hidden; }\n.proj-bar-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }\n.proj-bars-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); padding: 4px 7px 2px; }\n.proj-donut-layout { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }\n.proj-donut-box { position: relative; width: 156px; height: 156px; flex: none; align-self: center; }\n.proj-donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }\n.proj-donut-track { fill: none; stroke: color-mix(in srgb, var(--pulse-border) 60%, transparent); stroke-width: 14; }\n.proj-donut-seg { fill: none; stroke-width: 14; cursor: pointer; transition: stroke-width 140ms ease, opacity 140ms ease; }\n.proj-donut-seg.is-active { stroke-width: 17; }\n.proj-donut-seg.is-dimmed { opacity: .45; }\n.proj-donut-center { position: absolute; inset: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; gap: 3px; }\n.proj-donut-center strong { font-size: calc(15px * var(--pulse-usage-font-scale, 1)); font-weight: 650; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-center span { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-list { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 170px; overflow-y: auto; padding-right: 4px; align-content: start; box-sizing: border-box; }\n.proj-donut-list.is-all { max-height: 270px; }\n.proj-donut-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); cursor: pointer; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }\n.proj-donut-item:hover, .proj-donut-item.is-active { background: var(--pulse-hover); }\n.proj-donut-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }\n.proj-donut-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.proj-donut-item-pct { flex: none; color: var(--pulse-muted); font-variant-numeric: tabular-nums; }\n@media (max-width: 720px) {\n  .proj-detail-grid { grid-template-columns: 1fr; }\n}\n@media (max-width: 650px) {\n  .page { padding: 20px 18px; }\n  .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 0; }\n  .metric:nth-child(3) { border-left: 0; }\n  .value { font-size: calc(23px * var(--pulse-usage-font-scale, 1)); }\n  .section-head { align-items: flex-start; flex-wrap: wrap; }\n  .chart-controls { width: 100%; justify-content: space-between; }\n  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }\n  .selected { align-items: flex-start; }\n  .chart { gap: 8px; }\n}\n@media (max-width: 520px) {\n  .usage-intro { padding: 14px; }\n  .intro-bottom { align-items: flex-start; }\n  .intro-bottom span { line-height: 1.5; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .other-models:not([hidden]),\n  .hourly-content:not([hidden]) { animation: none !important; }\n  .bar-segment,\n  .proj-bar-fill,\n  .hourly-chevron,\n  .picker-chevron,\n  .year-chevron,\n  .proj-bar-caret,\n  .hourly-pt,\n  .proj-donut-seg { transition: opacity 100ms ease !important; }\n  .modal-layer,\n  .modal-card,\n  .tip { transition: opacity 90ms ease !important; }\n  .heat button { transition: background-color 140ms ease !important; }\n  button,\n  #usage-intro-done { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease !important; }\n  button:active,\n  #usage-intro-done:active,\n  .heat button:not(:disabled):hover,\n  .heat button:not(:disabled):focus-visible { transform: none !important; scale: none !important; }\n}\n';
 
   // src/ui/usage-modal/usage-sections.css
   var usage_sections_default = `:host {
@@ -2412,7 +2412,7 @@ select { padding: 4px 8px; font-size: calc(11px * var(--pulse-usage-font-scale, 
   }
   var BACKDROP_STYLE = "#usage-dashboard{position:fixed;inset:0;margin:auto;width:min(1040px,calc(100vw - 40px));max-width:none;height:min(820px,calc(100dvh - 64px));max-height:none;border-radius:18px;pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0}}#usage-dashboard::backdrop{background:#0006;backdrop-filter:blur(3px);pointer-events:none;opacity:0;transition:opacity 100ms ease,display 100ms,overlay 100ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open])::backdrop{pointer-events:auto;opacity:1}@starting-style{#usage-dashboard:popover-open::backdrop,#usage-dashboard[open]::backdrop{opacity:0}}@media(prefers-reduced-motion:no-preference){#usage-dashboard{scale:.98;transition:opacity 140ms ease,scale 150ms cubic-bezier(.2,.9,.3,1),display 150ms,overlay 150ms;transition-behavior:allow-discrete}#usage-dashboard:is(:popover-open,.\\:popover-open,[open]){scale:1}@starting-style{#usage-dashboard:popover-open,#usage-dashboard[open]{opacity:0;scale:.975}}#usage-dashboard::backdrop{transition:opacity 140ms ease,display 140ms,overlay 140ms;transition-behavior:allow-discrete}}@media(max-width:640px){#usage-dashboard{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:12px}}@media(max-width:480px){#usage-dashboard{width:100vw;height:100dvh;border-radius:0;border-width:0}}";
   var DIALOG_STYLE = "box-sizing:border-box;overflow:hidden;visibility:visible;padding:0;border:1px solid var(--pulse-border);background:var(--pulse-background);color:var(--pulse-foreground);box-shadow:0 24px 100px #0006";
-  var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="pricing-settings" type="button" class="pricing-trigger" aria-label="API pricing"><span>$</span></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div id="pricing-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
+  var PAGE_MARKUP = '<header class="top"><div><div class="eyebrow">ANTIGRATIVE DASHBOARD</div><h1 id="title"></h1><div class="sub"><span class="live-dot"></span><span id="subtitle"></span></div></div><div class="top-controls"><div class="actions"><button id="locale" type="button" aria-label="Language"><span id="locale-label" class="locale-label">\u4E2D</span></button><button id="refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9"/></svg></button><button id="pricing-settings" type="button" class="pricing-trigger" aria-label="API pricing"><span>$</span></button><button id="font-settings" type="button" class="font-trigger" aria-label="Font size settings"><span>Aa</span></button><button id="close" type="button" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><button id="add-manual" type="button" class="btn-manual" aria-label="Add manual usage"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span id="add-manual-label">\u5F55\u5165\u8FDC\u7A0B\u7528\u91CF</span></button></div></header><div class="tabs-bar"><nav class="tabs" role="tablist"><button id="overview-tab" role="tab" aria-controls="overview"></button><button id="details-tab" role="tab" aria-controls="details"></button></nav><span id="account-switcher-slot"></span></div><div class="totals" id="totals"></div><section id="usage-waiting" class="usage-waiting" role="status" hidden></section><section id="overview" role="tabpanel"><div class="section-head"><div><h2 id="activity-title"></h2><div class="muted" id="heat-sub"></div></div><div class="chart-controls"><div class="seg" id="heat-controls"><button data-heat="day"></button><button data-heat="week"></button></div><div class="year-picker"><button id="year" type="button" class="year-trigger" aria-label="Year" aria-haspopup="listbox" aria-controls="year-menu" aria-expanded="false"><span id="year-label"></span><svg class="year-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="year-menu" class="year-menu" role="listbox" aria-label="Year" popover="manual"></div></div></div></div><div class="heat-wrap"><div class="calendar"><div class="months" id="months"></div><div class="heat-row"><div class="weekdays" id="weekdays"></div><div class="heat" id="heat"></div></div></div></div><div class="heat-footer"><span id="heat-summary"></span><div class="scale"><span id="less"></span><i class="swatch"></i><i class="swatch" data-level="1"></i><i class="swatch" data-level="2"></i><i class="swatch" data-level="3"></i><i class="swatch" data-level="4"></i><span id="more"></span></div></div><div class="selected"><div><div class="title" id="selection-title"></div><span class="muted" id="selection-value"></span></div><button id="selection-details"></button></div></section><section id="details" role="tabpanel" hidden><div class="section-head"><div class="detail-heading-group"><div class="detail-picker-row"><div class="picker" id="dim-picker"><button id="dim-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="dim-menu" aria-expanded="false"><span id="dim-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="dim-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="picker" id="model-view-picker"><button id="model-view-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="model-view-menu" aria-expanded="false"><span id="model-view-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="model-view-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div id="cycle-controls" class="cycle-controls" hidden><div class="picker" id="cycle-group-picker"><button id="cycle-group-trigger" type="button" class="picker-trigger" aria-haspopup="listbox" aria-controls="cycle-group-menu" aria-expanded="false"><span id="cycle-group-label"></span><svg class="picker-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div id="cycle-group-menu" class="picker-menu" role="listbox" popover="manual"></div></div><div class="seg cycle-window-seg" id="cycle-window-controls"><button type="button" data-cycle-window="weekly"></button><button type="button" data-cycle-window="5h"></button></div><span id="cycle-status-note" class="project-scope-note cycle-status-note" hidden></span></div><span id="project-scope-note" class="project-scope-note" hidden></span></div><div id="detail-summary-row" class="detail-summary-row"></div></div><div class="chart-controls"><div class="range"><button id="previous" aria-label="Previous">\u2039</button><strong id="range-label"></strong><button id="next" aria-label="Next">\u203A</button></div><div id="custom-range-controls" class="custom-range-controls" hidden></div><div class="seg" id="period-controls"><button data-period="day"></button><button data-period="week"></button><button data-period="month"></button><button data-period="cycle"></button><button data-period="custom"></button></div></div></div><div class="legend" id="legend"></div><div class="chart-wrap"><div class="chart"><div class="axis" id="axis"></div><div class="plot" id="plot"></div></div></div><div class="hourly-section" id="hourly-section"><div class="hourly-header"><button id="hourly-toggle" type="button" class="hourly-toggle" aria-expanded="false"><span id="hourly-toggle-title"></span><span id="hourly-title"></span><span id="hourly-subtitle" class="muted"></span><svg class="hourly-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><div class="hourly-mode-seg" id="hourly-mode-controls"><button id="hourly-mode-combined" type="button" data-hourly-mode="combined"></button><button id="hourly-mode-today" type="button" data-hourly-mode="today"></button></div></div><div id="hourly-content" class="hourly-content" hidden><div class="hourly-chart-wrap" id="hourly-chart"></div></div></div><section class="project-detail-section" id="project-detail-section" hidden></section><div class="table-wrap"><table class="table"><thead><tr id="table-head"></tr></thead><tbody id="table-body"></tbody></table></div><div class="manual-section" id="manual-section"><div class="section-head"><h2 id="manual-title"></h2></div><div class="table-wrap"><table class="table" id="manual-table"><thead><tr id="manual-table-head"></tr></thead><tbody id="manual-table-body"></tbody></table></div></div></section><div id="manual-modal" class="modal-layer" hidden></div><div id="pricing-modal" class="modal-layer" hidden></div><div class="alert" id="alert" hidden></div><footer class="footer"><span id="coverage"></span><span id="timezone"></span></footer><div class="tip" id="tip" role="status" hidden></div>';
   var INTRO_MARKUP = '<div class="intro-heading"><span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0"/></svg></span><h2 id="usage-intro-title"></h2></div><div class="intro-copy"><p id="usage-intro-history"></p><p id="usage-intro-scope"></p><p id="usage-intro-storage"></p></div><div class="intro-bottom"><span id="usage-intro-error" role="status"></span><button id="usage-intro-done" type="button"></button></div>';
   function createDomNode(tag, className = "", content) {
     const n = document.createElement(tag);
@@ -2716,10 +2716,18 @@ ${FONT_POPOVER_CSS}`;
       day: w("\u5929", "Day"),
       week: w("\u5468", "Week"),
       month: w("\u6708", "Month"),
+      cycle: w("\u989D\u5EA6\u5468\u671F", "Quota cycle"),
       custom: w("\u81EA\u5B9A\u4E49", "Custom")
     };
     for (const b of view.querySelectorAll("[data-period]")) {
       b.textContent = periodLabels[b.dataset.period || ""] || "";
+    }
+    const cycleWindowLabels = {
+      weekly: w("\u5468\u5468\u671F", "Weekly"),
+      "5h": w("5 \u5C0F\u65F6", "5h")
+    };
+    for (const b of view.querySelectorAll("[data-cycle-window]")) {
+      b.textContent = cycleWindowLabels[b.dataset.cycleWindow || ""] || "";
     }
     $("overview-tab")?.setAttribute("aria-selected", String(state.tab === "overview"));
     $("details-tab")?.setAttribute("aria-selected", String(state.tab === "details"));
@@ -3223,6 +3231,208 @@ ${FONT_POPOVER_CSS}`;
     }
   };
 
+  // src/ui/usage-modal/quota-cycle.ts
+  var COUNT_KEYS2 = [
+    "total",
+    "requests",
+    "uncached",
+    "cacheRead",
+    "cacheWrite",
+    "output"
+  ];
+  var rangeFormatterCache = /* @__PURE__ */ new Map();
+  function createEmptyBucket2() {
+    return { total: 0, requests: 0, uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  }
+  function createEmptyCostBucket2() {
+    return { costUsd: 0, pricedTokens: 0, unpricedTokens: 0 };
+  }
+  function getRangeFormatter(timeZone) {
+    let fmt = rangeFormatterCache.get(timeZone);
+    if (!fmt) {
+      try {
+        fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23"
+        });
+      } catch {
+        fmt = new Intl.DateTimeFormat("en-CA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23"
+        });
+      }
+      rangeFormatterCache.set(timeZone, fmt);
+    }
+    return fmt;
+  }
+  function formatDateParts(ms, timeZone) {
+    const parts = getRangeFormatter(timeZone).formatToParts(ms);
+    let year = "";
+    let month = "01";
+    let day = "01";
+    let hour = "00";
+    let minute = "00";
+    for (const p of parts) {
+      if (p.type === "year") year = p.value;
+      else if (p.type === "month") month = p.value;
+      else if (p.type === "day") day = p.value;
+      else if (p.type === "hour") hour = p.value.padStart(2, "0");
+      else if (p.type === "minute") minute = p.value.padStart(2, "0");
+    }
+    return { year, md: `${month}/${day}`, hm: `${hour}:${minute}` };
+  }
+  function formatQuotaCycleRange(cycle, timeZone) {
+    if (!cycle || !Number.isFinite(cycle.startAt) || !Number.isFinite(cycle.endAt)) return "\u2014";
+    const s = formatDateParts(cycle.startAt, timeZone);
+    const e = formatDateParts(cycle.endAt, timeZone);
+    const crossYear = s.year !== e.year;
+    const sameDay = s.year === e.year && s.md === e.md;
+    if (sameDay) {
+      return `${s.md} ${s.hm} \u2013 ${e.hm}`;
+    }
+    const startStr = crossYear ? `${s.year}/${s.md} ${s.hm}` : `${s.md} ${s.hm}`;
+    const endStr = crossYear ? `${e.year}/${e.md} ${e.hm}` : `${e.md} ${e.hm}`;
+    return `${startStr} \u2013 ${endStr}`;
+  }
+  function formatQuotaCycleStatus(snapshot, w) {
+    const cycle = snapshot?.cycle;
+    if (!cycle) return "";
+    const parts = [];
+    if (cycle.source === "live") {
+      if (cycle.idle) {
+        parts.push(w("\u5F53\u671F\u5C1A\u672A\u6D88\u8017 \xB7 \u7A97\u53E3\u6ED1\u52A8\u4E2D", "Idle \xB7 rolling window"));
+      } else if (typeof cycle.remaining === "number" && Number.isFinite(cycle.remaining)) {
+        const usedPct = Math.max(0, Math.min(100, Math.round((1 - cycle.remaining) * 100)));
+        const remPct = Math.max(0, Math.min(100, Math.round(cycle.remaining * 100)));
+        parts.push(w(`\u5F53\u524D\u5468\u671F \xB7 \u5DF2\u7528 ${usedPct}%\uFF08\u5269 ${remPct}%\uFF09`, `Current \xB7 ${usedPct}% used (${remPct}% left)`));
+      } else {
+        parts.push(w("\u5F53\u524D\u5468\u671F", "Current cycle"));
+      }
+    } else if (cycle.source === "recorded") {
+      parts.push(w("\u5DF2\u8BB0\u5F55\u5386\u53F2\u5468\u671F", "Recorded cycle"));
+    } else {
+      parts.push(w("\u6309\u56FA\u5B9A\u5468\u671F\u56DE\u63A8", "Estimated cycle"));
+    }
+    if (snapshot?.requestedScope === "all") {
+      parts.push(w("\u5F53\u524D\u6D3B\u8DC3\u8D26\u53F7", "Active account"));
+    }
+    return parts.join(" \xB7 ");
+  }
+  function formatQuotaCycleEmptyMessage(snapshot, window2, w) {
+    const selected = snapshot?.groups?.find((g) => g.id === snapshot.selectedGroupId);
+    const rem = selected ? window2 === "5h" ? selected.fiveHourRemaining : selected.weeklyRemaining : null;
+    if (selected && typeof rem === "number" && rem >= 0.9995) {
+      return w(
+        "\u8BE5\u989D\u5EA6\u6C60\u672C\u5468\u671F\u5C1A\u672A\u6D88\u8017\uFF08\u5269 100%\uFF09\uFF0C\u53D1\u51FA\u9996\u6B21\u8BF7\u6C42\u540E\u5C06\u9501\u5B9A\u91CD\u7F6E\u5468\u671F",
+        "This pool has not been used yet (100% left); reset cycle starts on first request"
+      );
+    }
+    return w("\u6682\u65E0\u53EF\u7528\u7684\u989D\u5EA6\u5468\u671F\u8BB0\u5F55\uFF08\u8BF7\u786E\u4FDD\u5BA2\u6237\u7AEF\u5728\u7EBF\uFF09", "No quota cycle data available yet");
+  }
+  function aggregateSlices(slices, query, filter, rangeMeta) {
+    const models = {};
+    const modelVariants = {};
+    const modelCosts = {};
+    const variantCosts = {};
+    let total = 0;
+    let requests = 0;
+    let costUsd = 0;
+    let pricedTokens = 0;
+    let unpricedTokens = 0;
+    for (const slice of slices) {
+      for (const [rawModel, r] of Object.entries(slice.models || {})) {
+        const key = effectiveModelKey(rawModel, query.modelViewMode);
+        if (filter && query.disabledModels.has(key)) continue;
+        const m = models[key] ??= createEmptyBucket2();
+        for (const k of COUNT_KEYS2) m[k] += r[k] || 0;
+        const rowCost = calculateBucketCost(rawModel, r, slice.date, query.pricingOverrides);
+        const mc = modelCosts[key] ??= createEmptyCostBucket2();
+        if (rowCost === null) {
+          mc.unpricedTokens += r.total || 0;
+          unpricedTokens += r.total || 0;
+        } else {
+          mc.costUsd += rowCost;
+          mc.pricedTokens += r.total || 0;
+          costUsd += rowCost;
+          pricedTokens += r.total || 0;
+        }
+        const gv = modelVariants[key] ??= {};
+        const v = gv[rawModel] ??= createEmptyBucket2();
+        for (const k of COUNT_KEYS2) v[k] += r[k] || 0;
+        const gvc = variantCosts[key] ??= {};
+        const vc = gvc[rawModel] ??= createEmptyCostBucket2();
+        if (rowCost === null) {
+          vc.unpricedTokens += r.total || 0;
+        } else {
+          vc.costUsd += rowCost;
+          vc.pricedTokens += r.total || 0;
+        }
+        total += r.total || 0;
+        requests += r.requests || 0;
+      }
+    }
+    return {
+      from: rangeMeta.from,
+      to: rangeMeta.to,
+      xLabel: rangeMeta.xLabel,
+      displayRange: rangeMeta.displayRange,
+      models,
+      modelVariants,
+      modelCosts,
+      variantCosts,
+      users: {},
+      legacyTokens: 0,
+      total,
+      requests,
+      costUsd,
+      pricedTokens,
+      unpricedTokens
+    };
+  }
+  function buildQuotaCycleView(snapshot, query) {
+    if (!snapshot || !snapshot.cycle) {
+      const empty = aggregateSlices([], query, true, { from: "", to: "" });
+      return {
+        buckets: [],
+        allRangeTotals: empty,
+        filteredRangeTotals: empty,
+        rangeLabel: "\u2014"
+      };
+    }
+    const slices = snapshot.slices || [];
+    const buckets = slices.map(
+      (slice) => aggregateSlices([slice], query, true, {
+        from: slice.key,
+        to: slice.key,
+        xLabel: slice.label,
+        displayRange: slice.rangeLabel
+      })
+    );
+    const rangeLabel = formatQuotaCycleRange(snapshot.cycle, snapshot.timeZone);
+    const overallMeta = {
+      from: slices[0]?.date || "",
+      to: slices.at(-1)?.date || "",
+      displayRange: rangeLabel
+    };
+    const allRangeTotals = aggregateSlices(slices, query, false, overallMeta);
+    const filteredRangeTotals = aggregateSlices(slices, query, true, overallMeta);
+    return {
+      buckets,
+      allRangeTotals,
+      filteredRangeTotals,
+      rangeLabel
+    };
+  }
+
   // src/ui/usage-modal/hourly-spline.ts
   var SVG_NS2 = "http://www.w3.org/2000/svg";
   function fmt1(v) {
@@ -3304,6 +3514,13 @@ ${FONT_POPOVER_CSS}`;
     if (state.hourlyMode === "today") {
       hours = state.value.todayHours || dayIndex.dayMap.get(state.value.today)?.hours;
       text("hourly-title", w("\u4ECA\u65E5 24 \u5C0F\u65F6\u7528\u91CF\u8D8B\u52BF", "Today's 24-Hour Trend"));
+    } else if (state.period === "cycle") {
+      hours = state.cycleData?.hours || Array(24).fill(0);
+      const rangeStr = state.cycleData?.cycle ? formatQuotaCycleRange(state.cycleData.cycle, state.cycleData.timeZone) : "";
+      text(
+        "hourly-title",
+        w("\u989D\u5EA6\u5468\u671F 24 \u5C0F\u65F6\u805A\u5408\u5206\u5E03", "Cycle 24-Hour Distribution") + (rangeStr ? ` (${rangeStr})` : "")
+      );
     } else {
       const isSingleDay2 = state.selectedBar && state.selectedBar.from === state.selectedBar.to;
       if (isSingleDay2 && state.selectedBar) {
@@ -3326,7 +3543,7 @@ ${FONT_POPOVER_CSS}`;
     }
     if (!hours || !Array.isArray(hours) || hours.length < 24) hours = Array(24).fill(0);
     const totalHourly = hours.reduce((n, c) => n + c, 0);
-    const isSingleDay = state.hourlyMode === "today" || Boolean(state.selectedBar && state.selectedBar.from === state.selectedBar.to);
+    const isSingleDay = state.hourlyMode === "today" || state.period !== "cycle" && Boolean(state.selectedBar && state.selectedBar.from === state.selectedBar.to);
     text(
       "hourly-subtitle",
       !isSingleDay ? w(`${compactNum(totalHourly)} Token \xB7 24\u5C0F\u65F6\u5408\u96C6\u7528\u91CF`, `${compactNum(totalHourly)} tokens \xB7 24-hour aggregate`) : w(`${compactNum(totalHourly)} Token \xB7 \u6BCF\u5C0F\u65F6\u7528\u91CF`, `${compactNum(totalHourly)} tokens \xB7 hourly distribution`)
@@ -3656,6 +3873,26 @@ ${FONT_POPOVER_CSS}`;
         chart.renderChart();
       }
     }) : null;
+    const cgTrigger = $("cycle-group-trigger");
+    const cgMenu = $("cycle-group-menu");
+    const cgLabel = $("cycle-group-label");
+    const cycleGroupPicker = cgTrigger && cgMenu && cgLabel ? createPopoverListbox({
+      trigger: cgTrigger,
+      menu: cgMenu,
+      labelEl: cgLabel,
+      dialog,
+      view,
+      setMarkup: options.setMarkup,
+      getSelected: () => state.cycleGroupId || state.cycleData?.selectedGroupId || "",
+      placeholder: () => w("\u9009\u62E9\u989D\u5EA6\u6C60", "Quota pool"),
+      onSelect: (val) => {
+        state.cycleGroupId = val || null;
+        state.cycleOffset = 0;
+        state.selectedBar = null;
+        state.disabledModels.clear();
+        chart.renderChart();
+      }
+    }) : null;
     const syncPickers = () => {
       dimPicker?.setOptions(
         [
@@ -3672,6 +3909,17 @@ ${FONT_POPOVER_CSS}`;
         ],
         w("\u89C6\u56FE\u6A21\u5F0F", "View mode")
       );
+      const cycleGroups = state.cycleData?.groups || [];
+      cycleGroupPicker?.setOptions(
+        cycleGroups.map((g) => {
+          const rem = state.cycleWindow === "5h" ? g.fiveHourRemaining : g.weeklyRemaining;
+          const resetAt = state.cycleWindow === "5h" ? g.fiveHourResetAt : g.weeklyResetAt;
+          const hint = typeof rem === "number" && Number.isFinite(rem) ? rem >= 0.9995 && !resetAt ? w("\u6EE1\u989D\u7A7A\u95F2", "Idle 100%") : w(`\u5269 ${Math.round(rem * 100)}%`, `${Math.round(rem * 100)}% left`) : void 0;
+          return { value: g.id, label: g.name || g.id, hint };
+        }),
+        w("\u989D\u5EA6\u6C60", "Quota pool")
+      );
+      if (cgTrigger) cgTrigger.disabled = cycleGroups.length <= 1;
       fontPopover?.localize();
     };
     const closeSubPopovers = () => {
@@ -3682,6 +3930,10 @@ ${FONT_POPOVER_CSS}`;
       }
       if (modelViewPicker?.isOpen()) {
         modelViewPicker.close();
+        closed = true;
+      }
+      if (cycleGroupPicker?.isOpen()) {
+        cycleGroupPicker.close();
         closed = true;
       }
       if (fontPopover?.element.matches(":popover-open")) {
@@ -3734,6 +3986,16 @@ ${FONT_POPOVER_CSS}`;
         chart.renderChart();
       });
     }
+    for (const b of view.querySelectorAll("[data-cycle-window]")) {
+      b.addEventListener("click", () => {
+        const next = b.dataset.cycleWindow === "5h" ? "5h" : "weekly";
+        if (state.cycleWindow === next) return;
+        state.cycleWindow = next;
+        state.cycleOffset = 0;
+        state.selectedBar = null;
+        chart.renderChart();
+      });
+    }
     const handleCustomChange = () => {
       const s = $("custom-start")?.value || "";
       const e = $("custom-end")?.value || "";
@@ -3770,6 +4032,14 @@ ${FONT_POPOVER_CSS}`;
     });
     for (const [id, step] of [["previous", -1], ["next", 1]]) {
       $(id)?.addEventListener("click", () => {
+        if (state.period === "cycle") {
+          const nextOffset = Math.min(0, state.cycleOffset + step);
+          if (nextOffset === state.cycleOffset) return;
+          state.cycleOffset = nextOffset;
+          state.selectedBar = null;
+          chart.renderChart();
+          return;
+        }
         if (!state.anchor) return;
         state.selectedBar = null;
         state.anchor = state.period === "day" ? shiftMonth(state.anchor, step) : state.period === "week" ? addDays(state.anchor, step * 84) : shiftMonth(state.anchor, step * 12);
@@ -3796,6 +4066,7 @@ ${FONT_POPOVER_CSS}`;
       try {
         state.projectOverviewKey = "";
         state.projectDetailKey = "";
+        state.cycleDataKey = "";
         await options.onRefresh();
       } catch {
         if (!state.disposed) {
@@ -3844,6 +4115,7 @@ ${FONT_POPOVER_CSS}`;
         refreshMotion?.cancel();
         dimPicker?.dispose();
         modelViewPicker?.dispose();
+        cycleGroupPicker?.dispose();
         fontPopover?.dispose();
       }
     };
@@ -5324,16 +5596,34 @@ ${FONT_POPOVER_CSS}`;
   // src/ui/usage-modal/breakdown-table.ts
   function renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, onSelectProject) {
     const { $, view, state, w, full, compactNum } = ctx;
-    if (!state.value || !state.currentBuckets.length) return;
+    if (!state.value) return;
+    const isCycle = state.period === "cycle";
+    const dim = isCycle ? "model" : state.dimension;
+    const tableHead = $("table-head");
+    const tableBody = $("table-body");
+    if (!tableHead || !tableBody) return;
     const resetBtn = $("reset-drilldown");
     if (resetBtn) {
       resetBtn.hidden = !state.selectedBar;
       resetBtn.textContent = w("\u663E\u793A\u5168\u90E8\u65F6\u6BB5", "Show all");
     }
+    if (!state.currentBuckets.length) {
+      if (isCycle) {
+        chartSummary.replaceChildren(
+          createDomNode(
+            "span",
+            "muted",
+            state.cycleLoading ? w("\u6B63\u5728\u52A0\u8F7D\u989D\u5EA6\u5468\u671F\u6570\u636E\u2026", "Loading quota cycle usage\u2026") : state.cycleError || formatQuotaCycleEmptyMessage(state.cycleData, state.cycleWindow, w)
+          )
+        );
+        tableBody.replaceChildren();
+      }
+      return;
+    }
     const query = getQuery();
-    const activeTotals = state.selectedBar ? dayIndex.totals(state.selectedBar.from, state.selectedBar.to, query, true) : dayIndex.totals(state.currentBuckets[0].from, state.currentBuckets.at(-1).to, query, true);
-    const rangeLabelStr = state.selectedBar ? state.selectedBar.from === state.selectedBar.to ? state.selectedBar.from : `${state.selectedBar.from} \u2013 ${state.selectedBar.to}` : "";
-    const showSummaryCost = state.dimension !== "project" && (activeTotals.pricedTokens > 0 || activeTotals.total === 0) && !(state.dimension === "user" && state.disabledUsers.size > 0);
+    const activeTotals = isCycle ? state.selectedBar || state.cycleRangeTotals || state.currentBuckets[0] : state.selectedBar ? dayIndex.totals(state.selectedBar.from, state.selectedBar.to, query, true) : dayIndex.totals(state.currentBuckets[0].from, state.currentBuckets.at(-1).to, query, true);
+    const rangeLabelStr = state.selectedBar ? state.selectedBar.displayRange || (state.selectedBar.from === state.selectedBar.to ? state.selectedBar.from : `${state.selectedBar.from} \u2013 ${state.selectedBar.to}`) : "";
+    const showSummaryCost = dim !== "project" && (activeTotals.pricedTokens > 0 || activeTotals.total === 0) && !(dim === "user" && state.disabledUsers.size > 0);
     const summaryCostText = showSummaryCost ? ` \xB7 ${formatUsd(activeTotals.costUsd, { approx: true })}${activeTotals.unpricedTokens > 0 ? "+" : ""}` : "";
     chartSummary.replaceChildren(
       createDomNode("strong", "", `${compactNum(activeTotals.total)} Token`),
@@ -5344,10 +5634,7 @@ ${FONT_POPOVER_CSS}`;
     );
     const focusedGroup = view.activeElement?.closest?.("tr.model-group-row")?.dataset.modelGroup || null;
     const bodyFrag = document.createDocumentFragment();
-    const tableHead = $("table-head");
-    const tableBody = $("table-body");
-    if (!tableHead || !tableBody) return;
-    if (state.dimension === "project") {
+    if (dim === "project") {
       tableHead.replaceChildren(
         ...[
           w("\u9879\u76EE", "Project"),
@@ -5439,7 +5726,7 @@ ${FONT_POPOVER_CSS}`;
           bodyFrag.append(row);
         }
       }
-    } else if (state.dimension === "user") {
+    } else if (dim === "user") {
       tableHead.replaceChildren(
         ...[
           w("\u7528\u6237 / \u8D26\u53F7", "User / Account"),
@@ -5471,7 +5758,7 @@ ${FONT_POPOVER_CSS}`;
         bodyFrag.append(row);
       }
     } else if (state.modelViewMode === "detailed") {
-      const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+      const activeToDate = isCycle ? state.cycleData?.slices?.at(-1)?.date || state.value.today : state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
       const makeCostTd = (costBucket, totalTokens, sampleModel) => {
         const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
         const text = totalTokens <= 0 ? "$0.00" : hasPriced ? `${formatUsd(costBucket.costUsd)}${costBucket.unpricedTokens > 0 ? "+" : ""}` : "\u2014";
@@ -5513,7 +5800,7 @@ ${FONT_POPOVER_CSS}`;
         bodyFrag.append(row);
       }
     } else {
-      const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+      const activeToDate = isCycle ? state.cycleData?.slices?.at(-1)?.date || state.value.today : state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
       const makeCostTd = (costBucket, totalTokens, sampleModel) => {
         const hasPriced = (costBucket?.pricedTokens ?? 0) > 0;
         const text = totalTokens <= 0 ? "$0.00" : hasPriced ? `${formatUsd(costBucket.costUsd)}${costBucket.unpricedTokens > 0 ? "+" : ""}` : "\u2014";
@@ -5636,7 +5923,8 @@ ${FONT_POPOVER_CSS}`;
         col.setAttribute("aria-pressed", String(active));
       }
       renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
-      if (state.dimension === "project") {
+      const dim = state.period === "cycle" ? "model" : state.dimension;
+      if (dim === "project") {
         handlers.onProjectDrilldown?.();
         handlers.onRenderProjectDetail?.();
       } else renderHourlySpline(ctx, dayIndex, tooltip);
@@ -5649,21 +5937,42 @@ ${FONT_POPOVER_CSS}`;
       if (!state.value || !state.anchor) return;
       palette.sync(state.value, state.modelViewMode, root.host);
       tooltip.hide();
+      const isCycle = state.period === "cycle";
+      const dim = isCycle ? "model" : state.dimension;
+      if (isCycle) handlers.onQuotaCycle?.();
       if (state.period === "custom") {
         state.customStart ||= addDays(state.value.today, -14);
         state.customEnd ||= state.value.today;
       }
       const query = getQuery();
-      const { buckets, rangeLabel } = dayIndex.buildPeriodBuckets(
-        state.period,
-        state.anchor,
-        state.customStart,
-        state.customEnd,
-        query
-      );
+      let buckets = [];
+      let rangeLabel = "";
+      let allRangeTotals;
+      if (isCycle) {
+        const cycleView = buildQuotaCycleView(state.cycleData, query);
+        buckets = cycleView.buckets;
+        rangeLabel = state.cycleLoading && !state.cycleData?.cycle ? w("\u52A0\u8F7D\u4E2D\u2026", "Loading\u2026") : cycleView.rangeLabel;
+        allRangeTotals = cycleView.allRangeTotals;
+        state.cycleRangeTotals = cycleView.filteredRangeTotals;
+        if (state.selectedBar) {
+          state.selectedBar = buckets.find((b) => b.from === state.selectedBar.from && b.to === state.selectedBar.to) || null;
+        }
+      } else {
+        state.cycleRangeTotals = null;
+        const built = dayIndex.buildPeriodBuckets(
+          state.period,
+          state.anchor,
+          state.customStart,
+          state.customEnd,
+          query
+        );
+        buckets = built.buckets;
+        rangeLabel = built.rangeLabel;
+        allRangeTotals = buckets.length ? dayIndex.totals(buckets[0].from, buckets.at(-1).to, query, false) : dayIndex.totals(state.value.today, state.value.today, query, false);
+      }
       text("range-label", rangeLabel);
       state.currentBuckets = buckets;
-      if (state.dimension === "project" && buckets.length) {
+      if (dim === "project" && buckets.length) {
         handlers.onProjectRange?.(buckets[0].from, buckets.at(-1).to);
       }
       const plotEl = $("plot");
@@ -5681,7 +5990,10 @@ ${FONT_POPOVER_CSS}`;
       const customControls = $("custom-range-controls");
       if (customControls) customControls.hidden = state.period !== "custom";
       const rangeEl = view.querySelector(".range");
-      if (rangeEl) rangeEl.hidden = state.period === "custom";
+      if (rangeEl) {
+        rangeEl.hidden = state.period === "custom";
+        rangeEl.classList.toggle("is-cycle", isCycle);
+      }
       const startInput = $("custom-start");
       const endInput = $("custom-end");
       if (startInput) {
@@ -5694,15 +6006,30 @@ ${FONT_POPOVER_CSS}`;
       }
       const prevBtn = $("previous");
       const nextBtn = $("next");
-      if (prevBtn) prevBtn.disabled = state.period === "custom";
-      if (nextBtn) {
-        nextBtn.disabled = state.period === "custom" ? true : state.period === "week" ? startOfWeek(state.anchor) >= startOfWeek(state.value.today) : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
+      if (prevBtn) {
+        prevBtn.disabled = state.period === "custom" ? true : isCycle ? state.cycleLoading || !state.cycleData?.hasOlder : false;
       }
+      if (nextBtn) {
+        nextBtn.disabled = state.period === "custom" ? true : isCycle ? state.cycleLoading || state.cycleOffset >= 0 : state.period === "week" ? startOfWeek(state.anchor) >= startOfWeek(state.value.today) : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
+      }
+      const dimPicker = $("dim-picker");
+      if (dimPicker) dimPicker.hidden = isCycle;
       const mvPicker = $("model-view-picker");
-      if (mvPicker) mvPicker.hidden = state.dimension !== "model";
+      if (mvPicker) mvPicker.hidden = dim !== "model";
+      const cycleControls = $("cycle-controls");
+      if (cycleControls) cycleControls.hidden = !isCycle;
+      const cycleStatusNote = $("cycle-status-note");
+      if (cycleStatusNote) {
+        const statusText = isCycle ? formatQuotaCycleStatus(state.cycleData, w) : "";
+        cycleStatusNote.hidden = !statusText;
+        cycleStatusNote.textContent = statusText;
+      }
+      for (const b of view.querySelectorAll("[data-cycle-window]")) {
+        b.setAttribute("aria-pressed", String(b.dataset.cycleWindow === state.cycleWindow));
+      }
       const scopeNote = $("project-scope-note");
       if (scopeNote) {
-        scopeNote.hidden = state.dimension !== "project";
+        scopeNote.hidden = dim !== "project";
         const viewScope = state.value?.viewScope;
         const activeAccount = state.value?.activeAccount;
         if (viewScope === "all") {
@@ -5723,14 +6050,13 @@ ${FONT_POPOVER_CSS}`;
         }
       }
       const hourlySec = $("hourly-section");
-      if (hourlySec) hourlySec.hidden = state.dimension === "project";
+      if (hourlySec) hourlySec.hidden = dim === "project";
       const projectSec = $("project-detail-section");
-      if (projectSec) projectSec.hidden = state.dimension !== "project";
+      if (projectSec) projectSec.hidden = dim !== "project";
       handlers.onSyncPickers?.();
-      const allRangeTotals = dayIndex.totals(buckets[0].from, buckets.at(-1).to, query, false);
       const legendFrag = document.createDocumentFragment();
-      const modelKeys = state.dimension !== "model" ? [] : [.../* @__PURE__ */ new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
-      if (state.dimension === "project") {
+      const modelKeys = dim !== "model" ? [] : isCycle ? Object.keys(allRangeTotals.models) : [.../* @__PURE__ */ new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
+      if (dim === "project") {
         const projList = (state.projectOverview?.projects || []).filter(
           (p) => (allRangeTotals.projects?.[p.projectKey]?.total ?? 0) > 0 || p.total > 0
         );
@@ -5753,7 +6079,7 @@ ${FONT_POPOVER_CSS}`;
           button.addEventListener("pointerleave", () => tooltip.highlightItem(null));
           legendFrag.append(button);
         }
-      } else if (state.dimension === "user") {
+      } else if (dim === "user") {
         const activeUserSet = new Set(Object.keys(allRangeTotals.users).filter((u) => allRangeTotals.users[u].total > 0));
         for (const u of (state.value.users || []).filter((user) => activeUserSet.has(user))) {
           const button = createDomNode("button");
@@ -5837,7 +6163,7 @@ ${FONT_POPOVER_CSS}`;
         if (isDrilled) button.classList.add("selected");
         button.setAttribute("aria-pressed", String(isDrilled));
         const stack = createDomNode("div", "stack");
-        if (state.dimension === "project") {
+        if (dim === "project") {
           const projEntries = Object.entries(bucket.projects || {}).filter(([pKey, b]) => b.total > 0 && !state.disabledProjects.has(pKey)).sort((a, b) => b[1].total - a[1].total);
           for (const [j, [pKey, b]] of projEntries.entries()) {
             const height = b.total / ceiling * 227;
@@ -5849,7 +6175,7 @@ ${FONT_POPOVER_CSS}`;
             if (j && height >= 3) bar.style.boxShadow = "inset 0 -1px 0 color-mix(in srgb,var(--pulse-background) 48%,transparent)";
             stack.append(bar);
           }
-        } else if (state.dimension === "user") {
+        } else if (dim === "user") {
           const segments = (state.value.users || []).filter((u) => bucket.users[u]?.total > 0 && !state.disabledUsers.has(u));
           for (const [j, u] of segments.entries()) {
             const height = bucket.users[u].total / ceiling * 227;
@@ -5879,12 +6205,12 @@ ${FONT_POPOVER_CSS}`;
         button.append(stack);
         const showX = state.period === "day" ? i % 3 === 0 || i === buckets.length - 1 : state.period === "custom" ? buckets.length > 31 ? i % Math.ceil(buckets.length / 15) === 0 || i === buckets.length - 1 : true : true;
         if (showX) {
-          const xTxt = state.period === "day" ? String(i + 1) : state.period === "week" ? bucket.from.slice(5) : state.period === "month" ? bucket.from.slice(0, 7) : bucket.from.slice(5);
+          const xTxt = bucket.xLabel ? bucket.xLabel : state.period === "day" ? String(i + 1) : state.period === "week" ? bucket.from.slice(5) : state.period === "month" ? bucket.from.slice(0, 7) : bucket.from.slice(5);
           button.append(createDomNode("span", "x-label", xTxt));
         }
         tooltip.bindBucket(button, bucket, (picked) => {
           state.selected = picked;
-          state.anchor = picked.from;
+          if (!isCycle) state.anchor = picked.from;
         });
         button.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -5894,7 +6220,7 @@ ${FONT_POPOVER_CSS}`;
         plotFrag.append(button);
       }
       if (!buckets.some((b) => b.total)) {
-        const emptyMsg = state.dimension === "project" && state.projectLoading ? w("\u6B63\u5728\u52A0\u8F7D\u6240\u9009\u8303\u56F4\u9879\u76EE\u7528\u91CF\u2026", "Loading project statistics\u2026") : w("\u6240\u9009\u65F6\u6BB5\u6682\u65E0\u7528\u91CF\u8BB0\u5F55", "No usage recorded in this period");
+        const emptyMsg = isCycle ? state.cycleLoading ? w("\u6B63\u5728\u52A0\u8F7D\u989D\u5EA6\u5468\u671F\u7528\u91CF\u2026", "Loading quota cycle usage\u2026") : state.cycleError ? state.cycleError : !state.cycleData?.cycle ? formatQuotaCycleEmptyMessage(state.cycleData, state.cycleWindow, w) : w("\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u6682\u65E0\u7528\u91CF\u8BB0\u5F55", "No usage recorded in this quota cycle") : dim === "project" && state.projectLoading ? w("\u6B63\u5728\u52A0\u8F7D\u6240\u9009\u8303\u56F4\u9879\u76EE\u7528\u91CF\u2026", "Loading project statistics\u2026") : w("\u6240\u9009\u65F6\u6BB5\u6682\u65E0\u7528\u91CF\u8BB0\u5F55", "No usage recorded in this period");
         plotFrag.append(createDomNode("div", "chart-empty", emptyMsg));
       }
       $("axis")?.replaceChildren(axisFrag);
@@ -5903,7 +6229,7 @@ ${FONT_POPOVER_CSS}`;
       for (const b of view.querySelectorAll("[data-period]")) {
         b.setAttribute("aria-pressed", String(b.dataset.period === state.period));
       }
-      if (state.dimension === "project") handlers.onRenderProjectDetail?.();
+      if (dim === "project") handlers.onRenderProjectDetail?.();
       else renderHourlySpline(ctx, dayIndex, tooltip);
     };
     return { renderChart, updateDrilldownView };
@@ -5914,12 +6240,14 @@ ${FONT_POPOVER_CSS}`;
     const { $, dialog, state, w, full, compactNum } = ctx;
     let tipTarget = null;
     let tipItem = null;
+    const activeDimension = () => state.tab === "details" && state.period === "cycle" ? "model" : state.dimension;
     const highlightItem = (item) => {
       const plot = $("plot");
       if (!plot) return;
       if (item) plot.dataset.highlight = item;
       else delete plot.dataset.highlight;
-      const attr = state.dimension === "user" ? "user" : state.dimension === "project" ? "project" : "model";
+      const dim = activeDimension();
+      const attr = dim === "user" ? "user" : dim === "project" ? "project" : "model";
       for (const bar of plot.querySelectorAll(".bar-segment")) {
         if (item && bar.dataset[attr] === item) bar.dataset.highlight = "true";
         else delete bar.dataset.highlight;
@@ -5939,14 +6267,16 @@ ${FONT_POPOVER_CSS}`;
       tipTarget = target;
       tipItem = activeItem;
       highlightItem(activeItem);
-      const showBucketCost = bucket.pricedTokens > 0 && (state.tab === "overview" || state.dimension === "model" || state.dimension === "user" && state.disabledUsers.size === 0);
+      const dim = activeDimension();
+      const showBucketCost = bucket.pricedTokens > 0 && (state.tab === "overview" || dim === "model" || dim === "user" && state.disabledUsers.size === 0);
       const costMeta = showBucketCost ? ` \xB7 ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? "+" : ""}` : "";
+      const titleText = bucket.displayRange || (bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`);
       tip.replaceChildren(
-        createDomNode("div", "tip-title", bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`),
+        createDomNode("div", "tip-title", titleText),
         createDomNode("strong", "", `${full(bucket.total)} Token`),
         createDomNode("div", "muted", `${w(`${bucket.requests} \u6B21\u8BF7\u6C42`, `${bucket.requests} requests`)}${costMeta}`)
       );
-      if (state.dimension === "project") {
+      if (dim === "project") {
         const projName = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p.name]));
         for (const [pKey, r2] of Object.entries(bucket.projects || {}).sort((a, b) => b[1].total - a[1].total)) {
           const row = createDomNode("div", `tip-model${activeItem ? activeItem === pKey ? " active" : " dimmed" : ""}`);
@@ -5959,7 +6289,7 @@ ${FONT_POPOVER_CSS}`;
           row.append(label, amount);
           tip.append(row);
         }
-      } else if (state.dimension === "user") {
+      } else if (dim === "user") {
         for (const [u, r2] of Object.entries(bucket.users || {}).sort((a, b) => b[1].total - a[1].total)) {
           const row = createDomNode("div", `tip-model${activeItem ? activeItem === u ? " active" : " dimmed" : ""}`);
           const label = createDomNode("span");
@@ -5995,14 +6325,16 @@ ${FONT_POPOVER_CSS}`;
       tip.style.top = `${Math.max(bounds.top + 12, rect.top - r.height - 10)}px`;
     };
     const bindBucket = (button, bucket, onSelect) => {
-      button.setAttribute("aria-label", `${bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`}: ${full(bucket.total)} Token`);
+      const labelText = bucket.displayRange || (bucket.from === bucket.to ? bucket.from : `${bucket.from} \u2013 ${bucket.to}`);
+      button.setAttribute("aria-label", `${labelText}: ${full(bucket.total)} Token`);
       button.addEventListener("pointerenter", () => show(bucket, button));
       button.addEventListener("pointerleave", hide);
       button.addEventListener("focus", () => show(bucket, button));
       button.addEventListener("blur", hide);
       button.addEventListener("pointermove", (event) => {
         const seg = event.target?.closest?.(".bar-segment");
-        const item = state.dimension === "user" ? seg?.dataset.user || null : state.dimension === "project" ? seg?.dataset.project || null : seg?.dataset.model || null;
+        const dim = activeDimension();
+        const item = dim === "user" ? seg?.dataset.user || null : dim === "project" ? seg?.dataset.project || null : seg?.dataset.model || null;
         show(bucket, button, item);
       });
       button.addEventListener("click", () => onSelect(bucket));
@@ -6070,7 +6402,15 @@ ${FONT_POPOVER_CSS}`;
       lastAccQueryKey: "",
       pricingOverrides: sanitizePricingOverrides(
         options.initialPreferences && !("error" in options.initialPreferences) && "modelPricingOverrides" in options.initialPreferences ? options.initialPreferences.modelPricingOverrides : void 0
-      )
+      ),
+      cycleGroupId: null,
+      cycleWindow: "weekly",
+      cycleOffset: 0,
+      cycleData: null,
+      cycleDataKey: "",
+      cycleLoading: false,
+      cycleError: null,
+      cycleRangeTotals: null
     };
     const { dialog, backdrop, context: ctx } = mountUsageDomShell(options, state);
     const { $ } = ctx;
@@ -6090,6 +6430,7 @@ ${FONT_POPOVER_CSS}`;
     let projectDetail;
     let projectReqEpoch = 0;
     let projectDetailEpoch = 0;
+    let cycleReqEpoch = 0;
     const activeRangeBounds = () => {
       if (state.selectedBar) {
         return { from: state.selectedBar.from, to: state.selectedBar.to };
@@ -6175,6 +6516,51 @@ ${FONT_POPOVER_CSS}`;
         }
       }
     };
+    const buildCycleReqKey = (scope, groupId) => `${scope || ""}|${groupId || ""}|${state.cycleWindow}|${state.cycleOffset}|${state.value?.requests ?? 0}|${state.value?.totalTokens ?? 0}`;
+    const ensureQuotaCycleUsage = async () => {
+      const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
+      const reqKey = buildCycleReqKey(scope, state.cycleGroupId);
+      if (state.cycleDataKey === reqKey) return;
+      const bridge = resolveUsageBridge(options);
+      if (typeof bridge?.getQuotaCycleUsage !== "function") {
+        state.cycleError = ctx.w("\u5F53\u524D\u73AF\u5883\u6682\u4E0D\u652F\u6301\u6309\u989D\u5EA6\u5468\u671F\u67E5\u8BE2", "Quota cycle query is unavailable");
+        return;
+      }
+      const myEpoch = ++cycleReqEpoch;
+      state.cycleDataKey = reqKey;
+      state.cycleLoading = true;
+      state.cycleError = null;
+      try {
+        const res = await bridge.getQuotaCycleUsage({
+          scope,
+          groupId: state.cycleGroupId,
+          window: state.cycleWindow,
+          offset: state.cycleOffset
+        });
+        if (state.disposed || myEpoch !== cycleReqEpoch) return;
+        if (res && typeof res === "object" && "error" in res) {
+          state.cycleData = null;
+          state.cycleDataKey = "";
+          state.cycleError = res.error;
+        } else {
+          state.cycleData = res;
+          if (res.selectedGroupId && state.cycleGroupId !== res.selectedGroupId) {
+            state.cycleGroupId = res.selectedGroupId;
+            state.cycleDataKey = buildCycleReqKey(scope, res.selectedGroupId);
+          }
+        }
+      } catch (err) {
+        if (state.disposed || myEpoch !== cycleReqEpoch) return;
+        state.cycleData = null;
+        state.cycleDataKey = "";
+        state.cycleError = err instanceof Error ? err.message : ctx.w("\u52A0\u8F7D\u5931\u8D25", "Load failed");
+      } finally {
+        if (!state.disposed && myEpoch === cycleReqEpoch) {
+          state.cycleLoading = false;
+          if (state.tab === "details" && state.period === "cycle") chart.renderChart();
+        }
+      }
+    };
     const syncProjectDetailToActiveRange = () => {
       if (!state.selectedProjectKey) return;
       const { from, to } = activeRangeBounds();
@@ -6191,6 +6577,9 @@ ${FONT_POPOVER_CSS}`;
       onSyncPickers: () => events?.syncPickers(),
       onProjectRange: (from, to) => {
         void ensureProjectUsage(from, to);
+      },
+      onQuotaCycle: () => {
+        void ensureQuotaCycleUsage();
       },
       onSelectProject: selectProject,
       onRenderProjectDetail: () => projectDetail.render(),
@@ -6271,6 +6660,7 @@ ${FONT_POPOVER_CSS}`;
         state.opener = trigger ?? null;
         state.year ||= data.today.slice(0, 4);
         state.anchor ||= data.today;
+        state.cycleDataKey = "";
         state.lastKey = contentKey(data);
         dayIndex.rebuild(data);
         events.loadPreferencesIfNeeded();
@@ -6300,6 +6690,12 @@ ${FONT_POPOVER_CSS}`;
           state.selectedProjectKey = null;
           state.projectDetail = null;
           state.projectDetailKey = "";
+          state.cycleGroupId = null;
+          state.cycleOffset = 0;
+          state.cycleData = null;
+          state.cycleDataKey = "";
+          state.cycleError = null;
+          state.cycleRangeTotals = null;
           state.lastAccQueryKey = "";
           state.year = data.today.slice(0, 4);
           state.anchor = data.today;
@@ -10310,7 +10706,8 @@ ${FONT_POPOVER_CSS}`;
         addManualUsage: (input) => controller.apiJson("/api/usage/manual/add", input),
         deleteManualUsage: (input) => controller.apiJson("/api/usage/manual/delete", input),
         getProjectUsage: (input) => controller.apiJson("/api/usage/project-overview", input),
-        getProjectDetail: (input) => controller.apiJson("/api/usage/project-detail", input)
+        getProjectDetail: (input) => controller.apiJson("/api/usage/project-detail", input),
+        getQuotaCycleUsage: (input) => controller.apiJson("/api/usage/quota-cycle", input)
       };
       const currentPrefs = state.snapshot?.preferences && !("error" in state.snapshot.preferences) ? state.snapshot.preferences : void 0;
       localUsage = createUsageDashboard({

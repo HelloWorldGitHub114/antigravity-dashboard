@@ -17,6 +17,8 @@ import type {
   ProjectDetailRequest,
   ProjectUsageOverview,
   ProjectUsageRequest,
+  QuotaCycleUsageRequest,
+  QuotaCycleUsageSnapshot,
   ReassignConversationRequest,
   ReassignConversationResponse,
   RecordingAccountState,
@@ -128,6 +130,9 @@ export interface RuntimeUiOptions {
     | null;
   getProjectDetail?:
     | ((input: ProjectDetailRequest) => Promise<ProjectConversationDetail | { error: string }>)
+    | null;
+  getQuotaCycleUsage?:
+    | ((input?: QuotaCycleUsageRequest) => Promise<QuotaCycleUsageSnapshot | { error: string }>)
     | null;
   clearTimeline?: ((input?: ClearTimelineRequest) => Promise<ClearTimelineResult>) | null;
 }

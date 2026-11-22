@@ -21,6 +21,7 @@ import type {
   MetricsRequestInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  QuotaCycleUsageRequest,
   ReassignConversationRequest,
   SetRecordingAccountRequest,
   SwitchAccountRequest,
@@ -42,6 +43,7 @@ import {
   UsageLedger,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  queryQuotaCycleUsage,
   summarizeQuotaWindows,
 } from './ledger/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
@@ -286,6 +288,13 @@ const proUsageBridge = {
       from: input?.from,
       to: input?.to,
     }),
+  getQuotaCycleUsage: (input?: QuotaCycleUsageRequest) =>
+    queryQuotaCycleUsage({
+      ledger: usage.ledger,
+      liveGroups: store.quota || [],
+      activeScope: store.identity ?? null,
+      input,
+    }),
 };
 const integration = new RuntimeUi({
   snapshot: (input) => metrics(input),
@@ -306,6 +315,7 @@ const integration = new RuntimeUi({
   reassignConversation: proUsageBridge.reassignConversation,
   getProjectUsage: proUsageBridge.getProjectUsage,
   getProjectDetail: proUsageBridge.getProjectDetail,
+  getQuotaCycleUsage: proUsageBridge.getQuotaCycleUsage,
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
 });
 
@@ -412,6 +422,15 @@ const createVertexInstance = () => {
         scope: input?.scope ?? null,
         from: input?.from,
         to: input?.to,
+      });
+    },
+    getQuotaCycleUsage: (input) => {
+      vertexController?.recordActivity('runtime-ui-usage');
+      return queryQuotaCycleUsage({
+        ledger: vertexUsage.ledger,
+        liveGroups: vStore.quota || [],
+        activeScope: vStore.identity ?? null,
+        input,
       });
     },
     clearTimeline: (input) => {
@@ -586,6 +605,7 @@ if (isSidecar) {
   app.api('/api/usage/manual/delete', (data) => proUsageBridge.deleteManualUsage(data as DeleteManualUsageRequest), 'POST');
   app.api('/api/usage/project-overview', (data) => proUsageBridge.getProjectUsage(data as { scope?: string | null; from?: string; to?: string }), 'POST');
   app.api('/api/usage/project-detail', (data) => proUsageBridge.getProjectDetail(data as { projectKey: string; scope?: string | null; from?: string; to?: string }), 'POST');
+  app.api('/api/usage/quota-cycle', (data) => proUsageBridge.getQuotaCycleUsage(data as QuotaCycleUsageRequest), 'POST');
   app.api('/api/preferences', () => livePreferences.snapshot(), 'GET');
   app.api('/api/preferences', async (data) => {
     try { return await livePreferences.set(data as PreferencesUpdateInput); }

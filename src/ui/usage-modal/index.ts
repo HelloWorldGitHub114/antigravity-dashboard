@@ -74,6 +74,14 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         ? options.initialPreferences.modelPricingOverrides
         : undefined,
     ),
+    cycleGroupId: null,
+    cycleWindow: 'weekly',
+    cycleOffset: 0,
+    cycleData: null,
+    cycleDataKey: '',
+    cycleLoading: false,
+    cycleError: null,
+    cycleRangeTotals: null,
   };
 
   const { dialog, backdrop, context: ctx } = mountUsageDomShell(options, state);
@@ -95,6 +103,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
   let projectDetail!: ProjectDetailController;
   let projectReqEpoch = 0;
   let projectDetailEpoch = 0;
+  let cycleReqEpoch = 0;
 
   const activeRangeBounds = (): { from: string; to: string } => {
     if (state.selectedBar) {
@@ -186,6 +195,55 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     }
   };
 
+  const buildCycleReqKey = (scope: string | null, groupId: string | null): string =>
+    `${scope || ''}|${groupId || ''}|${state.cycleWindow}|${state.cycleOffset}|${state.value?.requests ?? 0}|${state.value?.totalTokens ?? 0}`;
+
+  const ensureQuotaCycleUsage = async (): Promise<void> => {
+    const scope = state.value?.viewScope || state.value?.accountKey || state.value?.activeAccount || null;
+    const reqKey = buildCycleReqKey(scope, state.cycleGroupId);
+    if (state.cycleDataKey === reqKey) return;
+    const bridge = resolveUsageBridge(options);
+    if (typeof bridge?.getQuotaCycleUsage !== 'function') {
+      state.cycleError = ctx.w('当前环境暂不支持按额度周期查询', 'Quota cycle query is unavailable');
+      return;
+    }
+
+    const myEpoch = ++cycleReqEpoch;
+    state.cycleDataKey = reqKey;
+    state.cycleLoading = true;
+    state.cycleError = null;
+    try {
+      const res = await bridge.getQuotaCycleUsage({
+        scope,
+        groupId: state.cycleGroupId,
+        window: state.cycleWindow,
+        offset: state.cycleOffset,
+      });
+      if (state.disposed || myEpoch !== cycleReqEpoch) return;
+      if (res && typeof res === 'object' && 'error' in res) {
+        state.cycleData = null;
+        state.cycleDataKey = '';
+        state.cycleError = res.error;
+      } else {
+        state.cycleData = res;
+        if (res.selectedGroupId && state.cycleGroupId !== res.selectedGroupId) {
+          state.cycleGroupId = res.selectedGroupId;
+          state.cycleDataKey = buildCycleReqKey(scope, res.selectedGroupId);
+        }
+      }
+    } catch (err) {
+      if (state.disposed || myEpoch !== cycleReqEpoch) return;
+      state.cycleData = null;
+      state.cycleDataKey = '';
+      state.cycleError = err instanceof Error ? err.message : ctx.w('加载失败', 'Load failed');
+    } finally {
+      if (!state.disposed && myEpoch === cycleReqEpoch) {
+        state.cycleLoading = false;
+        if (state.tab === 'details' && state.period === 'cycle') chart.renderChart();
+      }
+    }
+  };
+
   const syncProjectDetailToActiveRange = (): void => {
     if (!state.selectedProjectKey) return;
     const { from, to } = activeRangeBounds();
@@ -204,6 +262,9 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     onSyncPickers: () => events?.syncPickers(),
     onProjectRange: (from, to) => {
       void ensureProjectUsage(from, to);
+    },
+    onQuotaCycle: () => {
+      void ensureQuotaCycleUsage();
     },
     onSelectProject: selectProject,
     onRenderProjectDetail: () => projectDetail.render(),
@@ -294,6 +355,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
       state.opener = (trigger as HTMLElement | null) ?? null;
       state.year ||= data.today.slice(0, 4);
       state.anchor ||= data.today;
+      state.cycleDataKey = '';
       state.lastKey = contentKey(data);
       dayIndex.rebuild(data);
       events.loadPreferencesIfNeeded();
@@ -326,6 +388,12 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         state.selectedProjectKey = null;
         state.projectDetail = null;
         state.projectDetailKey = '';
+        state.cycleGroupId = null;
+        state.cycleOffset = 0;
+        state.cycleData = null;
+        state.cycleDataKey = '';
+        state.cycleError = null;
+        state.cycleRangeTotals = null;
         state.lastAccQueryKey = '';
         state.year = data.today.slice(0, 4);
         state.anchor = data.today;

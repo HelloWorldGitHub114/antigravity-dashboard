@@ -50,6 +50,7 @@ export class RuntimeUi {
   reassignConversation: RuntimeUiOptions['reassignConversation'];
   getProjectUsage: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail: RuntimeUiOptions['getProjectDetail'];
+  getQuotaCycleUsage: RuntimeUiOptions['getQuotaCycleUsage'];
   clearTimeline: RuntimeUiOptions['clearTimeline'];
 
   constructor({
@@ -76,6 +77,7 @@ export class RuntimeUi {
     reassignConversation = null,
     getProjectUsage = null,
     getProjectDetail = null,
+    getQuotaCycleUsage = null,
     clearTimeline = null,
   }: RuntimeUiOptions = {}) {
     this.snapshot = snapshot;
@@ -112,6 +114,7 @@ export class RuntimeUi {
     this.reassignConversation = reassignConversation;
     this.getProjectUsage = getProjectUsage;
     this.getProjectDetail = getProjectDetail;
+    this.getQuotaCycleUsage = getQuotaCycleUsage;
     this.clearTimeline = clearTimeline;
   }
 

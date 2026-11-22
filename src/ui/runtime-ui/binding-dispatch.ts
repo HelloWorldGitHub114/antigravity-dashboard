@@ -12,6 +12,7 @@ import type {
   PreferencesUpdateInput,
   ProjectDetailRequest,
   ProjectUsageRequest,
+  QuotaCycleUsageRequest,
   ReassignConversationRequest,
   SetRecordingAccountRequest,
   SwitchAccountRequest,
@@ -40,6 +41,7 @@ const USAGE_OPERATIONS = new Set([
   'reassignConversation',
   'getProjectUsage',
   'getProjectDetail',
+  'getQuotaCycleUsage',
   'clearTimeline',
 ]);
 
@@ -75,6 +77,7 @@ export interface RuntimeDispatchHost {
   reassignConversation?: RuntimeUiOptions['reassignConversation'];
   getProjectUsage?: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail?: RuntimeUiOptions['getProjectDetail'];
+  getQuotaCycleUsage?: RuntimeUiOptions['getQuotaCycleUsage'];
   clearTimeline?: RuntimeUiOptions['clearTimeline'];
 }
 
@@ -264,6 +267,18 @@ export async function dispatchBindingCall(
         from: req.from,
         to: req.to,
       });
+    }
+  } else if (input.type === 'getQuotaCycleUsage') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    const req = (input.input && typeof input.input === 'object' && !Array.isArray(input.input)
+      ? input.input
+      : {}) as QuotaCycleUsageRequest;
+    if (typeof host.getQuotaCycleUsage === 'function') {
+      result = await host.getQuotaCycleUsage(req);
+    } else {
+      const { UsageLedger, queryQuotaCycleUsage } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      result = await queryQuotaCycleUsage({ ledger, input: req });
     }
   } else if (input.type === 'clearTimeline') {
     if (!(await host.enabled())) throw Error('Plugin disabled');

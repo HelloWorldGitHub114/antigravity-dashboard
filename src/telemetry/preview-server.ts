@@ -9,6 +9,7 @@ import type {
   MetricsRequestInput,
   MetricsSnapshot,
   PreferencesUpdateInput,
+  QuotaCycleUsageRequest,
   ReassignConversationRequest,
   SetRecordingAccountRequest,
   SwitchAccountRequest,
@@ -28,6 +29,7 @@ export interface PreviewUsageBridge {
   reassignConversation?: (input: ReassignConversationRequest) => Promise<unknown>;
   getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
   getProjectDetail: (input: { projectKey: string; scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
+  getQuotaCycleUsage?: (input?: QuotaCycleUsageRequest) => Promise<unknown>;
 }
 
 export type PreviewMetricsRequestInput = MetricsRequestInput & { includeUsage?: boolean };
@@ -145,6 +147,7 @@ export function startPreviewServer(options: PreviewServerOptions): void {
             else if (url.pathname === '/api/usage/manual/delete') res.end(JSON.stringify(await usageBridge.deleteManualUsage(parsed)));
             else if (url.pathname === '/api/usage/project-overview') res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
             else if (url.pathname === '/api/usage/project-detail') res.end(JSON.stringify(await usageBridge.getProjectDetail(parsed)));
+            else if (url.pathname === '/api/usage/quota-cycle' && usageBridge.getQuotaCycleUsage) res.end(JSON.stringify(await usageBridge.getQuotaCycleUsage(parsed)));
             else { res.writeHead(404); res.end(); }
           } else if (url.pathname === '/api/timeline/clear') {
             let parsed: unknown = {};

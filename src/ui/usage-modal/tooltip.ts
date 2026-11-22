@@ -16,12 +16,16 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
   let tipTarget: Element | null = null;
   let tipItem: string | null = null;
 
+  const activeDimension = (): 'model' | 'user' | 'project' =>
+    state.tab === 'details' && state.period === 'cycle' ? 'model' : state.dimension;
+
   const highlightItem = (item: string | null): void => {
     const plot = $('plot');
     if (!plot) return;
     if (item) plot.dataset.highlight = item;
     else delete plot.dataset.highlight;
-    const attr = state.dimension === 'user' ? 'user' : state.dimension === 'project' ? 'project' : 'model';
+    const dim = activeDimension();
+    const attr = dim === 'user' ? 'user' : dim === 'project' ? 'project' : 'model';
     for (const bar of plot.querySelectorAll<HTMLElement>('.bar-segment')) {
       if (item && bar.dataset[attr] === item) bar.dataset.highlight = 'true';
       else delete bar.dataset.highlight;
@@ -44,21 +48,23 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
     tipItem = activeItem;
     highlightItem(activeItem);
 
+    const dim = activeDimension();
     const showBucketCost =
       bucket.pricedTokens > 0 &&
       (state.tab === 'overview' ||
-        state.dimension === 'model' ||
-        (state.dimension === 'user' && state.disabledUsers.size === 0));
+        dim === 'model' ||
+        (dim === 'user' && state.disabledUsers.size === 0));
     const costMeta = showBucketCost
       ? ` · ${formatUsd(bucket.costUsd, { approx: true })}${bucket.unpricedTokens > 0 ? '+' : ''}`
       : '';
+    const titleText = bucket.displayRange || (bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`);
     tip.replaceChildren(
-      createDomNode('div', 'tip-title', bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`),
+      createDomNode('div', 'tip-title', titleText),
       createDomNode('strong', '', `${full(bucket.total)} Token`),
       createDomNode('div', 'muted', `${w(`${bucket.requests} 次请求`, `${bucket.requests} requests`)}${costMeta}`),
     );
 
-    if (state.dimension === 'project') {
+    if (dim === 'project') {
       const projName = new Map((state.projectOverview?.projects || []).map((p) => [p.projectKey, p.name]));
       for (const [pKey, r] of Object.entries(bucket.projects || {}).sort((a, b) => b[1].total - a[1].total)) {
         const row = createDomNode('div', `tip-model${activeItem ? (activeItem === pKey ? ' active' : ' dimmed') : ''}`);
@@ -71,7 +77,7 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
         row.append(label, amount);
         tip.append(row);
       }
-    } else if (state.dimension === 'user') {
+    } else if (dim === 'user') {
       for (const [u, r] of Object.entries(bucket.users || {}).sort((a, b) => b[1].total - a[1].total)) {
         const row = createDomNode('div', `tip-model${activeItem ? (activeItem === u ? ' active' : ' dimmed') : ''}`);
         const label = createDomNode('span');
@@ -113,17 +119,19 @@ export function createTooltipController(ctx: UsageDomContext, palette: UsagePale
     bucket: UsageTotalsResult,
     onSelect: (selected: UsageTotalsResult) => void,
   ): void => {
-    button.setAttribute('aria-label', `${bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`}: ${full(bucket.total)} Token`);
+    const labelText = bucket.displayRange || (bucket.from === bucket.to ? bucket.from : `${bucket.from} – ${bucket.to}`);
+    button.setAttribute('aria-label', `${labelText}: ${full(bucket.total)} Token`);
     button.addEventListener('pointerenter', () => show(bucket, button));
     button.addEventListener('pointerleave', hide);
     button.addEventListener('focus', () => show(bucket, button));
     button.addEventListener('blur', hide);
     button.addEventListener('pointermove', (event) => {
       const seg = (event.target as Element | null)?.closest?.('.bar-segment') as HTMLElement | null;
+      const dim = activeDimension();
       const item =
-        state.dimension === 'user'
+        dim === 'user'
           ? seg?.dataset.user || null
-          : state.dimension === 'project'
+          : dim === 'project'
             ? seg?.dataset.project || null
             : seg?.dataset.model || null;
       show(bucket, button, item);

@@ -6,6 +6,7 @@ import {
 import type { AggregationQuery, UsageDayIndex } from './aggregator.ts';
 import { createDomNode } from './dom-shell.ts';
 import { formatModelName, variantLabel, type UsagePalette } from './palette.ts';
+import { formatQuotaCycleEmptyMessage } from './quota-cycle.ts';
 import type { ModelCostBucket, UsageDomContext } from './types.ts';
 
 export function renderChartSummaryAndTable(
@@ -17,7 +18,13 @@ export function renderChartSummaryAndTable(
   onSelectProject?: (projectKey: string) => void,
 ): void {
   const { $, view, state, w, full, compactNum } = ctx;
-  if (!state.value || !state.currentBuckets.length) return;
+  if (!state.value) return;
+
+  const isCycle = state.period === 'cycle';
+  const dim = isCycle ? 'model' : state.dimension;
+  const tableHead = $('table-head');
+  const tableBody = $('table-body');
+  if (!tableHead || !tableBody) return;
 
   const resetBtn = $('reset-drilldown');
   if (resetBtn) {
@@ -25,20 +32,39 @@ export function renderChartSummaryAndTable(
     resetBtn.textContent = w('显示全部时段', 'Show all');
   }
 
+  if (!state.currentBuckets.length) {
+    if (isCycle) {
+      chartSummary.replaceChildren(
+        createDomNode(
+          'span',
+          'muted',
+          state.cycleLoading
+            ? w('正在加载额度周期数据…', 'Loading quota cycle usage…')
+            : state.cycleError || formatQuotaCycleEmptyMessage(state.cycleData, state.cycleWindow, w),
+        ),
+      );
+      tableBody.replaceChildren();
+    }
+    return;
+  }
+
   const query = getQuery();
-  const activeTotals = state.selectedBar
-    ? dayIndex.totals(state.selectedBar.from, state.selectedBar.to, query, true)
-    : dayIndex.totals(state.currentBuckets[0].from, state.currentBuckets.at(-1)!.to, query, true);
+  const activeTotals = isCycle
+    ? state.selectedBar || state.cycleRangeTotals || state.currentBuckets[0]
+    : state.selectedBar
+      ? dayIndex.totals(state.selectedBar.from, state.selectedBar.to, query, true)
+      : dayIndex.totals(state.currentBuckets[0].from, state.currentBuckets.at(-1)!.to, query, true);
   const rangeLabelStr = state.selectedBar
-    ? state.selectedBar.from === state.selectedBar.to
-      ? state.selectedBar.from
-      : `${state.selectedBar.from} – ${state.selectedBar.to}`
+    ? state.selectedBar.displayRange ||
+      (state.selectedBar.from === state.selectedBar.to
+        ? state.selectedBar.from
+        : `${state.selectedBar.from} – ${state.selectedBar.to}`)
     : '';
 
   const showSummaryCost =
-    state.dimension !== 'project' &&
+    dim !== 'project' &&
     (activeTotals.pricedTokens > 0 || activeTotals.total === 0) &&
-    !(state.dimension === 'user' && state.disabledUsers.size > 0);
+    !(dim === 'user' && state.disabledUsers.size > 0);
   const summaryCostText = showSummaryCost
     ? ` · ${formatUsd(activeTotals.costUsd, { approx: true })}${activeTotals.unpricedTokens > 0 ? '+' : ''}`
     : '';
@@ -53,11 +79,8 @@ export function renderChartSummaryAndTable(
   const focusedGroup =
     (view.activeElement as Element | null)?.closest?.<HTMLElement>('tr.model-group-row')?.dataset.modelGroup || null;
   const bodyFrag = document.createDocumentFragment();
-  const tableHead = $('table-head');
-  const tableBody = $('table-body');
-  if (!tableHead || !tableBody) return;
 
-  if (state.dimension === 'project') {
+  if (dim === 'project') {
     tableHead.replaceChildren(
       ...[
         w('项目', 'Project'),
@@ -164,7 +187,7 @@ export function renderChartSummaryAndTable(
         bodyFrag.append(row);
       }
     }
-  } else if (state.dimension === 'user') {
+  } else if (dim === 'user') {
     tableHead.replaceChildren(
       ...[
         w('用户 / 账号', 'User / Account'),
@@ -196,7 +219,9 @@ export function renderChartSummaryAndTable(
       bodyFrag.append(row);
     }
   } else if (state.modelViewMode === 'detailed') {
-    const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+    const activeToDate = isCycle
+      ? state.cycleData?.slices?.at(-1)?.date || state.value.today
+      : state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
     const makeCostTd = (
       costBucket: ModelCostBucket | undefined,
       totalTokens: number,
@@ -243,7 +268,9 @@ export function renderChartSummaryAndTable(
       bodyFrag.append(row);
     }
   } else {
-    const activeToDate = state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
+    const activeToDate = isCycle
+      ? state.cycleData?.slices?.at(-1)?.date || state.value.today
+      : state.selectedBar?.to || state.currentBuckets.at(-1)?.to || state.value.today;
     const makeCostTd = (
       costBucket: ModelCostBucket | undefined,
       totalTokens: number,

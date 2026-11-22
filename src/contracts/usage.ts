@@ -136,6 +136,71 @@ export interface QuotaWindowUsage {
   usedFraction: number | null;
 }
 
+export type QuotaCycleWindow = 'weekly' | '5h';
+export type QuotaCycleSource = 'live' | 'recorded' | 'inferred';
+
+/**
+ * 额度重置周期的起止边界及元信息。
+ */
+export interface QuotaCycleRecord {
+  groupId: string;
+  groupName: string;
+  window: QuotaCycleWindow;
+  startAt: number;
+  endAt: number;
+  source: QuotaCycleSource;
+  remaining?: number | null;
+  idle?: boolean;
+}
+
+/**
+ * 额度周期内按时间切片（周按天、5h 按小时）汇总的各模型四项细分 Token 桶。
+ */
+export interface QuotaCycleSliceBucket {
+  key: string;
+  date: string;
+  label: string;
+  rangeLabel: string;
+  startAt: number;
+  endAt: number;
+  models: Record<string, UsageBucketCounts>;
+}
+
+/**
+ * 可供选择的额度分组及其当前重置时间摘要。
+ */
+export interface QuotaCycleGroupOption {
+  id: string;
+  name: string;
+  hasWeekly: boolean;
+  has5h: boolean;
+  weeklyResetAt: string | null;
+  fiveHourResetAt: string | null;
+  weeklyRemaining: number | null;
+  fiveHourRemaining: number | null;
+}
+
+/**
+ * 按额度重置周期查询本机账本用量的完整结果。
+ */
+export interface QuotaCycleUsageSnapshot {
+  accountKey: string;
+  requestedScope: string | null;
+  timeZone: string;
+  groups: QuotaCycleGroupOption[];
+  selectedGroupId: string | null;
+  selectedGroupName: string;
+  window: QuotaCycleWindow;
+  offset: number;
+  hasOlder: boolean;
+  cycle: QuotaCycleRecord | null;
+  slices: QuotaCycleSliceBucket[];
+  hours: number[];
+  totalTokens: number;
+  requests: number;
+  updatedAt: string;
+}
+
 /**
  * Full usage summary snapshot returned by `UsageLedger.summary()` and `DesktopUsage.snapshot()`.
  */

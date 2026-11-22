@@ -4,6 +4,7 @@
 .range button { height: 26px; width: 26px; border: 0; }
 .range button:not(:disabled):hover { background: var(--pulse-hover); }
 .range strong { font-size: calc(12px * var(--pulse-usage-font-scale, 1)); font-weight: 500; min-width: 106px; text-align: center; }
+.range.is-cycle strong { min-width: 172px; white-space: nowrap; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 22px; }
 .legend button {
   display: flex; align-items: center; gap: 7px; padding: 3px 0; border: 0;
@@ -184,6 +185,11 @@
 .picker-check { color: var(--pulse-accent); width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
 .picker-option[aria-selected=true] .picker-check { opacity: 1; }
 .project-scope-note { font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 50%, transparent); }
+.cycle-controls { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cycle-controls[hidden] { display: none; }
+.cycle-window-seg { padding: 2px; border-radius: 7px; }
+.cycle-window-seg button { padding: 3px 9px; font-size: calc(11px * var(--pulse-usage-font-scale, 1)); }
+.cycle-status-note[hidden] { display: none; }
 .table tr.project-row { cursor: pointer; transition: background-color 120ms ease; }
 .table tr.project-row:hover { background: var(--pulse-hover); }
 .table tr.project-row.is-selected { background: color-mix(in srgb, var(--pulse-accent) 12%, transparent); }

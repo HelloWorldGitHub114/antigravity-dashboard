@@ -96,10 +96,18 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
     day: w('天', 'Day'),
     week: w('周', 'Week'),
     month: w('月', 'Month'),
+    cycle: w('额度周期', 'Quota cycle'),
     custom: w('自定义', 'Custom'),
   };
   for (const b of view.querySelectorAll<HTMLElement>('[data-period]')) {
     b.textContent = periodLabels[b.dataset.period || ''] || '';
+  }
+  const cycleWindowLabels: Record<string, string> = {
+    weekly: w('周周期', 'Weekly'),
+    '5h': w('5 小时', '5h'),
+  };
+  for (const b of view.querySelectorAll<HTMLElement>('[data-cycle-window]')) {
+    b.textContent = cycleWindowLabels[b.dataset.cycleWindow || ''] || '';
   }
 
   $('overview-tab')?.setAttribute('aria-selected', String(state.tab === 'overview'));

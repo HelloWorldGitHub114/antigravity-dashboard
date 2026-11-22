@@ -9,6 +9,7 @@ import {
   type QuotaWindowRawCount,
 } from '../../shared/quota-forecast.ts';
 import { isErrno, mapPool, recordSum, validRow } from './helpers.ts';
+import { recordQuotaCycleBoundaries } from './quota-cycles.ts';
 import type { UsageLedger } from './summary.ts';
 import { HASH_RE, LEDGER_FILE_RE, MAX_RECORD_FILE_BYTES, type LedgerDocument } from './types.ts';
 
@@ -34,6 +35,9 @@ export async function summarizeQuotaWindows(
   if (!accountScope || !HASH_RE.test(accountScope)) return {};
   const { specs, groupInfos } = buildQuotaWindowSpecs(groups);
   if (!specs.length) return {};
+
+  // 后台轻量记录已锁定（非空闲）的真实周期边界，供历史额度周期回溯使用
+  void recordQuotaCycleBoundaries(ledger, accountScope, groups, specs).catch(() => {});
 
   // 空闲窗口（remaining === 1）的 resetAt 随当前时间滑动，缓存键忽略其 resetMinute 以避免无谓重扫与界面闪烁
   const specsKey = specs

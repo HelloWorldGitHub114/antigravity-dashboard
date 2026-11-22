@@ -10,6 +10,8 @@ import {
   UsageLedger,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  queryQuotaCycleUsage,
+  recordQuotaCycleBoundaries,
 } from '../telemetry/ledger/index.ts';
 import { defaultConversationsDir } from '../telemetry/reader/local-conversations.ts';
 import { TranscriptReader, transcriptBrainRoot } from '../telemetry/reader/transcript.ts';
@@ -118,6 +120,9 @@ const snapshot = async (input: MetricsRequestInput = {}): Promise<MetricsSnapsho
     }
   }
   if (input.force) void usage.sync(true);
+  if (store.identity && Array.isArray(value.groups) && value.groups.length) {
+    void recordQuotaCycleBoundaries(usage.ledger, store.identity, value.groups).catch(() => {});
+  }
   return { ...value, usage: await usage.snapshot(), enabled: true, preferences: prefs };
 };
 
@@ -147,6 +152,13 @@ const ui = new RuntimeUi({
       scope: input?.scope ?? null,
       from: input?.from,
       to: input?.to,
+    }),
+  getQuotaCycleUsage: (input) =>
+    queryQuotaCycleUsage({
+      ledger: usage.ledger,
+      liveGroups: store.quota || [],
+      activeScope: store.identity ?? null,
+      input,
     }),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
   targetOrigin: () => 'vscode-file://vscode-app',

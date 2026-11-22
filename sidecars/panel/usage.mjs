@@ -1728,7 +1728,7 @@ async function deleteManualUsage(scope, id, ledger = new UsageLedger()) {
 }
 
 // src/telemetry/ledger/quota-windows.ts
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 
 // src/shared/quota-forecast.ts
 var FIVE_HOUR_MS = 5 * 60 * 60 * 1e3;
@@ -1818,12 +1818,542 @@ function finalizeQuotaWindows(specs, counts = {}, meta = null) {
   return out;
 }
 
+// src/telemetry/ledger/quota-cycles.ts
+import { join as join6 } from "node:path";
+var FIVE_HOUR_MS2 = 5 * 60 * 60 * 1e3;
+var WEEKLY_MS2 = 7 * 24 * 60 * 60 * 1e3;
+var BOUNDARY_DEDUP_TOLERANCE_MS = 5 * 60 * 1e3;
+var MAX_STORED_PER_SERIES = 120;
+var MAX_INFERRED_WEEKLY_OFFSET = 104;
+var MAX_INFERRED_5H_OFFSET = 200;
+var CYCLES_FILENAME = "quota-cycles.json";
+var recordedSigByLedger = /* @__PURE__ */ new WeakMap();
+var queryCacheByLedger = /* @__PURE__ */ new WeakMap();
+var hmFormatterCache = /* @__PURE__ */ new Map();
+function durationForWindow(window) {
+  return window === "5h" ? FIVE_HOUR_MS2 : WEEKLY_MS2;
+}
+function getHmFormatter(zone) {
+  let dtf = hmFormatterCache.get(zone);
+  if (!dtf) {
+    dtf = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    });
+    hmFormatterCache.set(zone, dtf);
+  }
+  return dtf;
+}
+function dateHmParts(ms, zone) {
+  const parts = getHmFormatter(zone).formatToParts(ms);
+  let y = "1970";
+  let m = "01";
+  let d = "01";
+  let hh = "00";
+  let mm = "00";
+  for (const p of parts) {
+    if (p.type === "year") y = p.value;
+    else if (p.type === "month") m = p.value;
+    else if (p.type === "day") d = p.value;
+    else if (p.type === "hour") hh = p.value.padStart(2, "0");
+    else if (p.type === "minute") mm = p.value.padStart(2, "0");
+  }
+  return {
+    date: `${y}-${m}-${d}`,
+    hm: `${hh}:${mm}`,
+    hour: Number.parseInt(hh, 10) || 0,
+    minute: Number.parseInt(mm, 10) || 0
+  };
+}
+function nextCalendarDate(date) {
+  const d = /* @__PURE__ */ new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function createEmptyBucket() {
+  return { uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0, requests: 0 };
+}
+function validPersistedCycle(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const c = item;
+  return typeof c.groupId === "string" && c.groupId.length > 0 && typeof c.groupName === "string" && (c.window === "weekly" || c.window === "5h") && typeof c.startAt === "number" && Number.isFinite(c.startAt) && typeof c.endAt === "number" && Number.isFinite(c.endAt) && c.endAt > c.startAt;
+}
+async function readPersistedCycles(ledger, accountScope) {
+  if (!HASH_RE.test(accountScope)) return [];
+  const file = join6(ledger.directory, accountScope, CYCLES_FILENAME);
+  try {
+    const raw = await ledger.fs.readFile(file, "utf8");
+    if (raw.length > MAX_LEDGER_JSON_BYTES) return [];
+    const parsed = JSON.parse(raw);
+    if (parsed.schema !== 1 || parsed.account !== accountScope || !Array.isArray(parsed.cycles)) {
+      return [];
+    }
+    return parsed.cycles.filter(validPersistedCycle);
+  } catch (error) {
+    if (isErrno(error, "ENOENT", "ENOTDIR") || error instanceof SyntaxError) return [];
+    return [];
+  }
+}
+function mergeCycleEntry(list, incoming) {
+  const sameSeries = list.filter((c) => c.groupId === incoming.groupId && c.window === incoming.window);
+  const existing = sameSeries.find((c) => Math.abs(c.endAt - incoming.endAt) <= BOUNDARY_DEDUP_TOLERANCE_MS);
+  if (existing) {
+    if (existing.groupName !== incoming.groupName && incoming.groupName) {
+      existing.groupName = incoming.groupName;
+      return true;
+    }
+    return false;
+  }
+  list.push({ ...incoming });
+  const grouped = /* @__PURE__ */ new Map();
+  for (const item of list) {
+    const k = `${item.groupId}:${item.window}`;
+    const arr = grouped.get(k) || [];
+    arr.push(item);
+    grouped.set(k, arr);
+  }
+  list.length = 0;
+  for (const arr of grouped.values()) {
+    arr.sort((a, b) => a.endAt - b.endAt);
+    const trimmed = arr.length > MAX_STORED_PER_SERIES ? arr.slice(arr.length - MAX_STORED_PER_SERIES) : arr;
+    list.push(...trimmed);
+  }
+  return true;
+}
+async function recordQuotaCycleBoundaries(ledger, accountScope, groups, precomputedSpecs) {
+  if (!accountScope || !HASH_RE.test(accountScope)) return false;
+  const groupList = Array.isArray(groups) ? groups : [];
+  const specs = precomputedSpecs ? [...precomputedSpecs] : buildQuotaWindowSpecs(groupList).specs;
+  const locked = specs.filter((s) => !s.idle && Number.isFinite(s.startAt) && Number.isFinite(s.endAt) && s.endAt > s.startAt);
+  if (!locked.length) return false;
+  const nameById = /* @__PURE__ */ new Map();
+  for (const g of groupList) {
+    if (g && typeof g.id === "string") nameById.set(g.id, g.name || g.id);
+  }
+  const incomingSig = locked.map((s) => `${s.groupId}:${s.window}:${Math.floor(s.endAt / BOUNDARY_DEDUP_TOLERANCE_MS)}:${nameById.get(s.groupId) || s.groupId}`).sort().join("|");
+  let sigMap = recordedSigByLedger.get(ledger);
+  if (!sigMap) {
+    sigMap = /* @__PURE__ */ new Map();
+    recordedSigByLedger.set(ledger, sigMap);
+  }
+  if (sigMap.get(accountScope) === incomingSig) return false;
+  const changed = await ledger.enqueueWrite(async () => {
+    const existing = await readPersistedCycles(ledger, accountScope);
+    let dirty = false;
+    for (const spec of locked) {
+      const entry = {
+        groupId: spec.groupId,
+        groupName: nameById.get(spec.groupId) || spec.groupId,
+        window: spec.window,
+        startAt: spec.startAt,
+        endAt: spec.endAt
+      };
+      if (mergeCycleEntry(existing, entry)) dirty = true;
+    }
+    if (!dirty) return false;
+    const dir = join6(ledger.directory, accountScope);
+    const file = join6(dir, CYCLES_FILENAME);
+    const doc = {
+      schema: 1,
+      account: accountScope,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      cycles: existing
+    };
+    await ledger._atomicWrite(dir, file, JSON.stringify(doc));
+    return true;
+  });
+  sigMap.set(accountScope, incomingSig);
+  if (changed) {
+    queryCacheByLedger.get(ledger)?.clear();
+  }
+  return changed;
+}
+function buildGroupOptions(liveGroups, persisted) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const g of liveGroups) {
+    if (!g || typeof g.id !== "string") continue;
+    const weekly = g.windows?.weekly;
+    const five = g.windows?.["5h"];
+    const weeklyRem = quotaRemaining(weekly);
+    const fiveRem = quotaRemaining(five);
+    const weeklyReset = weekly?.available === true && typeof weekly.resetAt === "string" ? weekly.resetAt : null;
+    const fiveReset = five?.available === true && typeof five.resetAt === "string" ? five.resetAt : null;
+    byId.set(g.id, {
+      id: g.id,
+      name: g.name || g.id,
+      hasWeekly: Boolean(weeklyReset && Number.isFinite(Date.parse(weeklyReset))),
+      has5h: Boolean(fiveReset && Number.isFinite(Date.parse(fiveReset))),
+      weeklyResetAt: weeklyReset,
+      fiveHourResetAt: fiveReset,
+      weeklyRemaining: weeklyRem,
+      fiveHourRemaining: fiveRem
+    });
+  }
+  for (const c of persisted) {
+    const cur = byId.get(c.groupId) || {
+      id: c.groupId,
+      name: c.groupName || c.groupId,
+      hasWeekly: false,
+      has5h: false,
+      weeklyResetAt: null,
+      fiveHourResetAt: null,
+      weeklyRemaining: null,
+      fiveHourRemaining: null
+    };
+    if (c.window === "weekly") cur.hasWeekly = true;
+    if (c.window === "5h") cur.has5h = true;
+    if (!cur.name && c.groupName) cur.name = c.groupName;
+    byId.set(c.groupId, cur);
+  }
+  const options = [...byId.values()];
+  const groupInfos = options.map((o) => ({ id: o.id, name: o.name }));
+  return { options, groupInfos };
+}
+function pickSelectedGroup(options, requestedGroupId, window) {
+  if (!options.length) return null;
+  if (requestedGroupId) {
+    const exact = options.find((o) => o.id === requestedGroupId);
+    if (exact) return exact;
+  }
+  const hasTarget = (o) => window === "weekly" ? o.hasWeekly : o.has5h;
+  const isActiveUsed = (o) => {
+    const rem = window === "weekly" ? o.weeklyRemaining : o.fiveHourRemaining;
+    return typeof rem === "number" && rem < 0.9995;
+  };
+  return options.find((o) => hasTarget(o) && isActiveUsed(o)) || options.find((o) => hasTarget(o)) || options[0];
+}
+function resolveTargetCycle(group, liveGroups, persisted, window, offset) {
+  const durationMs = durationForWindow(window);
+  const timeline = [];
+  const liveGroup = liveGroups.find((g) => g.id === group.id);
+  const liveBucket = liveGroup?.windows?.[window];
+  const liveResetMs = liveBucket && liveBucket.available === true && typeof liveBucket.resetAt === "string" ? Date.parse(liveBucket.resetAt) : NaN;
+  if (Number.isFinite(liveResetMs)) {
+    const rem = quotaRemaining(liveBucket);
+    timeline.push({
+      groupId: group.id,
+      groupName: group.name,
+      window,
+      startAt: liveResetMs - durationMs,
+      endAt: liveResetMs,
+      source: "live",
+      remaining: rem,
+      idle: rem !== null && rem >= 0.9995
+    });
+  }
+  const recorded = persisted.filter((c) => c.groupId === group.id && c.window === window).sort((a, b) => b.endAt - a.endAt);
+  for (const item of recorded) {
+    const latest = timeline[timeline.length - 1];
+    if (latest && Math.abs(latest.endAt - item.endAt) <= BOUNDARY_DEDUP_TOLERANCE_MS) {
+      continue;
+    }
+    if (latest && item.endAt >= latest.endAt) {
+      continue;
+    }
+    timeline.push({
+      groupId: group.id,
+      groupName: item.groupName || group.name,
+      window,
+      startAt: item.startAt,
+      endAt: item.endAt,
+      source: "recorded"
+    });
+  }
+  if (!timeline.length) return null;
+  const backSteps = Math.max(0, Math.trunc(-offset));
+  if (backSteps < timeline.length) {
+    return timeline[backSteps];
+  }
+  const oldest = timeline[timeline.length - 1];
+  const extraSteps = backSteps - (timeline.length - 1);
+  const endAt = oldest.endAt - extraSteps * durationMs;
+  const startAt = endAt - durationMs;
+  return {
+    groupId: group.id,
+    groupName: group.name,
+    window,
+    startAt,
+    endAt,
+    source: "inferred"
+  };
+}
+function buildWeeklySlices(cycle, records, timeZone) {
+  const startParts = dateHmParts(cycle.startAt, timeZone);
+  const endParts = dateHmParts(Math.max(cycle.startAt, cycle.endAt - 1), timeZone);
+  const exactEndParts = dateHmParts(cycle.endAt, timeZone);
+  const sliceList = [];
+  const byDate = /* @__PURE__ */ new Map();
+  let cur = startParts.date;
+  for (let guard = 0; guard < 12; guard++) {
+    const isFirst = cur === startParts.date;
+    const isLast = cur === endParts.date;
+    let rangeLabel = cur;
+    if (isFirst && isLast) {
+      rangeLabel = `${cur} (${startParts.hm} \u2013 ${exactEndParts.hm})`;
+    } else if (isFirst && startParts.hm !== "00:00") {
+      rangeLabel = `${cur} (${startParts.hm}\u201324:00)`;
+    } else if (isLast && exactEndParts.hm !== "00:00") {
+      rangeLabel = `${cur} (00:00\u2013${exactEndParts.hm})`;
+    }
+    const slice = {
+      key: cur,
+      date: cur,
+      label: cur.slice(5),
+      rangeLabel,
+      startAt: isFirst ? cycle.startAt : 0,
+      endAt: isLast ? cycle.endAt : 0,
+      models: {}
+    };
+    sliceList.push(slice);
+    byDate.set(cur, slice);
+    if (cur >= endParts.date) break;
+    cur = nextCalendarDate(cur);
+  }
+  const hours = Array(24).fill(0);
+  let totalTokens = 0;
+  let requests = 0;
+  for (const r of records) {
+    if (typeof r.at !== "number" || !Number.isFinite(r.at)) continue;
+    const clampedAt = r.at === cycle.endAt ? Math.max(cycle.startAt, cycle.endAt - 1) : r.at;
+    const parts = dateTimeParts(clampedAt, timeZone);
+    const slice = byDate.get(parts.date) || sliceList[sliceList.length - 1];
+    if (!slice) continue;
+    const uncached = r.uncached || 0;
+    const cacheRead = r.cacheRead || 0;
+    const cacheWrite = r.cacheWrite || 0;
+    const output = r.output || 0;
+    const sum = uncached + cacheRead + cacheWrite + output;
+    const bucket = slice.models[r.model] ??= createEmptyBucket();
+    bucket.uncached += uncached;
+    bucket.cacheRead += cacheRead;
+    bucket.cacheWrite += cacheWrite;
+    bucket.output += output;
+    bucket.total += sum;
+    bucket.requests += 1;
+    totalTokens += sum;
+    requests += 1;
+    if (parts.hour >= 0 && parts.hour < 24) hours[parts.hour] += sum;
+  }
+  return { slices: sliceList, hours, totalTokens, requests };
+}
+function buildFiveHourSlices(cycle, records, timeZone) {
+  const sliceList = [];
+  const hourMs = 60 * 60 * 1e3;
+  let cursor = cycle.startAt;
+  let prevDate = "";
+  for (let guard = 0; guard < 8 && cursor < cycle.endAt; guard++) {
+    const nextHourBoundary = Math.floor(cursor / hourMs + 1) * hourMs;
+    const sliceEnd = Math.min(cycle.endAt, nextHourBoundary);
+    const sParts = dateHmParts(cursor, timeZone);
+    const eParts = dateHmParts(sliceEnd, timeZone);
+    const crossDay = prevDate !== "" && prevDate !== sParts.date;
+    prevDate = sParts.date;
+    const label = crossDay ? `${sParts.date.slice(5)} ${sParts.hm}` : sParts.hm;
+    const endHmDisplay = eParts.date !== sParts.date && eParts.hm === "00:00" ? "24:00" : eParts.hm;
+    const rangeLabel = `${sParts.date} ${sParts.hm} \u2013 ${endHmDisplay}`;
+    sliceList.push({
+      key: `${sParts.date}T${sParts.hm}`,
+      date: sParts.date,
+      label,
+      rangeLabel,
+      startAt: cursor,
+      endAt: sliceEnd,
+      models: {}
+    });
+    cursor = sliceEnd;
+  }
+  const hours = Array(24).fill(0);
+  let totalTokens = 0;
+  let requests = 0;
+  for (const r of records) {
+    if (typeof r.at !== "number" || !Number.isFinite(r.at)) continue;
+    let slice = sliceList[sliceList.length - 1];
+    for (let i = 0; i < sliceList.length; i++) {
+      const cand = sliceList[i];
+      const isLast = i === sliceList.length - 1;
+      if (r.at >= cand.startAt && (isLast ? r.at <= cand.endAt : r.at < cand.endAt)) {
+        slice = cand;
+        break;
+      }
+    }
+    if (!slice) continue;
+    const uncached = r.uncached || 0;
+    const cacheRead = r.cacheRead || 0;
+    const cacheWrite = r.cacheWrite || 0;
+    const output = r.output || 0;
+    const sum = uncached + cacheRead + cacheWrite + output;
+    const bucket = slice.models[r.model] ??= createEmptyBucket();
+    bucket.uncached += uncached;
+    bucket.cacheRead += cacheRead;
+    bucket.cacheWrite += cacheWrite;
+    bucket.output += output;
+    bucket.total += sum;
+    bucket.requests += 1;
+    totalTokens += sum;
+    requests += 1;
+    const parts = dateTimeParts(r.at === cycle.endAt ? Math.max(cycle.startAt, cycle.endAt - 1) : r.at, timeZone);
+    if (parts.hour >= 0 && parts.hour < 24) hours[parts.hour] += sum;
+  }
+  return { slices: sliceList, hours, totalTokens, requests };
+}
+async function queryQuotaCycleUsage(options) {
+  const { ledger, liveGroups = [], activeScope = null, input = {} } = options;
+  const requestedScope = typeof input?.scope === "string" && input.scope.trim() ? input.scope.trim() : null;
+  const window = input?.window === "5h" ? "5h" : "weekly";
+  const maxBack = window === "5h" ? MAX_INFERRED_5H_OFFSET : MAX_INFERRED_WEEKLY_OFFSET;
+  const rawOffset = typeof input?.offset === "number" && Number.isFinite(input.offset) ? Math.trunc(input.offset) : 0;
+  const offset = Math.max(-maxBack, Math.min(0, rawOffset));
+  const timeZone = ledger.timeZone || "Asia/Shanghai";
+  const resolvedScope = requestedScope && HASH_RE.test(requestedScope) ? requestedScope : activeScope && HASH_RE.test(activeScope) ? activeScope : ledger.scope && HASH_RE.test(ledger.scope) ? ledger.scope : null;
+  const emptySnapshot = (accountKey) => ({
+    accountKey,
+    requestedScope,
+    timeZone,
+    groups: [],
+    selectedGroupId: null,
+    selectedGroupName: "",
+    window,
+    offset,
+    hasOlder: false,
+    cycle: null,
+    slices: [],
+    hours: Array(24).fill(0),
+    totalTokens: 0,
+    requests: 0,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  if (!resolvedScope) return emptySnapshot("");
+  const canUseLive = !activeScope || !HASH_RE.test(activeScope) || resolvedScope === activeScope;
+  const scopedLiveGroups = canUseLive && Array.isArray(liveGroups) ? liveGroups : [];
+  const persisted = await readPersistedCycles(ledger, resolvedScope);
+  const { options: groupOptions, groupInfos } = buildGroupOptions(scopedLiveGroups, persisted);
+  const selectedGroup = pickSelectedGroup(groupOptions, input?.groupId ?? null, window);
+  if (!selectedGroup) {
+    return emptySnapshot(resolvedScope);
+  }
+  const cycle = resolveTargetCycle(selectedGroup, scopedLiveGroups, persisted, window, offset);
+  if (!cycle) {
+    return {
+      ...emptySnapshot(resolvedScope),
+      groups: groupOptions,
+      selectedGroupId: selectedGroup.id,
+      selectedGroupName: selectedGroup.name
+    };
+  }
+  const cycleSig = [
+    resolvedScope,
+    requestedScope || "",
+    selectedGroup.id,
+    window,
+    offset,
+    cycle.startAt,
+    cycle.endAt,
+    cycle.source,
+    cycle.remaining ?? "",
+    groupOptions.map((g) => `${g.id}:${g.weeklyResetAt || ""}:${g.fiveHourResetAt || ""}:${g.weeklyRemaining ?? ""}:${g.fiveHourRemaining ?? ""}`).join(",")
+  ].join("|");
+  let ledgerCache = queryCacheByLedger.get(ledger);
+  if (!ledgerCache) {
+    ledgerCache = /* @__PURE__ */ new Map();
+    queryCacheByLedger.set(ledger, ledgerCache);
+  }
+  const cacheSlotKey = `${resolvedScope}:${selectedGroup.id}:${window}:${offset}`;
+  const cached = ledgerCache.get(cacheSlotKey);
+  if (cached && cached.revision === ledger.revision && cached.cycleSig === cycleSig) {
+    return cached.value;
+  }
+  const startRevision = ledger.revision;
+  const scopeDir = join6(ledger.directory, resolvedScope);
+  let files = [];
+  try {
+    files = await ledger.fs.readdir(scopeDir);
+  } catch (error) {
+    if (!isErrno(error, "ENOENT")) files = [];
+  }
+  const validFiles = files.filter((name) => LEDGER_FILE_RE.test(name));
+  const dedup = /* @__PURE__ */ new Map();
+  let hasOlderData = false;
+  await mapPool(validFiles, 16, async (name) => {
+    const fullPath = join6(scopeDir, name);
+    let doc = null;
+    try {
+      const st = await ledger.fs.stat(fullPath);
+      if (!st) return;
+      const mtimeMs = Number(st.mtimeMs ?? 0);
+      if (Number.isFinite(mtimeMs) && mtimeMs > 0 && mtimeMs < cycle.startAt - 12e4) {
+        hasOlderData = true;
+        return;
+      }
+      if (Number(st.size) > MAX_RECORD_FILE_BYTES) return;
+      const text = await ledger.fs.readFile(fullPath, "utf8");
+      if (text.length > MAX_RECORD_FILE_BYTES) return;
+      const parsed = JSON.parse(text);
+      if (parsed.schema !== 1 || parsed.account !== resolvedScope || !Array.isArray(parsed.records) || !parsed.records.every(validRow)) {
+        return;
+      }
+      doc = parsed;
+    } catch {
+      return;
+    }
+    if (!doc) return;
+    for (const r of doc.records) {
+      if (typeof r.at !== "number" || !Number.isFinite(r.at)) continue;
+      if (r.at < cycle.startAt) {
+        hasOlderData = true;
+        continue;
+      }
+      if (r.at > cycle.endAt) continue;
+      const sum = recordSum(r);
+      const prev = dedup.get(r.id);
+      if (!prev || sum > prev.sum) {
+        dedup.set(r.id, { row: r, sum });
+      }
+    }
+  });
+  const matchedRecords = [];
+  for (const { row } of dedup.values()) {
+    const gid = classifyQuotaGroupId(groupInfos, row.model);
+    if (gid === selectedGroup.id) matchedRecords.push(row);
+  }
+  const aggregated = window === "5h" ? buildFiveHourSlices(cycle, matchedRecords, timeZone) : buildWeeklySlices(cycle, matchedRecords, timeZone);
+  const hasOlder = offset > -maxBack && hasOlderData;
+  const result = {
+    accountKey: resolvedScope,
+    requestedScope,
+    timeZone,
+    groups: groupOptions,
+    selectedGroupId: selectedGroup.id,
+    selectedGroupName: selectedGroup.name,
+    window,
+    offset,
+    hasOlder,
+    cycle,
+    slices: aggregated.slices,
+    hours: aggregated.hours,
+    totalTokens: aggregated.totalTokens,
+    requests: aggregated.requests,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (ledger.revision === startRevision) {
+    if (ledgerCache.size > 24) ledgerCache.clear();
+    ledgerCache.set(cacheSlotKey, { revision: startRevision, cycleSig, value: result });
+  }
+  return result;
+}
+
 // src/telemetry/ledger/quota-windows.ts
 var quotaWindowCaches = /* @__PURE__ */ new WeakMap();
 async function summarizeQuotaWindows(ledger, accountScope, groups) {
   if (!accountScope || !HASH_RE.test(accountScope)) return {};
   const { specs, groupInfos } = buildQuotaWindowSpecs(groups);
   if (!specs.length) return {};
+  void recordQuotaCycleBoundaries(ledger, accountScope, groups, specs).catch(() => {
+  });
   const specsKey = specs.map((s) => `${s.id}:${s.idle ? "idle" : s.resetMinute}`).join("|");
   const cacheKey = `${accountScope}|${specsKey}`;
   const cached = quotaWindowCaches.get(ledger);
@@ -1835,7 +2365,7 @@ async function summarizeQuotaWindows(ledger, accountScope, groups) {
     if (spec.startAt < minStart) minStart = spec.startAt;
   }
   if (!Number.isFinite(minStart)) return {};
-  const scopeDir = join6(ledger.directory, accountScope);
+  const scopeDir = join7(ledger.directory, accountScope);
   let files = [];
   try {
     files = await ledger.fs.readdir(scopeDir);
@@ -1848,7 +2378,7 @@ async function summarizeQuotaWindows(ledger, accountScope, groups) {
   const startRevision = ledger.revision;
   const dedup = /* @__PURE__ */ new Map();
   await mapPool(validFiles, 16, async (name) => {
-    const fullPath = join6(scopeDir, name);
+    const fullPath = join7(scopeDir, name);
     let doc = null;
     try {
       const st = await ledger.fs.stat(fullPath);
@@ -1901,7 +2431,7 @@ async function summarizeQuotaWindows(ledger, accountScope, groups) {
 // src/telemetry/ledger/project-stats.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 var MAX_PARENT_HOPS = 16;
 var WORKTREE_RE = /(?:^|\/)(?:\.gemini\/antigravity|\.antigravity|\.git)\/worktrees\/([^/]+)(?:\/|$)/i;
 var GENERIC_WORKTREE_RE = /\/worktrees\/([^/]+)\//i;
@@ -2741,7 +3271,7 @@ async function loadSharedFileSummariesJs(params) {
         tasks.push({
           scope: s,
           fileHash,
-          filePath: join7(ledger.directory, s, `${fileHash}.json`)
+          filePath: join8(ledger.directory, s, `${fileHash}.json`)
         });
       }
     }
@@ -2863,7 +3393,7 @@ function resolveProjectForSummary(resolver, cid, file) {
   return resolver.resolve(cid);
 }
 async function listScopeLedgerFiles(ledger, scope) {
-  const scopeDir = join7(ledger.directory, scope);
+  const scopeDir = join8(ledger.directory, scope);
   try {
     const entries = await ledger.fs.readdir(scopeDir, { withFileTypes: true });
     const out = [];
@@ -2872,7 +3402,7 @@ async function listScopeLedgerFiles(ledger, scope) {
       if (typeof ent.isFile === "function" && !ent.isFile()) continue;
       out.push({
         fileHash: ent.name.slice(0, -5),
-        filePath: join7(scopeDir, ent.name)
+        filePath: join8(scopeDir, ent.name)
       });
     }
     return out;
@@ -2944,7 +3474,7 @@ async function queryProjectUsageOverview(opts) {
     return { accountKey: "", from, to, projects: [], days: [], totalTokens: 0, requests: 0, updatedAt };
   }
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join7(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join8(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -3085,7 +3615,7 @@ async function queryProjectConversationDetail(opts) {
   });
   if (!isValidScope(scope)) return emptyDetail("");
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join7(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join8(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -3878,6 +4408,8 @@ export {
   loadKnownAccounts,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  queryQuotaCycleUsage,
+  recordQuotaCycleBoundaries,
   summarizeQuotaWindows,
   usageRecords,
   weekStart

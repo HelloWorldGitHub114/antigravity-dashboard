@@ -4,6 +4,8 @@ import type {
   PreferencesSnapshot,
   ProjectConversationDetail,
   ProjectUsageOverview,
+  QuotaCycleUsageSnapshot,
+  QuotaCycleWindow,
   RuntimeBridgeApi,
   UsageBucketCounts,
   UsageDayBucket,
@@ -13,7 +15,7 @@ import type {
 
 export type UsageTab = 'overview' | 'details';
 export type UsageHeatMode = 'day' | 'week';
-export type UsagePeriod = 'day' | 'week' | 'month' | 'custom';
+export type UsagePeriod = 'day' | 'week' | 'month' | 'cycle' | 'custom';
 export type UsageDimension = 'model' | 'user' | 'project';
 export type ModelViewMode = 'simple' | 'detailed';
 export type HourlyMode = 'combined' | 'today';
@@ -56,6 +58,8 @@ export interface ModelCostBucket {
 export interface UsageTotalsResult {
   from: string;
   to: string;
+  xLabel?: string;
+  displayRange?: string;
   models: Record<string, UsageBucketCounts>;
   modelVariants: Record<string, Record<string, UsageBucketCounts>>;
   modelCosts: Record<string, ModelCostBucket>;
@@ -119,6 +123,14 @@ export interface UsageModalState {
   lastManualSig: string;
   lastAccQueryKey: string;
   pricingOverrides: ModelPricingOverrides;
+  cycleGroupId: string | null;
+  cycleWindow: QuotaCycleWindow;
+  cycleOffset: number;
+  cycleData: QuotaCycleUsageSnapshot | null;
+  cycleDataKey: string;
+  cycleLoading: boolean;
+  cycleError: string | null;
+  cycleRangeTotals: UsageTotalsResult | null;
 }
 
 export interface UsageDomContext {

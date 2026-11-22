@@ -3,6 +3,7 @@ import { renderChartSummaryAndTable } from './breakdown-table.ts';
 import { createDomNode } from './dom-shell.ts';
 import { renderHourlySpline } from './hourly-spline.ts';
 import { effectiveModelKey, modelLabel, type UsagePalette } from './palette.ts';
+import { buildQuotaCycleView, formatQuotaCycleEmptyMessage, formatQuotaCycleStatus } from './quota-cycle.ts';
 import type { TooltipController } from './tooltip.ts';
 import type { UsageDomContext, UsageTotalsResult } from './types.ts';
 
@@ -14,6 +15,7 @@ export interface StackedBarController {
 export interface StackedBarHandlers {
   onSyncPickers?: () => void;
   onProjectRange?: (from: string, to: string) => void;
+  onQuotaCycle?: () => void;
   onSelectProject?: (projectKey: string) => void;
   onRenderProjectDetail?: () => void;
   onProjectDrilldown?: () => void;
@@ -44,7 +46,8 @@ export function createStackedBarController(
       col.setAttribute('aria-pressed', String(active));
     }
     renderChartSummaryAndTable(ctx, dayIndex, palette, chartSummary, getQuery, handlers.onSelectProject);
-    if (state.dimension === 'project') {
+    const dim = state.period === 'cycle' ? 'model' : state.dimension;
+    if (dim === 'project') {
       handlers.onProjectDrilldown?.();
       handlers.onRenderProjectDetail?.();
     } else renderHourlySpline(ctx, dayIndex, tooltip);
@@ -60,21 +63,47 @@ export function createStackedBarController(
     palette.sync(state.value, state.modelViewMode, root.host);
     tooltip.hide();
 
+    const isCycle = state.period === 'cycle';
+    const dim = isCycle ? 'model' : state.dimension;
+    if (isCycle) handlers.onQuotaCycle?.();
+
     if (state.period === 'custom') {
       state.customStart ||= addDays(state.value.today, -14);
       state.customEnd ||= state.value.today;
     }
     const query = getQuery();
-    const { buckets, rangeLabel } = dayIndex.buildPeriodBuckets(
-      state.period,
-      state.anchor,
-      state.customStart,
-      state.customEnd,
-      query,
-    );
+    let buckets: UsageTotalsResult[] = [];
+    let rangeLabel = '';
+    let allRangeTotals: UsageTotalsResult;
+    if (isCycle) {
+      const cycleView = buildQuotaCycleView(state.cycleData, query);
+      buckets = cycleView.buckets;
+      rangeLabel = state.cycleLoading && !state.cycleData?.cycle ? w('加载中…', 'Loading…') : cycleView.rangeLabel;
+      allRangeTotals = cycleView.allRangeTotals;
+      state.cycleRangeTotals = cycleView.filteredRangeTotals;
+      // 同步下钻引用，确保在过滤图例或修改自定义单价后下钻桶即时重算
+      if (state.selectedBar) {
+        state.selectedBar =
+          buckets.find((b) => b.from === state.selectedBar!.from && b.to === state.selectedBar!.to) || null;
+      }
+    } else {
+      state.cycleRangeTotals = null;
+      const built = dayIndex.buildPeriodBuckets(
+        state.period,
+        state.anchor,
+        state.customStart,
+        state.customEnd,
+        query,
+      );
+      buckets = built.buckets;
+      rangeLabel = built.rangeLabel;
+      allRangeTotals = buckets.length
+        ? dayIndex.totals(buckets[0].from, buckets.at(-1)!.to, query, false)
+        : dayIndex.totals(state.value.today, state.value.today, query, false);
+    }
     text('range-label', rangeLabel);
     state.currentBuckets = buckets;
-    if (state.dimension === 'project' && buckets.length) {
+    if (dim === 'project' && buckets.length) {
       handlers.onProjectRange?.(buckets[0].from, buckets.at(-1)!.to);
     }
 
@@ -94,7 +123,10 @@ export function createStackedBarController(
     const customControls = $('custom-range-controls');
     if (customControls) customControls.hidden = state.period !== 'custom';
     const rangeEl = view.querySelector<HTMLElement>('.range');
-    if (rangeEl) rangeEl.hidden = state.period === 'custom';
+    if (rangeEl) {
+      rangeEl.hidden = state.period === 'custom';
+      rangeEl.classList.toggle('is-cycle', isCycle);
+    }
 
     const startInput = $<HTMLInputElement>('custom-start');
     const endInput = $<HTMLInputElement>('custom-end');
@@ -109,21 +141,43 @@ export function createStackedBarController(
 
     const prevBtn = $<HTMLButtonElement>('previous');
     const nextBtn = $<HTMLButtonElement>('next');
-    if (prevBtn) prevBtn.disabled = state.period === 'custom';
+    if (prevBtn) {
+      prevBtn.disabled =
+        state.period === 'custom'
+          ? true
+          : isCycle
+            ? state.cycleLoading || !state.cycleData?.hasOlder
+            : false;
+    }
     if (nextBtn) {
       nextBtn.disabled =
         state.period === 'custom'
           ? true
-          : state.period === 'week'
-            ? startOfWeek(state.anchor) >= startOfWeek(state.value.today)
-            : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
+          : isCycle
+            ? state.cycleLoading || state.cycleOffset >= 0
+            : state.period === 'week'
+              ? startOfWeek(state.anchor) >= startOfWeek(state.value.today)
+              : state.anchor.slice(0, 7) >= state.value.today.slice(0, 7);
     }
 
+    const dimPicker = $('dim-picker');
+    if (dimPicker) dimPicker.hidden = isCycle;
     const mvPicker = $('model-view-picker');
-    if (mvPicker) mvPicker.hidden = state.dimension !== 'model';
+    if (mvPicker) mvPicker.hidden = dim !== 'model';
+    const cycleControls = $('cycle-controls');
+    if (cycleControls) cycleControls.hidden = !isCycle;
+    const cycleStatusNote = $('cycle-status-note');
+    if (cycleStatusNote) {
+      const statusText = isCycle ? formatQuotaCycleStatus(state.cycleData, w) : '';
+      cycleStatusNote.hidden = !statusText;
+      cycleStatusNote.textContent = statusText;
+    }
+    for (const b of view.querySelectorAll<HTMLElement>('[data-cycle-window]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.cycleWindow === state.cycleWindow));
+    }
     const scopeNote = $('project-scope-note');
     if (scopeNote) {
-      scopeNote.hidden = state.dimension !== 'project';
+      scopeNote.hidden = dim !== 'project';
       const viewScope = state.value?.viewScope;
       const activeAccount = state.value?.activeAccount;
       if (viewScope === 'all') {
@@ -144,19 +198,20 @@ export function createStackedBarController(
       }
     }
     const hourlySec = $('hourly-section');
-    if (hourlySec) hourlySec.hidden = state.dimension === 'project';
+    if (hourlySec) hourlySec.hidden = dim === 'project';
     const projectSec = $('project-detail-section');
-    if (projectSec) projectSec.hidden = state.dimension !== 'project';
+    if (projectSec) projectSec.hidden = dim !== 'project';
     handlers.onSyncPickers?.();
 
-    const allRangeTotals = dayIndex.totals(buckets[0].from, buckets.at(-1)!.to, query, false);
     const legendFrag = document.createDocumentFragment();
     const modelKeys =
-      state.dimension !== 'model'
+      dim !== 'model'
         ? []
-        : [...new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
+        : isCycle
+          ? Object.keys(allRangeTotals.models)
+          : [...new Set([...(state.value.models || []).map((m) => effectiveModelKey(m, state.modelViewMode)), ...Object.keys(allRangeTotals.models)])];
 
-    if (state.dimension === 'project') {
+    if (dim === 'project') {
       const projList = (state.projectOverview?.projects || []).filter(
         (p) => (allRangeTotals.projects?.[p.projectKey]?.total ?? 0) > 0 || p.total > 0,
       );
@@ -178,7 +233,7 @@ export function createStackedBarController(
         button.addEventListener('pointerleave', () => tooltip.highlightItem(null));
         legendFrag.append(button);
       }
-    } else if (state.dimension === 'user') {
+    } else if (dim === 'user') {
       const activeUserSet = new Set(Object.keys(allRangeTotals.users).filter((u) => allRangeTotals.users[u].total > 0));
       for (const u of (state.value.users || []).filter((user) => activeUserSet.has(user))) {
         const button = createDomNode('button');
@@ -267,7 +322,7 @@ export function createStackedBarController(
       button.setAttribute('aria-pressed', String(isDrilled));
       const stack = createDomNode('div', 'stack');
 
-      if (state.dimension === 'project') {
+      if (dim === 'project') {
         const projEntries = Object.entries(bucket.projects || {})
           .filter(([pKey, b]) => b.total > 0 && !state.disabledProjects.has(pKey))
           .sort((a, b) => b[1].total - a[1].total);
@@ -281,7 +336,7 @@ export function createStackedBarController(
           if (j && height >= 3) bar.style.boxShadow = 'inset 0 -1px 0 color-mix(in srgb,var(--pulse-background) 48%,transparent)';
           stack.append(bar);
         }
-      } else if (state.dimension === 'user') {
+      } else if (dim === 'user') {
         const segments = (state.value.users || []).filter((u) => bucket.users[u]?.total > 0 && !state.disabledUsers.has(u));
         for (const [j, u] of segments.entries()) {
           const height = (bucket.users[u].total / ceiling) * 227;
@@ -320,8 +375,9 @@ export function createStackedBarController(
               : true
             : true;
       if (showX) {
-        const xTxt =
-          state.period === 'day'
+        const xTxt = bucket.xLabel
+          ? bucket.xLabel
+          : state.period === 'day'
             ? String(i + 1)
             : state.period === 'week'
               ? bucket.from.slice(5)
@@ -333,7 +389,7 @@ export function createStackedBarController(
 
       tooltip.bindBucket(button, bucket, (picked: UsageTotalsResult) => {
         state.selected = picked;
-        state.anchor = picked.from;
+        if (!isCycle) state.anchor = picked.from;
       });
       button.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -345,8 +401,15 @@ export function createStackedBarController(
     }
 
     if (!buckets.some((b) => b.total)) {
-      const emptyMsg =
-        state.dimension === 'project' && state.projectLoading
+      const emptyMsg = isCycle
+        ? state.cycleLoading
+          ? w('正在加载额度周期用量…', 'Loading quota cycle usage…')
+          : state.cycleError
+            ? state.cycleError
+            : !state.cycleData?.cycle
+              ? formatQuotaCycleEmptyMessage(state.cycleData, state.cycleWindow, w)
+              : w('该额度周期内暂无用量记录', 'No usage recorded in this quota cycle')
+        : dim === 'project' && state.projectLoading
           ? w('正在加载所选范围项目用量…', 'Loading project statistics…')
           : w('所选时段暂无用量记录', 'No usage recorded in this period');
       plotFrag.append(createDomNode('div', 'chart-empty', emptyMsg));
@@ -358,7 +421,7 @@ export function createStackedBarController(
     for (const b of view.querySelectorAll<HTMLElement>('[data-period]')) {
       b.setAttribute('aria-pressed', String(b.dataset.period === state.period));
     }
-    if (state.dimension === 'project') handlers.onRenderProjectDetail?.();
+    if (dim === 'project') handlers.onRenderProjectDetail?.();
     else renderHourlySpline(ctx, dayIndex, tooltip);
   };
 

@@ -11,7 +11,9 @@ import {
   DesktopUsage as LocalUsage,
   UsageLedger,
   queryProjectConversationDetail,
-  queryProjectUsageOverview
+  queryProjectUsageOverview,
+  queryQuotaCycleUsage,
+  recordQuotaCycleBoundaries
 } from "../sidecars/panel/usage.mjs";
 import { defaultConversationsDir } from "../sidecars/panel/local-conversations.mjs";
 import { TranscriptReader, transcriptBrainRoot } from "../sidecars/panel/transcript.mjs";
@@ -107,6 +109,10 @@ var snapshot = async (input = {}) => {
     }
   }
   if (input.force) void usage.sync(true);
+  if (store.identity && Array.isArray(value.groups) && value.groups.length) {
+    void recordQuotaCycleBoundaries(usage.ledger, store.identity, value.groups).catch(() => {
+    });
+  }
   return { ...value, usage: await usage.snapshot(), enabled: true, preferences: prefs };
 };
 var ui = new RuntimeUi({
@@ -133,6 +139,12 @@ var ui = new RuntimeUi({
     scope: input?.scope ?? null,
     from: input?.from,
     to: input?.to
+  }),
+  getQuotaCycleUsage: (input) => queryQuotaCycleUsage({
+    ledger: usage.ledger,
+    liveGroups: store.quota || [],
+    activeScope: store.identity ?? null,
+    input
   }),
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null),
   targetOrigin: () => "vscode-file://vscode-app",

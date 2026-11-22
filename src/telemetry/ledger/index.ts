@@ -4,6 +4,11 @@ export { loadKnownAccounts } from './storage.ts';
 export { UsageLedger, addManualUsage, deleteManualUsage } from './summary.ts';
 export { summarizeQuotaWindows } from './quota-windows.ts';
 export {
+  recordQuotaCycleBoundaries,
+  queryQuotaCycleUsage,
+  type QueryQuotaCycleUsageOptions,
+} from './quota-cycles.ts';
+export {
   queryProjectUsageOverview,
   queryProjectConversationDetail,
   type ProjectStatsStoreLike,

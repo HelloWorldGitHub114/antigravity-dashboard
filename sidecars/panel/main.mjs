@@ -1416,6 +1416,7 @@ import {
   UsageLedger,
   queryProjectConversationDetail,
   queryProjectUsageOverview,
+  queryQuotaCycleUsage,
   summarizeQuotaWindows
 } from "./usage.mjs";
 import { panelAppSource as panelAppSource2, panelPageSource as panelPageSource2 } from "./panel-source.mjs";
@@ -1527,6 +1528,7 @@ function startPreviewServer(options) {
             else if (url.pathname === "/api/usage/manual/delete") res.end(JSON.stringify(await usageBridge.deleteManualUsage(parsed)));
             else if (url.pathname === "/api/usage/project-overview") res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
             else if (url.pathname === "/api/usage/project-detail") res.end(JSON.stringify(await usageBridge.getProjectDetail(parsed)));
+            else if (url.pathname === "/api/usage/quota-cycle" && usageBridge.getQuotaCycleUsage) res.end(JSON.stringify(await usageBridge.getQuotaCycleUsage(parsed)));
             else {
               res.writeHead(404);
               res.end();
@@ -1840,6 +1842,12 @@ var proUsageBridge = {
     scope: input?.scope ?? null,
     from: input?.from,
     to: input?.to
+  }),
+  getQuotaCycleUsage: (input) => queryQuotaCycleUsage({
+    ledger: usage.ledger,
+    liveGroups: store.quota || [],
+    activeScope: store.identity ?? null,
+    input
   })
 };
 var integration = new RuntimeUi({
@@ -1861,6 +1869,7 @@ var integration = new RuntimeUi({
   reassignConversation: proUsageBridge.reassignConversation,
   getProjectUsage: proUsageBridge.getProjectUsage,
   getProjectDetail: proUsageBridge.getProjectDetail,
+  getQuotaCycleUsage: proUsageBridge.getQuotaCycleUsage,
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null)
 });
 var vertexRoot = join6(homedir2(), ".antigravity-vertex");
@@ -1964,6 +1973,15 @@ var createVertexInstance = () => {
         scope: input?.scope ?? null,
         from: input?.from,
         to: input?.to
+      });
+    },
+    getQuotaCycleUsage: (input) => {
+      vertexController?.recordActivity("runtime-ui-usage");
+      return queryQuotaCycleUsage({
+        ledger: vertexUsage.ledger,
+        liveGroups: vStore.quota || [],
+        activeScope: vStore.identity ?? null,
+        input
       });
     },
     clearTimeline: (input) => {
@@ -2126,6 +2144,7 @@ if (isSidecar) {
   app.api("/api/usage/manual/delete", (data) => proUsageBridge.deleteManualUsage(data), "POST");
   app.api("/api/usage/project-overview", (data) => proUsageBridge.getProjectUsage(data), "POST");
   app.api("/api/usage/project-detail", (data) => proUsageBridge.getProjectDetail(data), "POST");
+  app.api("/api/usage/quota-cycle", (data) => proUsageBridge.getQuotaCycleUsage(data), "POST");
   app.api("/api/preferences", () => livePreferences.snapshot(), "GET");
   app.api("/api/preferences", async (data) => {
     try {

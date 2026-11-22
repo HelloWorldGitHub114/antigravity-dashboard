@@ -6,6 +6,8 @@ import type {
   ManualUsageRecord,
   ProjectConversationDetail,
   ProjectUsageOverview,
+  QuotaCycleUsageSnapshot,
+  QuotaCycleWindow,
   UsageAccountInfo,
 } from './usage.ts';
 
@@ -50,7 +52,8 @@ export type BridgeCallType =
   | 'addAccount'
   | 'reassignConversation'
   | 'getProjectUsage'
-  | 'getProjectDetail';
+  | 'getProjectDetail'
+  | 'getQuotaCycleUsage';
 
 /**
  * Input payload for `getMetrics` / `ag-pulse:metrics`.
@@ -127,6 +130,13 @@ export interface ProjectDetailRequest {
   from?: string;
   to?: string;
   timeZone?: string;
+}
+
+export interface QuotaCycleUsageRequest {
+  scope?: string | null;
+  groupId?: string | null;
+  window?: QuotaCycleWindow;
+  offset?: number;
 }
 
 export type UpdateAction = 'check' | 'status' | 'apply' | 'reload';
@@ -255,6 +265,7 @@ export interface RuntimeBridgeApi {
   reassignConversation?(input: ReassignConversationRequest): Promise<ReassignConversationResponse>;
   getProjectUsage?(input?: ProjectUsageRequest): Promise<ProjectUsageOverview | { error: string }>;
   getProjectDetail?(input: ProjectDetailRequest): Promise<ProjectConversationDetail | { error: string }>;
+  getQuotaCycleUsage?(input?: QuotaCycleUsageRequest): Promise<QuotaCycleUsageSnapshot | { error: string }>;
   openSidebar?(input: OpenSidebarInput): Promise<unknown> | void;
 }
 

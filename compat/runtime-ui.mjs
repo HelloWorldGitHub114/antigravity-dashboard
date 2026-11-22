@@ -324,7 +324,8 @@ function rendererBridge(binding) {
     addAccount: (input) => call("addAccount", input),
     reassignConversation: (input) => call("reassignConversation", input),
     getProjectUsage: (input) => call("getProjectUsage", input ?? {}),
-    getProjectDetail: (input) => call("getProjectDetail", input)
+    getProjectDetail: (input) => call("getProjectDetail", input),
+    getQuotaCycleUsage: (input) => call("getQuotaCycleUsage", input ?? {})
   };
   win.agPulseHost = Object.assign(win.agPulseHost || {}, hostApi);
   win.agPulseBridge = Object.assign(win.agPulseBridge || {}, hostApi);
@@ -464,6 +465,7 @@ var USAGE_OPERATIONS = /* @__PURE__ */ new Set([
   "reassignConversation",
   "getProjectUsage",
   "getProjectDetail",
+  "getQuotaCycleUsage",
   "clearTimeline"
 ]);
 function offlineSnapshot(message) {
@@ -631,6 +633,16 @@ async function dispatchBindingCall(host, connection, input) {
         from: req.from,
         to: req.to
       });
+    }
+  } else if (input.type === "getQuotaCycleUsage") {
+    if (!await host.enabled()) throw Error("Plugin disabled");
+    const req = input.input && typeof input.input === "object" && !Array.isArray(input.input) ? input.input : {};
+    if (typeof host.getQuotaCycleUsage === "function") {
+      result = await host.getQuotaCycleUsage(req);
+    } else {
+      const { UsageLedger, queryQuotaCycleUsage } = await import("../sidecars/panel/usage.mjs");
+      const ledger = new UsageLedger(join2(host.dataDir || platformPaths().data, "usage-v1"));
+      result = await queryQuotaCycleUsage({ ledger, input: req });
     }
   } else if (input.type === "clearTimeline") {
     if (!await host.enabled()) throw Error("Plugin disabled");
@@ -902,6 +914,7 @@ var RuntimeUi = class {
   reassignConversation;
   getProjectUsage;
   getProjectDetail;
+  getQuotaCycleUsage;
   clearTimeline;
   constructor({
     snapshot,
@@ -927,6 +940,7 @@ var RuntimeUi = class {
     reassignConversation = null,
     getProjectUsage = null,
     getProjectDetail = null,
+    getQuotaCycleUsage = null,
     clearTimeline = null
   } = {}) {
     this.snapshot = snapshot;
@@ -963,6 +977,7 @@ var RuntimeUi = class {
     this.reassignConversation = reassignConversation;
     this.getProjectUsage = getProjectUsage;
     this.getProjectDetail = getProjectDetail;
+    this.getQuotaCycleUsage = getQuotaCycleUsage;
     this.clearTimeline = clearTimeline;
   }
   lifecycleContext() {

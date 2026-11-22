@@ -1,4 +1,4 @@
-import type { PreferencesSnapshot } from '../../contracts/index.ts';
+import type { PreferencesSnapshot, QuotaCycleWindow } from '../../contracts/index.ts';
 import { resolveFontScale, sanitizePricingOverrides } from '../../contracts/preferences.ts';
 import { createFontPopover } from '../shared/font-popover.ts';
 import type { UsageDayIndex } from './aggregator.ts';
@@ -166,6 +166,30 @@ export function bindUsageModalEvents(
         })
       : null;
 
+  const cgTrigger = $<HTMLButtonElement>('cycle-group-trigger');
+  const cgMenu = $('cycle-group-menu');
+  const cgLabel = $('cycle-group-label');
+  const cycleGroupPicker =
+    cgTrigger && cgMenu && cgLabel
+      ? createPopoverListbox({
+          trigger: cgTrigger,
+          menu: cgMenu,
+          labelEl: cgLabel,
+          dialog,
+          view,
+          setMarkup: options.setMarkup,
+          getSelected: () => state.cycleGroupId || state.cycleData?.selectedGroupId || '',
+          placeholder: () => w('选择额度池', 'Quota pool'),
+          onSelect: (val) => {
+            state.cycleGroupId = val || null;
+            state.cycleOffset = 0;
+            state.selectedBar = null;
+            state.disabledModels.clear();
+            chart.renderChart();
+          },
+        })
+      : null;
+
   const syncPickers = (): void => {
     dimPicker?.setOptions(
       [
@@ -182,6 +206,22 @@ export function bindUsageModalEvents(
       ],
       w('视图模式', 'View mode'),
     );
+    const cycleGroups = state.cycleData?.groups || [];
+    cycleGroupPicker?.setOptions(
+      cycleGroups.map((g) => {
+        const rem = state.cycleWindow === '5h' ? g.fiveHourRemaining : g.weeklyRemaining;
+        const resetAt = state.cycleWindow === '5h' ? g.fiveHourResetAt : g.weeklyResetAt;
+        const hint =
+          typeof rem === 'number' && Number.isFinite(rem)
+            ? rem >= 0.9995 && !resetAt
+              ? w('满额空闲', 'Idle 100%')
+              : w(`剩 ${Math.round(rem * 100)}%`, `${Math.round(rem * 100)}% left`)
+            : undefined;
+        return { value: g.id, label: g.name || g.id, hint };
+      }),
+      w('额度池', 'Quota pool'),
+    );
+    if (cgTrigger) cgTrigger.disabled = cycleGroups.length <= 1;
     fontPopover?.localize();
   };
 
@@ -193,6 +233,10 @@ export function bindUsageModalEvents(
     }
     if (modelViewPicker?.isOpen()) {
       modelViewPicker.close();
+      closed = true;
+    }
+    if (cycleGroupPicker?.isOpen()) {
+      cycleGroupPicker.close();
       closed = true;
     }
     if (fontPopover?.element.matches(':popover-open')) {
@@ -249,6 +293,16 @@ export function bindUsageModalEvents(
       chart.renderChart();
     });
   }
+  for (const b of view.querySelectorAll<HTMLElement>('[data-cycle-window]')) {
+    b.addEventListener('click', () => {
+      const next: QuotaCycleWindow = b.dataset.cycleWindow === '5h' ? '5h' : 'weekly';
+      if (state.cycleWindow === next) return;
+      state.cycleWindow = next;
+      state.cycleOffset = 0;
+      state.selectedBar = null;
+      chart.renderChart();
+    });
+  }
 
   const handleCustomChange = (): void => {
     const s = $<HTMLInputElement>('custom-start')?.value || '';
@@ -287,6 +341,14 @@ export function bindUsageModalEvents(
   });
   for (const [id, step] of [['previous', -1], ['next', 1]] as const) {
     $(id)?.addEventListener('click', () => {
+      if (state.period === 'cycle') {
+        const nextOffset = Math.min(0, state.cycleOffset + step);
+        if (nextOffset === state.cycleOffset) return;
+        state.cycleOffset = nextOffset;
+        state.selectedBar = null;
+        chart.renderChart();
+        return;
+      }
       if (!state.anchor) return;
       state.selectedBar = null;
       state.anchor =
@@ -319,6 +381,7 @@ export function bindUsageModalEvents(
     try {
       state.projectOverviewKey = '';
       state.projectDetailKey = '';
+      state.cycleDataKey = '';
       await options.onRefresh();
     } catch {
       if (!state.disposed) {
@@ -371,6 +434,7 @@ export function bindUsageModalEvents(
       refreshMotion?.cancel();
       dimPicker?.dispose();
       modelViewPicker?.dispose();
+      cycleGroupPicker?.dispose();
       fontPopover?.dispose();
     },
   };

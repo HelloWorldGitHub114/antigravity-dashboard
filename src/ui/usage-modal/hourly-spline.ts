@@ -1,4 +1,5 @@
 import type { UsageDayIndex } from './aggregator.ts';
+import { formatQuotaCycleRange } from './quota-cycle.ts';
 import type { TooltipController } from './tooltip.ts';
 import type { UsageDomContext, UsageTotalsResult } from './types.ts';
 
@@ -118,6 +119,15 @@ export function renderHourlySpline(
   if (state.hourlyMode === 'today') {
     hours = state.value.todayHours || dayIndex.dayMap.get(state.value.today)?.hours;
     text('hourly-title', w('今日 24 小时用量趋势', "Today's 24-Hour Trend"));
+  } else if (state.period === 'cycle') {
+    hours = state.cycleData?.hours || Array<number>(24).fill(0);
+    const rangeStr = state.cycleData?.cycle
+      ? formatQuotaCycleRange(state.cycleData.cycle, state.cycleData.timeZone)
+      : '';
+    text(
+      'hourly-title',
+      w('额度周期 24 小时聚合分布', 'Cycle 24-Hour Distribution') + (rangeStr ? ` (${rangeStr})` : ''),
+    );
   } else {
     const isSingleDay = state.selectedBar && state.selectedBar.from === state.selectedBar.to;
     if (isSingleDay && state.selectedBar) {
@@ -144,7 +154,9 @@ export function renderHourlySpline(
 
   if (!hours || !Array.isArray(hours) || hours.length < 24) hours = Array<number>(24).fill(0);
   const totalHourly = hours.reduce((n, c) => n + c, 0);
-  const isSingleDay = state.hourlyMode === 'today' || Boolean(state.selectedBar && state.selectedBar.from === state.selectedBar.to);
+  const isSingleDay =
+    state.hourlyMode === 'today' ||
+    (state.period !== 'cycle' && Boolean(state.selectedBar && state.selectedBar.from === state.selectedBar.to));
   text(
     'hourly-subtitle',
     !isSingleDay
