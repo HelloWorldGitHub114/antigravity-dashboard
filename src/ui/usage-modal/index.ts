@@ -12,6 +12,7 @@ import { bindManualModal, renderManualEntries } from './manual-modal.ts';
 import { UsagePalette } from './palette.ts';
 import { bindPricingModal } from './pricing-modal.ts';
 import { createProjectDetailController, type ProjectDetailController } from './project-detail.ts';
+import { createRequestLogsController } from './request-logs.ts';
 import { createStackedBarController } from './stacked-bar.ts';
 import { createTooltipController } from './tooltip.ts';
 import type {
@@ -82,6 +83,17 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     cycleLoading: false,
     cycleError: null,
     cycleRangeTotals: null,
+    logsRange: 'today',
+    logsFrom: '',
+    logsTo: '',
+    logsModel: '',
+    logsCacheFilter: 'all',
+    logsPage: 1,
+    logsPageSize: 50,
+    logsData: null,
+    logsDataKey: '',
+    logsLoading: false,
+    logsError: null,
   };
 
   const { dialog, backdrop, context: ctx } = mountUsageDomShell(options, state);
@@ -271,6 +283,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     onProjectDrilldown: syncProjectDetailToActiveRange,
   });
   const manual = bindManualModal(ctx);
+  const requestLogs = createRequestLogsController(ctx, palette, options);
   let pricingModal!: ReturnType<typeof bindPricingModal>;
   bindAccountSwitcher(ctx);
   const focusTrap = createFocusTrap(ctx, {
@@ -282,6 +295,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         projectDetail.closePicker();
         closed = true;
       }
+      if (requestLogs.closeSubPopovers()) closed = true;
       if (events?.closeSubPopovers()) closed = true;
       return closed;
     },
@@ -309,7 +323,8 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     renderManualEntries(ctx);
 
     if (state.tab === 'overview') heatmap.renderHeat();
-    else chart.renderChart();
+    else if (state.tab === 'details') chart.renderChart();
+    else requestLogs.render();
   };
 
   pricingModal = bindPricingModal(ctx, () => {
@@ -323,6 +338,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
     tooltip,
     heatmap,
     chart,
+    onCloseExtraPopovers: () => requestLogs.closeSubPopovers(),
     render,
   });
 
@@ -356,6 +372,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
       state.year ||= data.today.slice(0, 4);
       state.anchor ||= data.today;
       state.cycleDataKey = '';
+      state.logsDataKey = '';
       state.lastKey = contentKey(data);
       dayIndex.rebuild(data);
       events.loadPreferencesIfNeeded();
@@ -394,6 +411,11 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
         state.cycleDataKey = '';
         state.cycleError = null;
         state.cycleRangeTotals = null;
+        state.logsModel = '';
+        state.logsPage = 1;
+        state.logsData = null;
+        state.logsDataKey = '';
+        state.logsError = null;
         state.lastAccQueryKey = '';
         state.year = data.today.slice(0, 4);
         state.anchor = data.today;
@@ -424,6 +446,7 @@ export default function createUsageDashboard(options: UsageDashboardOptions): Us
       state.disposed = true;
       themeObserver.disconnect();
       events.dispose();
+      requestLogs.dispose();
       projectDetail.dispose();
       heatmap.dispose();
       focusTrap.dispose();

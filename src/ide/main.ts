@@ -11,6 +11,7 @@ import {
   queryProjectConversationDetail,
   queryProjectUsageOverview,
   queryQuotaCycleUsage,
+  queryUsageRequestLogs,
   recordQuotaCycleBoundaries,
 } from '../telemetry/ledger/index.ts';
 import { defaultConversationsDir } from '../telemetry/reader/local-conversations.ts';
@@ -157,6 +158,13 @@ const ui = new RuntimeUi({
     queryQuotaCycleUsage({
       ledger: usage.ledger,
       liveGroups: store.quota || [],
+      activeScope: store.identity ?? null,
+      input,
+    }),
+  getUsageRequestLogs: (input) =>
+    queryUsageRequestLogs({
+      ledger: usage.ledger,
+      store,
       activeScope: store.identity ?? null,
       input,
     }),

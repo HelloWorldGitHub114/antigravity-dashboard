@@ -541,6 +541,7 @@ function initPanel(): void {
       getProjectUsage: (input) => controller.apiJson('/api/usage/project-overview', input),
       getProjectDetail: (input) => controller.apiJson('/api/usage/project-detail', input),
       getQuotaCycleUsage: (input) => controller.apiJson('/api/usage/quota-cycle', input),
+      getUsageRequestLogs: (input) => controller.apiJson('/api/usage/request-logs', input),
     };
     const currentPrefs =
       state.snapshot?.preferences && !('error' in state.snapshot.preferences)

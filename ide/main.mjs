@@ -13,6 +13,7 @@ import {
   queryProjectConversationDetail,
   queryProjectUsageOverview,
   queryQuotaCycleUsage,
+  queryUsageRequestLogs,
   recordQuotaCycleBoundaries
 } from "../sidecars/panel/usage.mjs";
 import { defaultConversationsDir } from "../sidecars/panel/local-conversations.mjs";
@@ -143,6 +144,12 @@ var ui = new RuntimeUi({
   getQuotaCycleUsage: (input) => queryQuotaCycleUsage({
     ledger: usage.ledger,
     liveGroups: store.quota || [],
+    activeScope: store.identity ?? null,
+    input
+  }),
+  getUsageRequestLogs: (input) => queryUsageRequestLogs({
+    ledger: usage.ledger,
+    store,
     activeScope: store.identity ?? null,
     input
   }),

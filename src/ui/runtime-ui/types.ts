@@ -28,6 +28,8 @@ import type {
   UpdatePluginRequest,
   UpdatePluginState,
   UsageAccountInfo,
+  UsageRequestLogRequest,
+  UsageRequestLogSnapshot,
 } from '../../contracts/index.ts';
 import type { DevToolsTarget } from '../../platform/devtools.ts';
 
@@ -133,6 +135,9 @@ export interface RuntimeUiOptions {
     | null;
   getQuotaCycleUsage?:
     | ((input?: QuotaCycleUsageRequest) => Promise<QuotaCycleUsageSnapshot | { error: string }>)
+    | null;
+  getUsageRequestLogs?:
+    | ((input?: UsageRequestLogRequest) => Promise<UsageRequestLogSnapshot | { error: string }>)
     | null;
   clearTimeline?: ((input?: ClearTimelineRequest) => Promise<ClearTimelineResult>) | null;
 }

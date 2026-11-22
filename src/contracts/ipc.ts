@@ -9,6 +9,8 @@ import type {
   QuotaCycleUsageSnapshot,
   QuotaCycleWindow,
   UsageAccountInfo,
+  UsageRequestCacheFilter,
+  UsageRequestLogSnapshot,
 } from './usage.ts';
 
 /**
@@ -53,7 +55,8 @@ export type BridgeCallType =
   | 'reassignConversation'
   | 'getProjectUsage'
   | 'getProjectDetail'
-  | 'getQuotaCycleUsage';
+  | 'getQuotaCycleUsage'
+  | 'getUsageRequestLogs';
 
 /**
  * Input payload for `getMetrics` / `ag-pulse:metrics`.
@@ -137,6 +140,16 @@ export interface QuotaCycleUsageRequest {
   groupId?: string | null;
   window?: QuotaCycleWindow;
   offset?: number;
+}
+
+export interface UsageRequestLogRequest {
+  scope?: string | null;
+  from?: string | null;
+  to?: string | null;
+  model?: string | null;
+  cacheFilter?: UsageRequestCacheFilter;
+  page?: number;
+  pageSize?: number;
 }
 
 export type UpdateAction = 'check' | 'status' | 'apply' | 'reload';
@@ -266,6 +279,7 @@ export interface RuntimeBridgeApi {
   getProjectUsage?(input?: ProjectUsageRequest): Promise<ProjectUsageOverview | { error: string }>;
   getProjectDetail?(input: ProjectDetailRequest): Promise<ProjectConversationDetail | { error: string }>;
   getQuotaCycleUsage?(input?: QuotaCycleUsageRequest): Promise<QuotaCycleUsageSnapshot | { error: string }>;
+  getUsageRequestLogs?(input?: UsageRequestLogRequest): Promise<UsageRequestLogSnapshot | { error: string }>;
   openSidebar?(input: OpenSidebarInput): Promise<unknown> | void;
 }
 

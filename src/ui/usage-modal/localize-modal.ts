@@ -5,9 +5,11 @@ export function renderWaitingState(ctx: UsageDomContext): void {
   const { $, text, w } = ctx;
   const ov = $('overview');
   const det = $('details');
+  const logs = $('logs');
   const wait = $('usage-waiting');
   if (ov) ov.hidden = true;
   if (det) det.hidden = true;
+  if (logs) logs.hidden = true;
   if (wait) wait.hidden = false;
   text('usage-waiting', w('正在重新连接统计…', 'Reconnecting usage…'));
   text('subtitle', w('正在重新连接本机统计', 'Reconnecting local usage'));
@@ -48,6 +50,7 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
   renderSubtitle(ctx, hostLabel);
   text('overview-tab', w('活动概览', 'Activity'));
   text('details-tab', w('用量详情', 'Usage details'));
+  text('logs-tab', w('请求日志', 'Request log'));
   text('activity-title', w('Token 活动', 'Token activity'));
   text('dim-model', w('按模型统计', 'By Model'));
   text('dim-user', w('按用户统计', 'By User'));
@@ -112,10 +115,13 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
 
   $('overview-tab')?.setAttribute('aria-selected', String(state.tab === 'overview'));
   $('details-tab')?.setAttribute('aria-selected', String(state.tab === 'details'));
+  $('logs-tab')?.setAttribute('aria-selected', String(state.tab === 'logs'));
   const ovSec = $('overview');
   const detSec = $('details');
+  const logsSec = $('logs');
   if (ovSec) ovSec.hidden = state.tab !== 'overview';
   if (detSec) detSec.hidden = state.tab !== 'details';
+  if (logsSec) logsSec.hidden = state.tab !== 'logs';
 
   text(
     'coverage',

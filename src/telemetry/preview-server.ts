@@ -13,6 +13,7 @@ import type {
   ReassignConversationRequest,
   SetRecordingAccountRequest,
   SwitchAccountRequest,
+  UsageRequestLogRequest,
 } from '../contracts/index.ts';
 import type { RuntimePreferencesBridge } from '../ui/runtime-ui/index.ts';
 import { panelAppSource, panelPageSource } from './panel-source.ts';
@@ -30,6 +31,7 @@ export interface PreviewUsageBridge {
   getProjectUsage: (input?: { scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
   getProjectDetail: (input: { projectKey: string; scope?: string | null; from?: string; to?: string }) => Promise<unknown>;
   getQuotaCycleUsage?: (input?: QuotaCycleUsageRequest) => Promise<unknown>;
+  getUsageRequestLogs?: (input?: UsageRequestLogRequest) => Promise<unknown>;
 }
 
 export type PreviewMetricsRequestInput = MetricsRequestInput & { includeUsage?: boolean };
@@ -148,6 +150,7 @@ export function startPreviewServer(options: PreviewServerOptions): void {
             else if (url.pathname === '/api/usage/project-overview') res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
             else if (url.pathname === '/api/usage/project-detail') res.end(JSON.stringify(await usageBridge.getProjectDetail(parsed)));
             else if (url.pathname === '/api/usage/quota-cycle' && usageBridge.getQuotaCycleUsage) res.end(JSON.stringify(await usageBridge.getQuotaCycleUsage(parsed)));
+            else if (url.pathname === '/api/usage/request-logs' && usageBridge.getUsageRequestLogs) res.end(JSON.stringify(await usageBridge.getUsageRequestLogs(parsed)));
             else { res.writeHead(404); res.end(); }
           } else if (url.pathname === '/api/timeline/clear') {
             let parsed: unknown = {};

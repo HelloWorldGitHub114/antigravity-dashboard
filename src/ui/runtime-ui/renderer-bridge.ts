@@ -139,6 +139,7 @@ function rendererBridge(binding: string): void {
     getProjectUsage: (input?: unknown) => call('getProjectUsage', input ?? {}),
     getProjectDetail: (input: unknown) => call('getProjectDetail', input),
     getQuotaCycleUsage: (input?: unknown) => call('getQuotaCycleUsage', input ?? {}),
+    getUsageRequestLogs: (input?: unknown) => call('getUsageRequestLogs', input ?? {}),
   };
   win.agPulseHost = Object.assign(win.agPulseHost || {}, hostApi);
   win.agPulseBridge = Object.assign(win.agPulseBridge || {}, hostApi);

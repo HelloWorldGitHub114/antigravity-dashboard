@@ -9,16 +9,19 @@ import type {
   RuntimeBridgeApi,
   UsageBucketCounts,
   UsageDayBucket,
+  UsageRequestCacheFilter,
+  UsageRequestLogSnapshot,
   UsageSummarySnapshot,
   UsageUserBucket,
 } from '../../contracts/index.ts';
 
-export type UsageTab = 'overview' | 'details';
+export type UsageTab = 'overview' | 'details' | 'logs';
 export type UsageHeatMode = 'day' | 'week';
 export type UsagePeriod = 'day' | 'week' | 'month' | 'cycle' | 'custom';
 export type UsageDimension = 'model' | 'user' | 'project';
 export type ModelViewMode = 'simple' | 'detailed';
 export type HourlyMode = 'combined' | 'today';
+export type UsageLogsRange = 'today' | '7d' | '30d' | 'all' | 'custom';
 
 export interface UsageDashboardLanguage {
   readonly language: LanguageCode;
@@ -131,6 +134,17 @@ export interface UsageModalState {
   cycleLoading: boolean;
   cycleError: string | null;
   cycleRangeTotals: UsageTotalsResult | null;
+  logsRange: UsageLogsRange;
+  logsFrom: string;
+  logsTo: string;
+  logsModel: string;
+  logsCacheFilter: UsageRequestCacheFilter;
+  logsPage: number;
+  logsPageSize: number;
+  logsData: UsageRequestLogSnapshot | null;
+  logsDataKey: string;
+  logsLoading: boolean;
+  logsError: string | null;
 }
 
 export interface UsageDomContext {

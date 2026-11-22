@@ -944,10 +944,10 @@ function createLocalAccountHelper(storage, input) {
   const rawIdentifier = typeof input?.identifier === "string" ? input.identifier.trim() : "";
   const rawEmail = typeof input?.email === "string" ? input.email.trim() : "";
   const rawName = typeof input?.name === "string" ? input.name.trim() : "";
-  const cleanText2 = (s, maxLen) => s.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, maxLen);
+  const cleanText3 = (s, maxLen) => s.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, maxLen);
   let email = null;
-  let name = cleanText2(rawName, 120);
-  const candidate = cleanText2(rawEmail || rawIdentifier, 256);
+  let name = cleanText3(rawName, 120);
+  const candidate = cleanText3(rawEmail || rawIdentifier, 256);
   if (candidate) {
     if (candidate.includes("@") || candidate.startsWith("vertex:")) {
       email = candidate;
@@ -2428,10 +2428,547 @@ async function summarizeQuotaWindows(ledger, accountScope, groups) {
   return finalizeQuotaWindows(specs, counts, meta);
 }
 
+// src/telemetry/ledger/request-logs.ts
+import { join as join8 } from "node:path";
+var DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+var DEFAULT_PAGE_SIZE = 50;
+var MIN_PAGE_SIZE = 10;
+var MAX_PAGE_SIZE = 200;
+var HOT_CACHE_THRESHOLD = 0.7;
+var WARM_CACHE_THRESHOLD = 0.2;
+var SCOPE_CACHE_TTL_MS = 3e3;
+var MAX_CACHED_SCOPES = 2;
+var cacheByLedger = /* @__PURE__ */ new WeakMap();
+var secondFormatterCache = /* @__PURE__ */ new Map();
+function getLedgerCache(ledger) {
+  let entry = cacheByLedger.get(ledger);
+  if (!entry) {
+    entry = {
+      files: /* @__PURE__ */ new Map(),
+      scopes: /* @__PURE__ */ new Map(),
+      projectMeta: null
+    };
+    cacheByLedger.set(ledger, entry);
+  }
+  return entry;
+}
+function getSecondFormatter(zone) {
+  let dtf = secondFormatterCache.get(zone);
+  if (!dtf) {
+    dtf = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    });
+    secondFormatterCache.set(zone, dtf);
+  }
+  return dtf;
+}
+function formatDateTimeSeconds(ms, zone) {
+  const parts = getSecondFormatter(zone).formatToParts(ms);
+  let y = "1970";
+  let m = "01";
+  let d = "01";
+  let hh = "00";
+  let mm = "00";
+  let ss = "00";
+  for (const p of parts) {
+    if (p.type === "year") y = p.value;
+    else if (p.type === "month") m = p.value;
+    else if (p.type === "day") d = p.value;
+    else if (p.type === "hour") hh = p.value.padStart(2, "0");
+    else if (p.type === "minute") mm = p.value.padStart(2, "0");
+    else if (p.type === "second") ss = p.value.padStart(2, "0");
+  }
+  const date = `${y}-${m}-${d}`;
+  return { date, timeText: `${date} ${hh}:${mm}:${ss}` };
+}
+function cleanText(raw, maxLen) {
+  if (typeof raw !== "string") return "";
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.length > maxLen ? `${cleaned.slice(0, maxLen - 1)}\u2026` : cleaned;
+}
+function workspaceBasename(uri) {
+  if (typeof uri !== "string") return "";
+  let out = uri.trim();
+  if (!out || out === "outside-of-project" || out === "default-cli-project") return "";
+  if (out.startsWith("file://")) {
+    out = out.slice("file://".length);
+    if (out.startsWith("/") && /^\/[a-zA-Z](?:%3A|:)/.test(out)) out = out.slice(1);
+    try {
+      out = decodeURIComponent(out);
+    } catch {
+    }
+  }
+  out = out.replace(/\\/g, "/").replace(/\/+$/, "");
+  const idx = out.lastIndexOf("/");
+  const base = idx >= 0 ? out.slice(idx + 1) : out;
+  return cleanText(base, 36);
+}
+function firstWorkspaceFromMeta(raw) {
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const name = workspaceBasename(item);
+      if (name) return name;
+    }
+    return "";
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) return firstWorkspaceFromMeta(arr);
+      } catch {
+      }
+    }
+    return workspaceBasename(trimmed.split(/[\r\n,]+/)[0]);
+  }
+  return "";
+}
+async function loadConversationMetaByHash(ledger, store) {
+  const cache = getLedgerCache(ledger);
+  const metaFile = ledger.projectMetaFile();
+  let diskMap = null;
+  try {
+    const st = await ledger._stat(metaFile);
+    const stamp = formatStatStamp(st) ?? "ENOENT";
+    if (cache.projectMeta && cache.projectMeta.stamp === stamp) {
+      diskMap = cache.projectMeta.byHash;
+    } else {
+      const next = /* @__PURE__ */ new Map();
+      if (st && Number(st.size) <= MAX_RECORD_FILE_BYTES) {
+        const text = await ledger.fs.readFile(metaFile, "utf8");
+        if (text.length <= MAX_RECORD_FILE_BYTES) {
+          const parsed = JSON.parse(text);
+          if (parsed?.schema === 1 && parsed.entries && typeof parsed.entries === "object") {
+            for (const [key, val] of Object.entries(parsed.entries)) {
+              if (!val || typeof val !== "object") continue;
+              const obj = val;
+              const cid = typeof obj.cid === "string" && obj.cid.trim() ? obj.cid.trim() : key.trim();
+              if (!cid) continue;
+              const title = cleanText(obj.title, 56);
+              const projectName = firstWorkspaceFromMeta(obj.workspaceUris);
+              if (title || projectName) {
+                next.set(sha256(cid.toLowerCase()), {
+                  ...title ? { title } : {},
+                  ...projectName ? { projectName } : {}
+                });
+              }
+            }
+          }
+        }
+      }
+      cache.projectMeta = { stamp, byHash: next };
+      diskMap = next;
+    }
+  } catch {
+    diskMap = cache.projectMeta?.byHash ?? null;
+  }
+  const rawSummaries = store?.rawSummaries;
+  if (!rawSummaries || typeof rawSummaries !== "object") {
+    return diskMap ?? /* @__PURE__ */ new Map();
+  }
+  const merged = new Map(diskMap ?? void 0);
+  for (const [cid, val] of Object.entries(rawSummaries)) {
+    if (!cid || !val || typeof val !== "object") continue;
+    const obj = val;
+    const title = cleanText(obj.summary, 56);
+    let projectName = "";
+    if (Array.isArray(obj.workspaces)) {
+      for (const ws of obj.workspaces) {
+        if (ws && typeof ws === "object") {
+          projectName = workspaceBasename(ws.workspaceFolderAbsoluteUri);
+          if (projectName) break;
+        }
+      }
+    }
+    if (!title && !projectName) continue;
+    const hash = sha256(cid.toLowerCase());
+    const prev = merged.get(hash);
+    merged.set(hash, {
+      title: title || prev?.title,
+      projectName: projectName || prev?.projectName
+    });
+  }
+  return merged;
+}
+function normalizeCacheFilter(raw) {
+  if (raw === "hot" || raw === "warm" || raw === "miss") return raw;
+  return "all";
+}
+function matchesCacheFilter(hitRate, filter) {
+  if (filter === "all") return true;
+  if (hitRate === null) return false;
+  if (filter === "hot") return hitRate >= HOT_CACHE_THRESHOLD;
+  if (filter === "warm") return hitRate >= WARM_CACHE_THRESHOLD && hitRate < HOT_CACHE_THRESHOLD;
+  return hitRate < WARM_CACHE_THRESHOLD;
+}
+function normalizeDateBound(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return DATE_KEY_RE.test(trimmed) ? trimmed : null;
+}
+function buildAccountNameResolver(meta, knownAccounts) {
+  return (scope) => {
+    const m = meta[scope] || knownAccounts[scope];
+    return m?.email || m?.name || `Account (${scope.slice(0, 8)})`;
+  };
+}
+function buildPrimaryPicker(meta, knownAccounts) {
+  const knownKeys = Object.keys(knownAccounts);
+  const primaryRank = (s) => {
+    const m = meta[s];
+    const k = knownAccounts[s];
+    if (m?.primary === true || k?.primary === true) return 0;
+    if (m?.primary === false || k?.primary === false || m?.secondary === true || k?.secondary === true) return 2;
+    if (k && knownKeys.indexOf(s) > 0) return 2;
+    return 1;
+  };
+  return (scopesList) => {
+    if (!scopesList.length) return null;
+    return [...scopesList].sort((a, b) => {
+      const ra = primaryRank(a);
+      const rb = primaryRank(b);
+      if (ra !== rb) return ra - rb;
+      const ta = meta[a]?.addedAt ?? meta[a]?.createdAt ?? Number.MAX_SAFE_INTEGER;
+      const tb = meta[b]?.addedAt ?? meta[b]?.createdAt ?? Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
+      const ia = knownKeys.indexOf(a);
+      const ib = knownKeys.indexOf(b);
+      if (ia !== -1 && ib !== -1 && ia !== ib) return ia - ib;
+      return a.localeCompare(b);
+    })[0];
+  };
+}
+async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaStamp, ownership, ownershipStamp, timeZone, nowMs) {
+  const cache = getLedgerCache(ledger);
+  const existing = cache.scopes.get(resolvedScope);
+  if (existing && existing.revision === ledger.revision && existing.metaStamp === metaStamp && existing.ownershipStamp === ownershipStamp && existing.timeZone === timeZone && nowMs - existing.builtAt < SCOPE_CACHE_TTL_MS) {
+    return existing.records;
+  }
+  const startRevision = ledger.revision;
+  const targetScopes = resolvedScope === "all" ? allScopes.length ? allScopes : ledger.scope && HASH_RE.test(ledger.scope) ? [ledger.scope] : [] : [resolvedScope];
+  const targetSet = new Set(targetScopes);
+  const scanScopes = allScopes.length > 1 ? [.../* @__PURE__ */ new Set([...allScopes, ...targetScopes])] : targetScopes;
+  const ownerByName = /* @__PURE__ */ new Map();
+  for (const [convId, ownerScope] of Object.entries(ownership || {})) {
+    if (!HASH_RE.test(ownerScope)) continue;
+    try {
+      const fileName = ledger.file(ownerScope, convId).split(/[\\/]/).pop();
+      if (fileName) ownerByName.set(fileName, ownerScope);
+    } catch {
+    }
+  }
+  const parsedFiles = [];
+  const recordScopes = /* @__PURE__ */ new Map();
+  const liveFileKeys = /* @__PURE__ */ new Set();
+  for (const s of scanScopes) {
+    let files = [];
+    try {
+      files = await ledger.fs.readdir(join8(ledger.directory, s));
+    } catch (error) {
+      if (!isErrno(error, "ENOENT")) files = [];
+    }
+    const validFiles = files.filter((name) => LEDGER_FILE_RE.test(name));
+    const slots = await mapPool(validFiles, 16, async (name) => {
+      const relKey = `${s}/${name}`;
+      liveFileKeys.add(relKey);
+      const fullPath = join8(ledger.directory, s, name);
+      try {
+        const st = await ledger._stat(fullPath);
+        const stamp = formatStatStamp(st);
+        if (!st || !stamp) return null;
+        const cachedFile = cache.files.get(relKey);
+        if (cachedFile && cachedFile.stamp === stamp) {
+          return cachedFile.doc ? { name, doc: cachedFile.doc } : null;
+        }
+        if (Number(st.size) > MAX_RECORD_FILE_BYTES) {
+          cache.files.set(relKey, { stamp, doc: null });
+          return null;
+        }
+        const text = await ledger.fs.readFile(fullPath, "utf8");
+        if (text.length > MAX_RECORD_FILE_BYTES) {
+          cache.files.set(relKey, { stamp, doc: null });
+          return null;
+        }
+        const parsed = JSON.parse(text);
+        if (parsed.schema !== 1 || parsed.account !== s || !Array.isArray(parsed.records) || !parsed.records.every(validRow)) {
+          cache.files.set(relKey, { stamp, doc: null });
+          return null;
+        }
+        cache.files.set(relKey, { stamp, doc: parsed });
+        return { name, doc: parsed };
+      } catch {
+        return null;
+      }
+    });
+    for (const item of slots) {
+      if (!item) continue;
+      for (const r of item.doc.records) {
+        let list = recordScopes.get(r.id);
+        if (!list) {
+          list = [];
+          recordScopes.set(r.id, list);
+        }
+        if (!list.includes(s)) list.push(s);
+      }
+      if (targetSet.has(s)) {
+        parsedFiles.push({ scope: s, name: item.name, doc: item.doc });
+      }
+    }
+  }
+  for (const key of [...cache.files.keys()]) {
+    const scopePrefix = key.split("/")[0];
+    if (scanScopes.includes(scopePrefix) && !liveFileKeys.has(key)) {
+      cache.files.delete(key);
+    }
+  }
+  const getAccountName = buildAccountNameResolver(meta, ledger.knownAccounts);
+  const pickPrimary = buildPrimaryPicker(meta, ledger.knownAccounts);
+  const dedup = /* @__PURE__ */ new Map();
+  for (const { scope: s, name, doc } of parsedFiles) {
+    const explicitOwner = ownerByName.get(name);
+    const isRemote = doc.metadata?.source === "remote-manual";
+    const fileHash = name.slice(0, -5);
+    const manualProjectName = isRemote ? cleanText(doc.metadata?.projectName, 36) : "";
+    const manualNote = isRemote ? cleanText(doc.metadata?.note, 64) : "";
+    for (const r of doc.records) {
+      if (typeof r.at !== "number" || !Number.isFinite(r.at)) continue;
+      const scopesForRecord = recordScopes.get(r.id) || [s];
+      const isDuplicate = scopesForRecord.length > 1;
+      const resolvedOwner = explicitOwner && scopesForRecord.includes(explicitOwner) ? explicitOwner : null;
+      if (resolvedScope !== "all") {
+        if (resolvedOwner) {
+          if (resolvedOwner !== s) continue;
+        } else if (isDuplicate && pickPrimary(scopesForRecord) !== s) {
+          continue;
+        }
+      }
+      const sum = recordSum(r);
+      const prev = dedup.get(r.id);
+      if (prev && (sum < prev.sum || sum === prev.sum && r.at <= prev.item.at)) {
+        continue;
+      }
+      const uncached = r.uncached || 0;
+      const cacheRead = r.cacheRead || 0;
+      const cacheWrite = r.cacheWrite || 0;
+      const inputTokens = uncached + cacheRead + cacheWrite;
+      const output = r.output || 0;
+      const total = inputTokens + output;
+      const cacheHitRate = inputTokens > 0 ? cacheRead / inputTokens : null;
+      const effectiveOwner = resolvedOwner || (isDuplicate ? pickPrimary(scopesForRecord) || s : s);
+      dedup.set(r.id, {
+        sum,
+        item: {
+          id: r.id,
+          at: r.at,
+          date: dateKey(r.at, timeZone),
+          accountKey: effectiveOwner,
+          accountName: getAccountName(effectiveOwner),
+          model: r.model,
+          uncached,
+          cacheRead,
+          cacheWrite,
+          inputTokens,
+          output,
+          total,
+          cacheHitRate,
+          source: isRemote ? "remote" : "local",
+          fileHash,
+          ...manualProjectName ? { manualProjectName } : {},
+          ...manualNote ? { note: manualNote } : {},
+          ...r.partial ? { partial: true } : {}
+        }
+      });
+    }
+  }
+  const records = [...dedup.values()].map((entry) => entry.item).sort((a, b) => b.at !== a.at ? b.at - a.at : b.id.localeCompare(a.id));
+  if (ledger.revision === startRevision) {
+    if (cache.scopes.size >= MAX_CACHED_SCOPES && !cache.scopes.has(resolvedScope)) {
+      const oldestKey = cache.scopes.keys().next().value;
+      if (oldestKey) cache.scopes.delete(oldestKey);
+    }
+    cache.scopes.set(resolvedScope, {
+      revision: startRevision,
+      metaStamp,
+      ownershipStamp,
+      timeZone,
+      builtAt: nowMs,
+      records
+    });
+  }
+  return records;
+}
+function emptySummary() {
+  return {
+    totalRequests: 0,
+    totalTokens: 0,
+    inputTokens: 0,
+    cachedTokens: 0,
+    cacheWriteTokens: 0,
+    uncachedTokens: 0,
+    outputTokens: 0,
+    cacheHitRate: null,
+    hotCount: 0,
+    warmCount: 0,
+    missCount: 0,
+    costBuckets: []
+  };
+}
+async function queryUsageRequestLogs(options) {
+  const { ledger, store = null, activeScope = null, input = {}, now = Date.now() } = options;
+  const timeZone = ledger.timeZone || "Asia/Shanghai";
+  const today = dateKey(now, timeZone);
+  const requestedScope = typeof input?.scope === "string" && input.scope.trim() ? input.scope.trim() : null;
+  const from = normalizeDateBound(input?.from);
+  const to = normalizeDateBound(input?.to);
+  const modelFilter = typeof input?.model === "string" && input.model.trim() ? input.model.trim() : null;
+  const cacheFilter = normalizeCacheFilter(input?.cacheFilter);
+  const rawPage = typeof input?.page === "number" && Number.isFinite(input.page) ? Math.trunc(input.page) : 1;
+  const rawPageSize = typeof input?.pageSize === "number" && Number.isFinite(input.pageSize) ? Math.trunc(input.pageSize) : DEFAULT_PAGE_SIZE;
+  const pageSize = Math.max(MIN_PAGE_SIZE, Math.min(MAX_PAGE_SIZE, rawPageSize));
+  const [{ stamp: metaStamp, value: meta }, { stamp: ownershipStamp, value: ownership }, allScopes] = await Promise.all([
+    ledger._loadAccountsMeta(),
+    ledger._loadOwnership(),
+    ledger.scopeDirectories()
+  ]);
+  const resolvedScope = requestedScope === "all" || requestedScope && HASH_RE.test(requestedScope) ? requestedScope : activeScope && HASH_RE.test(activeScope) ? activeScope : ledger.scope && HASH_RE.test(ledger.scope) ? ledger.scope : allScopes[0] || "";
+  if (!resolvedScope) {
+    return {
+      accountKey: "",
+      timeZone,
+      today,
+      from,
+      to,
+      models: [],
+      page: 1,
+      pageSize,
+      totalCount: 0,
+      totalPages: 1,
+      summary: emptySummary(),
+      items: [],
+      updatedAt: new Date(now).toISOString()
+    };
+  }
+  const indexed = await loadIndexedRecords(
+    ledger,
+    resolvedScope,
+    allScopes,
+    meta,
+    metaStamp,
+    ownership,
+    ownershipStamp,
+    timeZone,
+    now
+  );
+  const modelCounts = /* @__PURE__ */ new Map();
+  const matched = [];
+  const summary = emptySummary();
+  const costBucketMap = /* @__PURE__ */ new Map();
+  for (const r of indexed) {
+    if (from && r.date < from) continue;
+    if (to && r.date > to) continue;
+    modelCounts.set(r.model, (modelCounts.get(r.model) || 0) + 1);
+    if (modelFilter && r.model !== modelFilter) continue;
+    if (!matchesCacheFilter(r.cacheHitRate, cacheFilter)) continue;
+    matched.push(r);
+    summary.totalRequests += 1;
+    summary.totalTokens += r.total;
+    summary.inputTokens += r.inputTokens;
+    summary.cachedTokens += r.cacheRead;
+    summary.cacheWriteTokens += r.cacheWrite;
+    summary.uncachedTokens += r.uncached;
+    summary.outputTokens += r.output;
+    if (r.cacheHitRate !== null) {
+      if (r.cacheHitRate >= HOT_CACHE_THRESHOLD) summary.hotCount += 1;
+      else if (r.cacheHitRate >= WARM_CACHE_THRESHOLD) summary.warmCount += 1;
+      else summary.missCount += 1;
+    }
+    const bucketKey = `${r.date}\0${r.model}`;
+    let bucket = costBucketMap.get(bucketKey);
+    if (!bucket) {
+      bucket = {
+        date: r.date,
+        model: r.model,
+        uncached: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        output: 0,
+        total: 0
+      };
+      costBucketMap.set(bucketKey, bucket);
+    }
+    bucket.uncached += r.uncached;
+    bucket.cacheRead += r.cacheRead;
+    bucket.cacheWrite += r.cacheWrite;
+    bucket.output += r.output;
+    bucket.total += r.total;
+  }
+  summary.cacheHitRate = summary.inputTokens > 0 ? summary.cachedTokens / summary.inputTokens : null;
+  summary.costBuckets = [...costBucketMap.values()];
+  const models = [...modelCounts.entries()].sort((a, b) => b[1] !== a[1] ? b[1] - a[1] : a[0].localeCompare(b[0])).map(([model, requests]) => ({ model, requests }));
+  const totalCount = matched.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const page = Math.max(1, Math.min(totalPages, rawPage));
+  const startIdx = (page - 1) * pageSize;
+  const pageSlice = matched.slice(startIdx, startIdx + pageSize);
+  const metaByHash = pageSlice.some((r) => r.source === "local") ? await loadConversationMetaByHash(ledger, store) : /* @__PURE__ */ new Map();
+  const includeAccountName = resolvedScope === "all";
+  const items = pageSlice.map((r) => {
+    const formatted = formatDateTimeSeconds(r.at, timeZone);
+    const convMeta = r.source === "local" ? metaByHash.get(r.fileHash) : void 0;
+    const projectName = r.source === "remote" ? r.manualProjectName : convMeta?.projectName;
+    const conversationTitle = r.source === "local" ? convMeta?.title : void 0;
+    return {
+      id: r.id,
+      at: r.at,
+      date: formatted.date,
+      timeText: formatted.timeText,
+      accountKey: r.accountKey,
+      ...includeAccountName ? { accountName: r.accountName } : {},
+      model: r.model,
+      uncached: r.uncached,
+      cacheRead: r.cacheRead,
+      cacheWrite: r.cacheWrite,
+      inputTokens: r.inputTokens,
+      output: r.output,
+      total: r.total,
+      cacheHitRate: r.cacheHitRate,
+      source: r.source,
+      ...conversationTitle ? { conversationTitle } : {},
+      ...projectName ? { projectName } : {},
+      ...r.note ? { note: r.note } : {},
+      ...r.partial ? { partial: true } : {}
+    };
+  });
+  return {
+    accountKey: resolvedScope,
+    timeZone,
+    today,
+    from,
+    to,
+    models,
+    page,
+    pageSize,
+    totalCount,
+    totalPages,
+    summary,
+    items,
+    updatedAt: new Date(now).toISOString()
+  };
+}
+
 // src/telemetry/ledger/project-stats.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 var MAX_PARENT_HOPS = 16;
 var WORKTREE_RE = /(?:^|\/)(?:\.gemini\/antigravity|\.antigravity|\.git)\/worktrees\/([^/]+)(?:\/|$)/i;
 var GENERIC_WORKTREE_RE = /\/worktrees\/([^/]+)\//i;
@@ -2447,7 +2984,7 @@ function addDayBucket(target, day) {
 function emptyBucket() {
   return { uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0, requests: 0 };
 }
-function cleanText(raw) {
+function cleanText2(raw) {
   return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
 }
 function truncateLabel(text, maxLen = 64) {
@@ -2552,25 +3089,25 @@ function hasNonEmptyMeta(e) {
 function normalizeMetaEntry(fallbackCid, raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw;
-  const cid = cleanText(typeof obj.cid === "string" ? obj.cid : "") || cleanText(fallbackCid);
+  const cid = cleanText2(typeof obj.cid === "string" ? obj.cid : "") || cleanText2(fallbackCid);
   if (!cid) return null;
   const entry = {
     cid,
-    title: cleanText(typeof obj.title === "string" ? obj.title : ""),
-    preview: cleanText(typeof obj.preview === "string" ? obj.preview : ""),
+    title: cleanText2(typeof obj.title === "string" ? obj.title : ""),
+    preview: cleanText2(typeof obj.preview === "string" ? obj.preview : ""),
     lastModifiedTime: normalizeMs(obj.lastModifiedTime),
     workspaceUris: parseWorkspaceUris(obj.workspaceUris),
-    projectId: cleanText(typeof obj.projectId === "string" ? obj.projectId : ""),
-    parentConversationId: cleanText(
+    projectId: cleanText2(typeof obj.projectId === "string" ? obj.projectId : ""),
+    parentConversationId: cleanText2(
       typeof obj.parentConversationId === "string" ? obj.parentConversationId : ""
     ),
-    source: cleanText(typeof obj.source === "string" ? obj.source : ""),
-    agentName: cleanText(typeof obj.agentName === "string" ? obj.agentName : "")
+    source: cleanText2(typeof obj.source === "string" ? obj.source : ""),
+    agentName: cleanText2(typeof obj.agentName === "string" ? obj.agentName : "")
   };
   return hasNonEmptyMeta(entry) ? entry : null;
 }
 function parseRawSummaryEntry(cid, val) {
-  const cleanedCid = cleanText(cid);
+  const cleanedCid = cleanText2(cid);
   if (!cleanedCid || !val || typeof val !== "object") return null;
   const obj = val;
   const tMeta = obj.trajectoryMetadata && typeof obj.trajectoryMetadata === "object" ? obj.trajectoryMetadata : null;
@@ -2580,14 +3117,14 @@ function parseRawSummaryEntry(cid, val) {
   ).filter(Boolean) : [];
   return {
     cid: cleanedCid,
-    title: cleanText(obj.summary),
+    title: cleanText2(obj.summary),
     preview: "",
     lastModifiedTime: normalizeMs(obj.lastModifiedTime),
     workspaceUris: urisFromRaw,
     projectId: "",
-    parentConversationId: cleanText(tMeta?.parentConversationId),
+    parentConversationId: cleanText2(tMeta?.parentConversationId),
     source: "",
-    agentName: cleanText(spec?.role)
+    agentName: cleanText2(spec?.role)
   };
 }
 function mergeSummaryMetaEntry(existing, incoming, preferIncomingOnEqualMtime) {
@@ -2728,18 +3265,18 @@ async function loadSummaryMeta(ledger, dbPath, rawSummaries, customReader) {
     }
   }
   for (const row of dbRows || []) {
-    const cid = cleanText(row.conversationId);
+    const cid = cleanText2(row.conversationId);
     if (!cid) continue;
     liveByCid.set(cid.toLowerCase(), {
       cid,
-      title: cleanText(row.title),
-      preview: cleanText(row.preview),
+      title: cleanText2(row.title),
+      preview: cleanText2(row.preview),
       lastModifiedTime: normalizeMs(row.lastModifiedTime),
       workspaceUris: parseWorkspaceUris(row.workspaceUris),
-      projectId: cleanText(row.projectId),
-      parentConversationId: cleanText(row.parentConversationId),
-      source: cleanText(row.source),
-      agentName: cleanText(row.agentName)
+      projectId: cleanText2(row.projectId),
+      parentConversationId: cleanText2(row.parentConversationId),
+      source: cleanText2(row.source),
+      agentName: cleanText2(row.agentName)
     });
   }
   if (rawSummaries && typeof rawSummaries === "object") {
@@ -2804,7 +3341,7 @@ function buildProjectResolver(metaByCid) {
     const cached = resolvedCache.get(key);
     if (cached && !doc) return cached;
     if (doc?.metadata?.source === "remote-manual") {
-      const name = cleanText(doc.metadata.projectName) || "remote";
+      const name = cleanText2(doc.metadata.projectName) || "remote";
       return { projectKey: `remote:${name.toLowerCase()}`, name, kind: "remote" };
     }
     let chosenMeta = metaByCid.get(key);
@@ -2920,9 +3457,9 @@ function resolveConversationTitle(cid, metaByCid, file) {
     }
     if (meta.agentName) return `${meta.agentName} (${cid.slice(0, 8)})`;
   }
-  const docNote = cleanText(file?.note);
+  const docNote = cleanText2(file?.note);
   if (docNote && !HASH_RE.test(docNote)) return truncateLabel(docNote, 64);
-  const docProj = cleanText(file?.projectName);
+  const docProj = cleanText2(file?.projectName);
   if (docProj && !HASH_RE.test(docProj)) return truncateLabel(docProj, 64);
   if (meta?.projectId === "default-cli-project" || meta?.source === "CORTEX_TRAJECTORY_SOURCE_CLI") {
     return `cli \xB7 ${cid.slice(0, 8)}`;
@@ -3189,7 +3726,7 @@ function buildOwnerByHash(ownership) {
   }
   return ownerByHash;
 }
-function buildPrimaryPicker(meta, knownAccounts) {
+function buildPrimaryPicker2(meta, knownAccounts) {
   const knownKeys = Object.keys(knownAccounts);
   const primaryRank = (s) => {
     const m = meta[s];
@@ -3271,7 +3808,7 @@ async function loadSharedFileSummariesJs(params) {
         tasks.push({
           scope: s,
           fileHash,
-          filePath: join8(ledger.directory, s, `${fileHash}.json`)
+          filePath: join9(ledger.directory, s, `${fileHash}.json`)
         });
       }
     }
@@ -3300,7 +3837,7 @@ async function loadSharedFileSummariesJs(params) {
       if (!list.includes(s)) list.push(s);
     }
   }
-  const pickPrimary = buildPrimaryPicker(meta, knownAccounts);
+  const pickPrimary = buildPrimaryPicker2(meta, knownAccounts);
   const seen = /* @__PURE__ */ new Map();
   for (const { scope: s, fileHash, doc } of parsedDocs) {
     if (!targetSet.has(s)) continue;
@@ -3387,13 +3924,13 @@ async function loadSharedFileSummariesJs(params) {
 }
 function resolveProjectForSummary(resolver, cid, file) {
   if (file.source === "remote-manual") {
-    const name = cleanText(file.projectName) || "remote";
+    const name = cleanText2(file.projectName) || "remote";
     return { projectKey: `remote:${name.toLowerCase()}`, name, kind: "remote" };
   }
   return resolver.resolve(cid);
 }
 async function listScopeLedgerFiles(ledger, scope) {
-  const scopeDir = join8(ledger.directory, scope);
+  const scopeDir = join9(ledger.directory, scope);
   try {
     const entries = await ledger.fs.readdir(scopeDir, { withFileTypes: true });
     const out = [];
@@ -3402,7 +3939,7 @@ async function listScopeLedgerFiles(ledger, scope) {
       if (typeof ent.isFile === "function" && !ent.isFile()) continue;
       out.push({
         fileHash: ent.name.slice(0, -5),
-        filePath: join8(scopeDir, ent.name)
+        filePath: join9(scopeDir, ent.name)
       });
     }
     return out;
@@ -3474,7 +4011,7 @@ async function queryProjectUsageOverview(opts) {
     return { accountKey: "", from, to, projects: [], days: [], totalTokens: 0, requests: 0, updatedAt };
   }
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join8(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join9(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -3615,7 +4152,7 @@ async function queryProjectConversationDetail(opts) {
   });
   if (!isValidScope(scope)) return emptyDetail("");
   const cache = getProjectStatsCache(opts.ledger);
-  const dbPath = opts.profileDir ? join8(opts.profileDir, "conversation_summaries.db") : null;
+  const dbPath = opts.profileDir ? join9(opts.profileDir, "conversation_summaries.db") : null;
   const rawSummaries = opts.store?.rawSummaries;
   const [summaryMetaState, ownership] = await Promise.all([
     getSummaryMetaState(cache, opts.ledger, dbPath, rawSummaries, opts.readSummaries),
@@ -4409,6 +4946,7 @@ export {
   queryProjectConversationDetail,
   queryProjectUsageOverview,
   queryQuotaCycleUsage,
+  queryUsageRequestLogs,
   recordQuotaCycleBoundaries,
   summarizeQuotaWindows,
   usageRecords,

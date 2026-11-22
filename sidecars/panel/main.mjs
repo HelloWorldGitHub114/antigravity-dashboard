@@ -1417,6 +1417,7 @@ import {
   queryProjectConversationDetail,
   queryProjectUsageOverview,
   queryQuotaCycleUsage,
+  queryUsageRequestLogs,
   summarizeQuotaWindows
 } from "./usage.mjs";
 import { panelAppSource as panelAppSource2, panelPageSource as panelPageSource2 } from "./panel-source.mjs";
@@ -1529,6 +1530,7 @@ function startPreviewServer(options) {
             else if (url.pathname === "/api/usage/project-overview") res.end(JSON.stringify(await usageBridge.getProjectUsage(parsed)));
             else if (url.pathname === "/api/usage/project-detail") res.end(JSON.stringify(await usageBridge.getProjectDetail(parsed)));
             else if (url.pathname === "/api/usage/quota-cycle" && usageBridge.getQuotaCycleUsage) res.end(JSON.stringify(await usageBridge.getQuotaCycleUsage(parsed)));
+            else if (url.pathname === "/api/usage/request-logs" && usageBridge.getUsageRequestLogs) res.end(JSON.stringify(await usageBridge.getUsageRequestLogs(parsed)));
             else {
               res.writeHead(404);
               res.end();
@@ -1848,6 +1850,12 @@ var proUsageBridge = {
     liveGroups: store.quota || [],
     activeScope: store.identity ?? null,
     input
+  }),
+  getUsageRequestLogs: (input) => queryUsageRequestLogs({
+    ledger: usage.ledger,
+    store,
+    activeScope: store.identity ?? null,
+    input
   })
 };
 var integration = new RuntimeUi({
@@ -1870,6 +1878,7 @@ var integration = new RuntimeUi({
   getProjectUsage: proUsageBridge.getProjectUsage,
   getProjectDetail: proUsageBridge.getProjectDetail,
   getQuotaCycleUsage: proUsageBridge.getQuotaCycleUsage,
+  getUsageRequestLogs: proUsageBridge.getUsageRequestLogs,
   clearTimeline: (input) => store.clearTimeline(input?.conversationId || null)
 });
 var vertexRoot = join6(homedir2(), ".antigravity-vertex");
@@ -1980,6 +1989,15 @@ var createVertexInstance = () => {
       return queryQuotaCycleUsage({
         ledger: vertexUsage.ledger,
         liveGroups: vStore.quota || [],
+        activeScope: vStore.identity ?? null,
+        input
+      });
+    },
+    getUsageRequestLogs: (input) => {
+      vertexController?.recordActivity("runtime-ui-usage");
+      return queryUsageRequestLogs({
+        ledger: vertexUsage.ledger,
+        store: vStore,
         activeScope: vStore.identity ?? null,
         input
       });
@@ -2145,6 +2163,7 @@ if (isSidecar) {
   app.api("/api/usage/project-overview", (data) => proUsageBridge.getProjectUsage(data), "POST");
   app.api("/api/usage/project-detail", (data) => proUsageBridge.getProjectDetail(data), "POST");
   app.api("/api/usage/quota-cycle", (data) => proUsageBridge.getQuotaCycleUsage(data), "POST");
+  app.api("/api/usage/request-logs", (data) => proUsageBridge.getUsageRequestLogs(data), "POST");
   app.api("/api/preferences", () => livePreferences.snapshot(), "GET");
   app.api("/api/preferences", async (data) => {
     try {

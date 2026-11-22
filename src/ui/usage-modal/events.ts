@@ -39,11 +39,12 @@ export function bindUsageModalEvents(
     tooltip: TooltipController;
     heatmap: HeatmapController;
     chart: StackedBarController;
+    onCloseExtraPopovers?: () => boolean;
     render: () => void;
   },
 ): UsageEventsCleanup {
   const { $, view, page, dialog, state, text, zh, w } = ctx;
-  const { palette, dayIndex, tooltip, heatmap, chart, render } = deps;
+  const { palette, dayIndex, tooltip, heatmap, chart, onCloseExtraPopovers, render } = deps;
 
   const applyUsageFontScale = (scale: unknown): void => {
     const resolved = String(resolveFontScale(scale));
@@ -272,6 +273,8 @@ export function bindUsageModalEvents(
 
   const changeTab = (next: UsageTab): void => {
     heatmap.closeYear(false);
+    closeSubPopovers();
+    onCloseExtraPopovers?.();
     state.tab = next;
     state.selectedBar = null;
     tooltip.hide();
@@ -279,6 +282,7 @@ export function bindUsageModalEvents(
   };
   $('overview-tab')?.addEventListener('click', () => changeTab('overview'));
   $('details-tab')?.addEventListener('click', () => changeTab('details'));
+  $('logs-tab')?.addEventListener('click', () => changeTab('logs'));
 
   for (const b of view.querySelectorAll<HTMLElement>('[data-heat]')) {
     b.addEventListener('click', () => {
@@ -382,6 +386,7 @@ export function bindUsageModalEvents(
       state.projectOverviewKey = '';
       state.projectDetailKey = '';
       state.cycleDataKey = '';
+      state.logsDataKey = '';
       await options.onRefresh();
     } catch {
       if (!state.disposed) {

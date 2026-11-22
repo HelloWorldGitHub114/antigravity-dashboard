@@ -305,3 +305,73 @@ export interface ProjectConversationDetail {
   conversations: ProjectConversationItem[];
   updatedAt: string;
 }
+
+export type UsageRequestCacheFilter = 'all' | 'hot' | 'warm' | 'miss';
+
+export interface UsageRequestLogModelOption {
+  model: string;
+  requests: number;
+}
+
+export interface UsageRequestLogCostBucket {
+  date: string;
+  model: string;
+  uncached: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  total: number;
+}
+
+export interface UsageRequestLogItem {
+  id: string;
+  at: number;
+  date: string;
+  timeText: string;
+  accountKey: string;
+  accountName?: string;
+  model: string;
+  uncached: number;
+  cacheRead: number;
+  cacheWrite: number;
+  inputTokens: number;
+  output: number;
+  total: number;
+  cacheHitRate: number | null;
+  source: 'local' | 'remote';
+  conversationTitle?: string;
+  projectName?: string;
+  note?: string;
+  partial?: boolean;
+}
+
+export interface UsageRequestLogSummary {
+  totalRequests: number;
+  totalTokens: number;
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  uncachedTokens: number;
+  outputTokens: number;
+  cacheHitRate: number | null;
+  hotCount: number;
+  warmCount: number;
+  missCount: number;
+  costBuckets: UsageRequestLogCostBucket[];
+}
+
+export interface UsageRequestLogSnapshot {
+  accountKey: string;
+  timeZone: string;
+  today: string;
+  from: string | null;
+  to: string | null;
+  models: UsageRequestLogModelOption[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  summary: UsageRequestLogSummary;
+  items: UsageRequestLogItem[];
+  updatedAt: string;
+}

@@ -51,6 +51,7 @@ export class RuntimeUi {
   getProjectUsage: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail: RuntimeUiOptions['getProjectDetail'];
   getQuotaCycleUsage: RuntimeUiOptions['getQuotaCycleUsage'];
+  getUsageRequestLogs: RuntimeUiOptions['getUsageRequestLogs'];
   clearTimeline: RuntimeUiOptions['clearTimeline'];
 
   constructor({
@@ -78,6 +79,7 @@ export class RuntimeUi {
     getProjectUsage = null,
     getProjectDetail = null,
     getQuotaCycleUsage = null,
+    getUsageRequestLogs = null,
     clearTimeline = null,
   }: RuntimeUiOptions = {}) {
     this.snapshot = snapshot;
@@ -115,6 +117,7 @@ export class RuntimeUi {
     this.getProjectUsage = getProjectUsage;
     this.getProjectDetail = getProjectDetail;
     this.getQuotaCycleUsage = getQuotaCycleUsage;
+    this.getUsageRequestLogs = getUsageRequestLogs;
     this.clearTimeline = clearTimeline;
   }
 

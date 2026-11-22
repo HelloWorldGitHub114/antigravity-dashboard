@@ -17,6 +17,7 @@ import type {
   SetRecordingAccountRequest,
   SwitchAccountRequest,
   UpdatePluginRequest,
+  UsageRequestLogRequest,
 } from '../../contracts/index.ts';
 import {
   PREFERENCE_KEYS,
@@ -42,6 +43,7 @@ const USAGE_OPERATIONS = new Set([
   'getProjectUsage',
   'getProjectDetail',
   'getQuotaCycleUsage',
+  'getUsageRequestLogs',
   'clearTimeline',
 ]);
 
@@ -78,6 +80,7 @@ export interface RuntimeDispatchHost {
   getProjectUsage?: RuntimeUiOptions['getProjectUsage'];
   getProjectDetail?: RuntimeUiOptions['getProjectDetail'];
   getQuotaCycleUsage?: RuntimeUiOptions['getQuotaCycleUsage'];
+  getUsageRequestLogs?: RuntimeUiOptions['getUsageRequestLogs'];
   clearTimeline?: RuntimeUiOptions['clearTimeline'];
 }
 
@@ -279,6 +282,18 @@ export async function dispatchBindingCall(
       const { UsageLedger, queryQuotaCycleUsage } = await import('../../telemetry/ledger/index.ts');
       const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
       result = await queryQuotaCycleUsage({ ledger, input: req });
+    }
+  } else if (input.type === 'getUsageRequestLogs') {
+    if (!(await host.enabled())) throw Error('Plugin disabled');
+    const req = (input.input && typeof input.input === 'object' && !Array.isArray(input.input)
+      ? input.input
+      : {}) as UsageRequestLogRequest;
+    if (typeof host.getUsageRequestLogs === 'function') {
+      result = await host.getUsageRequestLogs(req);
+    } else {
+      const { UsageLedger, queryUsageRequestLogs } = await import('../../telemetry/ledger/index.ts');
+      const ledger = new UsageLedger(join(host.dataDir || platformPaths().data, 'usage-v1'));
+      result = await queryUsageRequestLogs({ ledger, input: req });
     }
   } else if (input.type === 'clearTimeline') {
     if (!(await host.enabled())) throw Error('Plugin disabled');

@@ -9,6 +9,11 @@ export {
   type QueryQuotaCycleUsageOptions,
 } from './quota-cycles.ts';
 export {
+  queryUsageRequestLogs,
+  type QueryUsageRequestLogsOptions,
+  type RequestLogStoreLike,
+} from './request-logs.ts';
+export {
   queryProjectUsageOverview,
   queryProjectConversationDetail,
   type ProjectStatsStoreLike,
