@@ -2723,7 +2723,7 @@ ${FONT_POPOVER_CSS}`;
       b.textContent = periodLabels[b.dataset.period || ""] || "";
     }
     const cycleWindowLabels = {
-      weekly: w("\u5468\u5468\u671F", "Weekly"),
+      weekly: w("\u5468\u989D\u5EA6", "Weekly"),
       "5h": w("5 \u5C0F\u65F6", "5h")
     };
     for (const b of view.querySelectorAll("[data-cycle-window]")) {

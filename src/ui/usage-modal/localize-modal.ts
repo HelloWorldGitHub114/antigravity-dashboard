@@ -103,7 +103,7 @@ export function renderHeaderAndLabels(ctx: UsageDomContext, hostLabel: string): 
     b.textContent = periodLabels[b.dataset.period || ''] || '';
   }
   const cycleWindowLabels: Record<string, string> = {
-    weekly: w('周周期', 'Weekly'),
+    weekly: w('周额度', 'Weekly'),
     '5h': w('5 小时', '5h'),
   };
   for (const b of view.querySelectorAll<HTMLElement>('[data-cycle-window]')) {
