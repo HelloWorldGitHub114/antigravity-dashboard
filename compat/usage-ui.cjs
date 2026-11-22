@@ -75,6 +75,22 @@ module.exports = function createUsageDashboard(...args) {
       }
       return out;
     }
+    var MONITOR_PREFERENCE_KEYS = [
+      "cacheWarnMinutes",
+      "cacheColdMinutes",
+      "firstTokenWaitSeconds",
+      "contextWarnPct",
+      "contextDangerPct",
+      "speedPulseEnabled"
+    ];
+    var DEFAULT_MONITOR_PREFS = Object.freeze({
+      cacheWarnMinutes: 3,
+      cacheColdMinutes: 4,
+      firstTokenWaitSeconds: 30,
+      contextWarnPct: 75,
+      contextDangerPct: 90,
+      speedPulseEnabled: true
+    });
     var PREFERENCE_KEYS = [
       "language",
       "languageGuideDismissed",
@@ -82,7 +98,8 @@ module.exports = function createUsageDashboard(...args) {
       "modelTimelineEnabled",
       "debugLaunchEnabled",
       ...FONT_SCALE_KEYS,
-      "modelPricingOverrides"
+      "modelPricingOverrides",
+      ...MONITOR_PREFERENCE_KEYS
     ];
 
     // src/shared/format.ts

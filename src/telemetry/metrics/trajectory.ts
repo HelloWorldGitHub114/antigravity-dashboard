@@ -15,6 +15,8 @@ import {
 } from './chat.ts';
 import { buildModelUsage } from './model-usage.ts';
 import { seconds, tokenCount, unionSeconds } from './primitives.ts';
+import { computeContextBreakdown, computeTurnAndAlerts } from './turn-diagnostics.ts';
+import type { SqliteTurnDiagnostics } from '../reader/sqlite-diagnostics.ts';
 
 const parseMs = (value: unknown): number => (typeof value === 'string' ? Date.parse(value) : NaN);
 
@@ -94,7 +96,19 @@ function resolveTrajectoryContext(
   const compactions = collectCompactionSteps(steps);
   const compactionCount = compactions.length;
 
-  const liveContext = contextMetrics(rawMeta, { model, sampledAt, compactionCount });
+  const liveContext = contextMetrics(rawMeta, {
+    model,
+    sampledAt,
+    compactionCount,
+    breakdown: computeContextBreakdown(
+      generators,
+      steps,
+      rawMeta && typeof rawMeta === 'object'
+        ? tokenCount((rawMeta as Record<string, unknown>).estimatedTokensUsed)
+        : null,
+      false,
+    ),
+  });
   if (!compactionCount || !liveContext) return liveContext;
 
   const latestCompaction = compactions[compactions.length - 1];
@@ -290,6 +304,11 @@ export function trajectoryMetrics(response: unknown): SpeedMetrics {
     (latest?.model ? formatModelName(latest.model) : null) ||
     (lastStepModel ? formatModelName(lastStepModel) : null);
   const modelUsage = buildModelUsage(modelBuckets.values(), { planModel, activeModel });
+  const sqliteDiag =
+    resp.sqliteDiagnostics && typeof resp.sqliteDiagnostics === 'object'
+      ? (resp.sqliteDiagnostics as SqliteTurnDiagnostics)
+      : null;
+  const turnDiag = computeTurnAndAlerts(steps, generators, resp, isRunning, sqliteDiag);
 
   return {
     source: 'Antigravity request metadata',
@@ -333,5 +352,10 @@ export function trajectoryMetrics(response: unknown): SpeedMetrics {
     model: latest?.model || null,
     context: resolveTrajectoryContext(steps, generators, resp, trajectory),
     complete: Number(resp.numTotalGeneratorMetadata ?? generators.length) === generators.length,
+    isGenerating: turnDiag.isGenerating,
+    lastResponseAtMs: turnDiag.lastResponseAtMs,
+    turnMetrics: turnDiag.turnMetrics,
+    turnQueue: turnDiag.turnQueue,
+    requestError: turnDiag.requestError,
   };
 }

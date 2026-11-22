@@ -76,6 +76,74 @@ export interface TokenSummary {
 }
 
 /**
+ * Four-part active-epoch context token breakdown (baseline, read, thinking, output).
+ */
+export interface ContextBreakdown {
+  baselineTokens: number;
+  readTokens: number;
+  thinkingTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/**
+ * Classified category of the latest model request error.
+ */
+export type RequestErrorKind =
+  | 'none'
+  | 'canceled'
+  | 'request_timeout'
+  | 'context_overflow'
+  | 'auth_error'
+  | 'service_unavailable'
+  | 'network_error'
+  | 'quota_exhausted'
+  | 'rate_limited'
+  | 'unknown';
+
+/**
+ * Classified request failure metadata with sanitized diagnostic text.
+ */
+export interface RequestErrorInfo {
+  kind: RequestErrorKind;
+  diagnostic: string;
+  retryAfterSec: number | null;
+}
+
+/**
+ * First-token wait tracking for the active user turn.
+ */
+export interface FirstTokenWaitMetrics {
+  userStepIndex: number | null;
+  waits: number[];
+  waitingSinceMs: number | null;
+  hasPendingPlanner: boolean;
+  turnTerminal: boolean;
+}
+
+/**
+ * Lifecycle state of the latest user turn.
+ */
+export type TurnState = 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'unknown';
+
+/**
+ * Summary statistics for the latest user turn (duration, requests, thinking/write tokens).
+ */
+export interface TurnMetrics {
+  userStepIndex: number;
+  state: TurnState;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
+  durationSeconds: number | null;
+  requests: number;
+  inputTokens: number;
+  cachedTokens: number;
+  thinkingTokens: number;
+  outputTokens: number;
+  totalOutputTokens: number;
+}
+
+/**
  * Host-reported context window occupancy and provider reference metadata.
  */
 export interface ContextMetrics {
@@ -100,6 +168,7 @@ export interface ContextMetrics {
   compacted?: boolean;
   preCompactionUsedTokens?: number | null;
   compactionCount?: number;
+  breakdown?: ContextBreakdown | null;
 }
 
 /**
@@ -250,6 +319,11 @@ export interface SpeedMetrics {
   model: string | null;
   context: ContextMetrics | null;
   complete: boolean;
+  isGenerating?: boolean;
+  lastResponseAtMs?: number | null;
+  turnMetrics?: TurnMetrics | null;
+  turnQueue?: FirstTokenWaitMetrics | null;
+  requestError?: RequestErrorInfo | null;
   transcriptStats?: TranscriptStats | null;
   taskUsage?: TaskUsageSummary | null;
   delegatedConversations?: string[] | null;

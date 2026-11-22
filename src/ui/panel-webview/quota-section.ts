@@ -1,8 +1,22 @@
 import type { QuotaGroup, QuotaWindow, QuotaWindowAvailable, QuotaWindowUsage, TokenSummary } from '../../contracts/index.ts';
+import { resolveMonitorPrefs } from '../../contracts/preferences.ts';
 import { createEl, setAttr, setHidden, setStyle, setText } from '../../shared/dom.ts';
 import { compact, count, percent, rate } from '../../shared/format.ts';
 import { groupQuotaPace, quotaForecast, shortEta, type QuotaWindowKey } from '../../shared/quota-forecast.ts';
+import {
+  resolveCacheTtl,
+  resolveContextLoad,
+  resolveSpeedPulse,
+  summarizeActiveWaitAlert,
+} from '../../shared/request-alerts.ts';
 import { formatQuotaGroupLabel, selectPreferredQuotaGroup, SVG_NS } from '../shared/model-donut.ts';
+import {
+  buildContextBreakdownSegments,
+  errorKindCopy,
+  formatCacheTtlText,
+  formatTurnStateLabel,
+  resolveAlertBadge,
+} from '../shared/monitor-ui.ts';
 import type { PanelDomContext, PanelMetricsSnapshot, PanelSpeedMetrics, PanelState } from './types.ts';
 
 interface RingNodeRef {
@@ -704,13 +718,25 @@ function renderContextAndCacheCards(
     setText($('context-orchestrator-note'), t(isHybrid ? 'contextQuotaSplit' : 'contextMultiModelHint'));
   }
 
+  const monitorPrefs = resolveMonitorPrefs(value.preferences);
+  const contextLoad = hasCapacity && !isCompacted ? resolveContextLoad(context.usedFraction, monitorPrefs) : 'normal';
+  const contextTab = $('context-tab');
+  if (contextTab) contextTab.dataset.load = contextLoad;
+
   const fillScale = hasCapacity && context.usedFraction != null ? String(clampRatio(context.usedFraction)) : '0';
   const ctxColor =
-    hasCapacity && (context.usedFraction ?? 0) >= 0.9
+    contextLoad === 'danger'
       ? 'var(--pulse-danger)'
-      : hasCapacity && (context.usedFraction ?? 0) >= 0.8
+      : contextLoad === 'warn'
         ? 'var(--pulse-warning)'
         : '';
+
+  const breakdownSegments = buildContextBreakdownSegments(isCompacted ? null : context?.breakdown);
+  setHidden($('panel-context-breakdown'), breakdownSegments.length === 0);
+  for (const seg of breakdownSegments) {
+    setStyle($(`panel-ctx-seg-bar-${seg.key}`), 'width', `${seg.pct.toFixed(2)}%`);
+    setText($(`panel-ctx-seg-val-${seg.key}`), `${compact(seg.tokens)} (${Math.round(seg.pct)}%)`);
+  }
 
   const stripFill = $('strip-context-fill');
   const stripTrack = $('strip-context-track');
@@ -773,7 +799,113 @@ function renderContextAndCacheCards(
     setHidden($('panel-task-tokens-row'), true);
     setHidden($('panel-subagent-tokens-row'), true);
   }
-  void value;
+
+  // 本轮统计（最新一条用户消息维度）
+  const turn = speed?.turnMetrics ?? null;
+  setHidden($('panel-turn-section'), !turn);
+  if (turn) {
+    setText($('panel-turn-state'), formatTurnStateLabel(turn.state, t));
+    setText($('panel-turn-requests'), t('turnRequestsCount', { n: turn.requests }));
+    setText($('panel-turn-tokens'), `${compact(turn.thinkingTokens)} / ${compact(turn.outputTokens)} tok`);
+  }
+
+  updatePanelMonitorLive(ctx, Date.now());
+}
+
+/**
+ * 每秒刷新侧栏中的实时时钟指标：速度呼吸灯、本轮耗时、缓存保鲜进度与异常/等待横幅。
+ */
+export function updatePanelMonitorLive(ctx: PanelDomContext, nowMs = Date.now()): void {
+  const { $, state, language } = ctx;
+  const snapshot = state.snapshot;
+  if (!snapshot) return;
+  const speed = snapshot.speed;
+  const t = language.t;
+  const prefs = resolveMonitorPrefs(snapshot.preferences);
+
+  const pulse = resolveSpeedPulse(
+    speed?.latestTps ?? speed?.tps,
+    speed?.isGenerating === true,
+    speed?.lastResponseAtMs,
+    nowMs,
+    prefs.speedPulseEnabled,
+  );
+  const pulseEl = $('panel-speed-pulse');
+  if (pulseEl) {
+    setHidden(pulseEl, !pulse.visible || !speed);
+    pulseEl.dataset.level = pulse.level;
+    pulseEl.classList.toggle('is-blinking', pulse.blinking);
+  }
+
+  const turn = speed?.turnMetrics ?? null;
+  if (turn) {
+    const liveSec =
+      turn.durationSeconds !== null
+        ? turn.durationSeconds
+        : (turn.state === 'running' || turn.state === 'queued') && turn.startedAtMs
+          ? Math.max(0, (nowMs - turn.startedAtMs) / 1000)
+          : null;
+    setText($('panel-turn-duration'), language.elapsed(liveSec));
+  }
+
+  const ttl = resolveCacheTtl(
+    speed?.lastResponseAtMs,
+    nowMs,
+    speed?.isGenerating === true,
+    prefs,
+  );
+  const cacheTab = $('cache-tab');
+  if (cacheTab) cacheTab.dataset.ttl = ttl.state;
+  const ttlBox = $('panel-cache-ttl');
+  if (ttlBox) {
+    setHidden(ttlBox, !speed || ttl.state === 'idle');
+    ttlBox.dataset.ttl = ttl.state;
+    setText($('panel-cache-ttl-text'), formatCacheTtlText(ttl, t));
+    setStyle(
+      $('panel-cache-ttl-fill'),
+      'width',
+      ttl.state === 'active' ? '100%' : `${Math.round(ttl.progress * 100)}%`,
+    );
+  }
+
+  const err = speed?.requestError ?? null;
+  const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);
+  const badge = resolveAlertBadge(err, waitAlert, t);
+  const banner = $('panel-alert-banner');
+  if (banner) {
+    setHidden(banner, !badge.visible);
+    banner.dataset.severity = badge.severity;
+    if (badge.visible) {
+      setText($('panel-alert-title'), badge.label);
+      const hasVisibleErr = Boolean(err && err.kind !== 'none' && err.kind !== 'canceled');
+      if (hasVisibleErr && err) {
+        const copy = errorKindCopy(err.kind, t);
+        setText($('panel-alert-desc'), copy.desc);
+        setHidden($('panel-alert-retry'), err.retryAfterSec === null);
+        if (err.retryAfterSec !== null) {
+          setText($('panel-alert-retry'), t('alertRetryAfter', { sec: Math.round(err.retryAfterSec) }));
+        }
+        setHidden($('panel-alert-diag'), !err.diagnostic);
+        if (err.diagnostic) setText($('panel-alert-diag'), err.diagnostic);
+      } else {
+        setHidden($('panel-alert-retry'), true);
+        setHidden($('panel-alert-diag'), true);
+        setText(
+          $('panel-alert-desc'),
+          waitAlert.isWaitingNow && waitAlert.currentWaitSec !== null
+            ? t('alertWaitActive', {
+                sec: Math.round(waitAlert.currentWaitSec),
+                n: waitAlert.count,
+              })
+            : t('alertWaitCompleted', {
+                n: waitAlert.count,
+                threshold: prefs.firstTokenWaitSeconds,
+                sec: Math.round(waitAlert.maxWaitSec),
+              }),
+        );
+      }
+    }
+  }
 }
 
 export function updateCountdowns(
@@ -783,6 +915,9 @@ export function updateCountdowns(
 ): void {
   const { $, state, language } = ctx;
   const now = Date.now() + state.serverOffset;
+  if (!document.hidden || options.forceDom) {
+    updatePanelMonitorLive(ctx, Date.now());
+  }
   const popover = $('quota-popover');
   const pill = $('quota-rings-pill');
   const popoverOpen = Boolean(

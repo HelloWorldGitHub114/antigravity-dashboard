@@ -410,6 +410,39 @@ function validatePricingOverridesInput(input) {
     }
   }
 }
+var MONITOR_PREFERENCE_KEYS = [
+  "cacheWarnMinutes",
+  "cacheColdMinutes",
+  "firstTokenWaitSeconds",
+  "contextWarnPct",
+  "contextDangerPct",
+  "speedPulseEnabled"
+];
+var DEFAULT_MONITOR_PREFS = Object.freeze({
+  cacheWarnMinutes: 3,
+  cacheColdMinutes: 4,
+  firstTokenWaitSeconds: 30,
+  contextWarnPct: 75,
+  contextDangerPct: 90,
+  speedPulseEnabled: true
+});
+function validateMonitorPrefsInput(input) {
+  const checkIntRange = (key, min, max) => {
+    if (!Object.hasOwn(input, key)) return;
+    const raw = input[key];
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < min || raw > max) {
+      throw new Error("Invalid monitor threshold preference");
+    }
+  };
+  checkIntRange("cacheWarnMinutes", 0, 998);
+  checkIntRange("cacheColdMinutes", 0, 999);
+  checkIntRange("firstTokenWaitSeconds", 0, 999);
+  checkIntRange("contextWarnPct", 50, 95);
+  checkIntRange("contextDangerPct", 60, 99);
+  if (Object.hasOwn(input, "speedPulseEnabled") && typeof input.speedPulseEnabled !== "boolean") {
+    throw new Error("Invalid speed pulse preference");
+  }
+}
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
@@ -417,7 +450,8 @@ var PREFERENCE_KEYS = [
   "modelTimelineEnabled",
   "debugLaunchEnabled",
   ...FONT_SCALE_KEYS,
-  "modelPricingOverrides"
+  "modelPricingOverrides",
+  ...MONITOR_PREFERENCE_KEYS
 ];
 
 // src/ui/runtime-ui/binding-dispatch.ts
@@ -470,6 +504,7 @@ async function dispatchBindingCall(host, connection, input) {
     }
     validateFontScaleInput(value);
     validatePricingOverridesInput(value);
+    validateMonitorPrefsInput(value);
     result = Object.keys(value).length ? await host.preferences.set(value) : await host.preferences.get();
   } else if (input.type === "diagnostic" && DIAGNOSTIC_STAGES.has(input.input?.stage)) {
     const diag = input.input;

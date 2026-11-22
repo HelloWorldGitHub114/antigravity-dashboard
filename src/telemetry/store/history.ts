@@ -195,6 +195,11 @@ export function reconcileMetrics(saved: SpeedMetrics | null | undefined, fresh: 
       taskUsage: fresh.taskUsage || saved.taskUsage || null,
       delegatedConversations: fresh.delegatedConversations || saved.delegatedConversations || null,
       planModel: fresh.planModel ?? saved.planModel ?? null, activeModel: fresh.activeModel ?? saved.activeModel ?? null,
+      isGenerating: fresh.isGenerating === true,
+      lastResponseAtMs: fresh.lastResponseAtMs ?? saved.lastResponseAtMs ?? null,
+      turnMetrics: fresh.turnMetrics ?? null,
+      turnQueue: fresh.turnQueue ?? null,
+      requestError: fresh.requestError ?? null,
       ...(keptUsage ? { modelUsage: keptUsage } : {}),
     };
   }

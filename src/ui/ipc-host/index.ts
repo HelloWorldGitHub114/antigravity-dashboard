@@ -19,6 +19,7 @@ import type {
 import {
   PREFERENCE_KEYS,
   validateFontScaleInput,
+  validateMonitorPrefsInput,
   validatePricingOverridesInput,
 } from '../../contracts/preferences.ts';
 import { appendBoundedLogLine } from '../../shared/logger.ts';
@@ -130,6 +131,7 @@ export default function installAgPulseIpc(
         }
         validateFontScaleInput(input);
         validatePricingOverridesInput(input);
+        validateMonitorPrefsInput(input);
         if (!preferenceStore) {
           const file = path.join(
             os.homedir(),

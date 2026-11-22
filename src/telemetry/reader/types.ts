@@ -1,3 +1,5 @@
+import type { SqliteTurnDiagnostics } from './sqlite-diagnostics.ts';
+
 export interface RawStepLike {
   i?: unknown;
   type?: unknown;
@@ -113,6 +115,7 @@ export interface TrajectoryResult {
   numTotalSteps: number;
   numTotalGeneratorMetadata: number;
   isRemote?: boolean;
+  sqliteDiagnostics?: SqliteTurnDiagnostics | null;
 }
 
 export interface TrajectoryCacheEntry {

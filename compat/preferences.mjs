@@ -86,6 +86,95 @@ function validatePricingOverridesInput(input) {
     }
   }
 }
+var MONITOR_PREFERENCE_KEYS = [
+  "cacheWarnMinutes",
+  "cacheColdMinutes",
+  "firstTokenWaitSeconds",
+  "contextWarnPct",
+  "contextDangerPct",
+  "speedPulseEnabled"
+];
+var DEFAULT_MONITOR_PREFS = Object.freeze({
+  cacheWarnMinutes: 3,
+  cacheColdMinutes: 4,
+  firstTokenWaitSeconds: 30,
+  contextWarnPct: 75,
+  contextDangerPct: 90,
+  speedPulseEnabled: true
+});
+function clampInt(value, min, max, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+function resolveMonitorPrefs(raw) {
+  const src = raw && typeof raw === "object" && !("error" in raw) ? raw : {};
+  const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
+  let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
+  if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
+    cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
+  }
+  const firstTokenWaitSeconds = clampInt(
+    src.firstTokenWaitSeconds,
+    0,
+    999,
+    DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds
+  );
+  const contextWarnPct = clampInt(src.contextWarnPct, 50, 95, DEFAULT_MONITOR_PREFS.contextWarnPct);
+  let contextDangerPct = clampInt(src.contextDangerPct, 60, 99, DEFAULT_MONITOR_PREFS.contextDangerPct);
+  if (contextDangerPct <= contextWarnPct) {
+    contextDangerPct = Math.min(99, contextWarnPct + 5);
+  }
+  const speedPulseEnabled = typeof src.speedPulseEnabled === "boolean" ? src.speedPulseEnabled : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
+  return {
+    cacheWarnMinutes,
+    cacheColdMinutes,
+    firstTokenWaitSeconds,
+    contextWarnPct,
+    contextDangerPct,
+    speedPulseEnabled
+  };
+}
+function extractMonitorPrefOverrides(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const out = {};
+  const resolved = resolveMonitorPrefs(raw);
+  if (Object.hasOwn(raw, "cacheWarnMinutes") && resolved.cacheWarnMinutes !== DEFAULT_MONITOR_PREFS.cacheWarnMinutes) {
+    out.cacheWarnMinutes = resolved.cacheWarnMinutes;
+  }
+  if (Object.hasOwn(raw, "cacheColdMinutes") && resolved.cacheColdMinutes !== DEFAULT_MONITOR_PREFS.cacheColdMinutes) {
+    out.cacheColdMinutes = resolved.cacheColdMinutes;
+  }
+  if (Object.hasOwn(raw, "firstTokenWaitSeconds") && resolved.firstTokenWaitSeconds !== DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
+    out.firstTokenWaitSeconds = resolved.firstTokenWaitSeconds;
+  }
+  if (Object.hasOwn(raw, "contextWarnPct") && resolved.contextWarnPct !== DEFAULT_MONITOR_PREFS.contextWarnPct) {
+    out.contextWarnPct = resolved.contextWarnPct;
+  }
+  if (Object.hasOwn(raw, "contextDangerPct") && resolved.contextDangerPct !== DEFAULT_MONITOR_PREFS.contextDangerPct) {
+    out.contextDangerPct = resolved.contextDangerPct;
+  }
+  if (Object.hasOwn(raw, "speedPulseEnabled") && resolved.speedPulseEnabled !== DEFAULT_MONITOR_PREFS.speedPulseEnabled) {
+    out.speedPulseEnabled = resolved.speedPulseEnabled;
+  }
+  return out;
+}
+function validateMonitorPrefsInput(input) {
+  const checkIntRange = (key, min, max) => {
+    if (!Object.hasOwn(input, key)) return;
+    const raw = input[key];
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < min || raw > max) {
+      throw new Error("Invalid monitor threshold preference");
+    }
+  };
+  checkIntRange("cacheWarnMinutes", 0, 998);
+  checkIntRange("cacheColdMinutes", 0, 999);
+  checkIntRange("firstTokenWaitSeconds", 0, 999);
+  checkIntRange("contextWarnPct", 50, 95);
+  checkIntRange("contextDangerPct", 60, 99);
+  if (Object.hasOwn(input, "speedPulseEnabled") && typeof input.speedPulseEnabled !== "boolean") {
+    throw new Error("Invalid speed pulse preference");
+  }
+}
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
@@ -93,7 +182,8 @@ var PREFERENCE_KEYS = [
   "modelTimelineEnabled",
   "debugLaunchEnabled",
   ...FONT_SCALE_KEYS,
-  "modelPricingOverrides"
+  "modelPricingOverrides",
+  ...MONITOR_PREFERENCE_KEYS
 ];
 
 // src/shared/atomic-fs.ts
@@ -381,6 +471,7 @@ var PreferencesStore = class {
         throw new Error("Invalid preferences schema");
       }
       const pricingOverrides = sanitizePricingOverrides(value.modelPricingOverrides);
+      const monitorOverrides = extractMonitorPrefOverrides(value);
       const parsed = {
         language: value.language === null ? null : validateLanguage(value.language),
         languageGuideDismissed: value.languageGuideDismissed === true,
@@ -391,6 +482,7 @@ var PreferencesStore = class {
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
         ...Object.keys(pricingOverrides).length > 0 ? { modelPricingOverrides: pricingOverrides } : {},
+        ...monitorOverrides,
         revision: typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0
       };
       this.cache = {
@@ -448,6 +540,7 @@ var PreferencesStore = class {
     }
     validateFontScaleInput(input);
     validatePricingOverridesInput(input);
+    validateMonitorPrefsInput(input);
     const operation = this.queue.then(async () => {
       const existing = await readJsonSafe(this.file);
       const validRecord = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : null;
@@ -476,6 +569,15 @@ var PreferencesStore = class {
         ])
       );
       const modelPricingOverrides = Object.hasOwn(input, "modelPricingOverrides") ? sanitizePricingOverrides(input.modelPricingOverrides) : previous.modelPricingOverrides;
+      const mergedMonitorSource = {
+        ...extractMonitorPrefOverrides(validRecord)
+      };
+      for (const key of MONITOR_PREFERENCE_KEYS) {
+        if (Object.hasOwn(input, key)) {
+          mergedMonitorSource[key] = input[key];
+        }
+      }
+      const monitorOverrides = extractMonitorPrefOverrides(mergedMonitorSource);
       const revision = Math.max(Date.now(), prior + 1);
       const hasPricingOverrides = Object.keys(modelPricingOverrides).length > 0;
       const diskRecord = {
@@ -487,6 +589,7 @@ var PreferencesStore = class {
         debugLaunchEnabled,
         ...scales,
         ...hasPricingOverrides ? { modelPricingOverrides } : {},
+        ...monitorOverrides,
         revision
       };
       this.cache = null;
@@ -499,6 +602,7 @@ var PreferencesStore = class {
         debugLaunchEnabled,
         ...scales,
         ...hasPricingOverrides ? { modelPricingOverrides } : {},
+        ...monitorOverrides,
         revision
       };
       try {

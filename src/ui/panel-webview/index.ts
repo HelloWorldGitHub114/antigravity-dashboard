@@ -363,6 +363,18 @@ function initPanel(): void {
           // Keep optimistic preview if offline/standalone.
         }
       },
+      onMonitorPrefsChange: async (update) => {
+        try {
+          const saved = await controller.savePreferences(update);
+          if (saved && !('error' in saved)) {
+            if (state.snapshot) state.snapshot.preferences = saved;
+            ctx.settingsPopover?.syncPreferences(saved);
+            render();
+          }
+        } catch {
+          // Keep UI interactive if preferences cannot be saved offline.
+        }
+      },
       onSelectLanguage: async (lang) => {
         await ctx.preferences.choose(lang);
         ctx.settingsPopover?.syncLanguage(language.language, ctx.preferences.error);

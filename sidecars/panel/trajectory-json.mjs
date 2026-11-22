@@ -31,9 +31,10 @@ var baseGeneratorItem = {
     model: scalar,
     modelDisplayName: scalar,
     responseModel: scalar,
+    error: scalar,
     streamingDuration: duration,
     timeToFirstToken: duration,
-    retryInfos: { "*": { usage } },
+    retryInfos: { "*": { usage, error: scalar } },
     chatStartMetadata: {
       createdAt: scalar,
       contextWindowMetadata: { estimatedTokensUsed: scalar, maxContextTokens: scalar }
@@ -68,7 +69,15 @@ var timelineSteps = {
     i: scalar,
     type: scalar,
     status: scalar,
-    metadata: { createdAt: scalar, startedAt: scalar, completedAt: scalar, toolCall: { name: scalar }, generatorModel: scalar },
+    metadata: {
+      createdAt: scalar,
+      startedAt: scalar,
+      viewableAt: scalar,
+      finishedGeneratingAt: scalar,
+      completedAt: scalar,
+      toolCall: { name: scalar },
+      generatorModel: scalar
+    },
     plannerResponse: { response: nonempty, toolCalls: timelineToolCalls },
     invokeSubagent,
     userInput: userInputMeta,

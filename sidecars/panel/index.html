@@ -21,6 +21,7 @@
     <symbol id="chevron" viewBox="0 0 16 16"><path d="M4.5 6.2 8 9.8l3.5-3.6"/></symbol>
     <symbol id="gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M6.9 1.8h2.2l.4 1.5c.4.1.8.3 1.2.5l1.4-.8 1.6 1.6-.8 1.4c.2.4.4.8.5 1.2l1.5.4v2.2l-1.5.4c-.1.4-.3.8-.5 1.2l.8 1.4-1.6 1.6-1.4-.8c-.4.2-.8.4-1.2.5l-.4 1.5H6.9l-.4-1.5c-.4-.1-.8-.3-1.2-.5l-1.4.8-1.6-1.6.8-1.4c-.2-.4-.4-.8-.5-1.2l-1.5-.4V6.9l1.5-.4c.1-.4.3-.8.5-1.2l-.8-1.4 1.6-1.6 1.4.8c.4-.2.8-.4 1.2-.5Z"/></symbol>
     <symbol id="chart" viewBox="0 0 16 16"><path d="M2.5 12.8h11M4.5 10.5V7.5M8 10.5V4M11.5 10.5V6"/></symbol>
+    <symbol id="alert" viewBox="0 0 16 16"><path d="M8 2.4 14 13H2L8 2.4ZM8 6.4v3.1m0 1.8h.01"/></symbol>
   </svg>
   <main class="widget" data-i18n-aria="strip" aria-label="Antigrative Dashboard statistics">
     <header class="widget-header">
@@ -46,7 +47,7 @@
     <nav class="status-strip" role="tablist" data-i18n-aria="panelDetails" aria-label="Metric details">
       <button class="metric-chip" id="speed-tab" type="button" role="tab" data-card="speed" aria-controls="speed-card" aria-selected="true" tabindex="0">
         <div class="chip-col-left">
-          <span class="metric-label"><svg class="icon"><use href="#gauge"/></svg><span data-i18n="panelSpeed">Speed</span></span>
+          <span class="metric-label"><svg class="icon"><use href="#gauge"/></svg><span data-i18n="panelSpeed">Speed</span><span class="speed-pulse" id="panel-speed-pulse" aria-hidden="true" hidden></span></span>
           <span class="chip-secondary" id="session-steps">—</span>
         </div>
         <span class="chip-primary"><strong id="strip-tps">—</strong><span class="unit">tok/s</span></span>
@@ -68,6 +69,11 @@
         </div>
       </button>
     </nav>
+    <section class="panel-alert-banner" id="panel-alert-banner" role="status" hidden>
+      <div class="panel-alert-head"><svg class="icon"><use href="#alert"/></svg><strong id="panel-alert-title">—</strong><span class="panel-alert-retry" id="panel-alert-retry" hidden></span></div>
+      <p class="panel-alert-desc" id="panel-alert-desc"></p>
+      <pre class="panel-alert-diag" id="panel-alert-diag" hidden></pre>
+    </section>
     <section class="card-stage" id="card-stage" data-i18n-aria="panelDetails" aria-label="Metric details">
       <article class="detail-card" id="speed-card" role="tabpanel" tabindex="0" aria-labelledby="speed-tab">
         <div class="card-heading"><span><svg class="icon"><use href="#gauge"/></svg><span data-i18n="session">Session statistics</span></span><span class="card-tag" id="request-count">— samples</span></div>
@@ -79,10 +85,22 @@
           <div><dt><span data-i18n="latest">Last request</span></dt><dd id="latest-tps">— tok/s</dd></div>
           <div class="divider"><dt><span data-i18n="tokens">Response / thinking</span></dt><dd id="token-detail">—</dd></div>
         </dl>
+        <div class="panel-turn-section" id="panel-turn-section" hidden>
+          <div class="panel-sub-heading"><span data-i18n="turnSectionTitle">Latest turn</span><span class="card-tag" id="panel-turn-state"></span></div>
+          <dl>
+            <div><dt data-i18n="turnDuration">Turn time</dt><dd id="panel-turn-duration">—</dd></div>
+            <div><dt data-i18n="turnRequests">Turn requests</dt><dd id="panel-turn-requests">—</dd></div>
+            <div><dt data-i18n="turnThinkWrite">Thinking / output</dt><dd id="panel-turn-tokens">—</dd></div>
+          </dl>
+        </div>
         <p class="card-footnote" id="speed-basis" hidden>Response tokens ÷ streaming duration; session rate is time-weighted.</p>
       </article>
       <article class="detail-card" id="cache-card" role="tabpanel" tabindex="0" aria-labelledby="cache-tab" hidden>
         <div class="card-heading"><span><svg class="icon"><use href="#cache"/></svg><span data-i18n="cacheTitle">Token cache</span></span><span class="card-tag" id="cache-coverage">—</span></div>
+        <div class="panel-cache-ttl" id="panel-cache-ttl" hidden>
+          <div class="panel-cache-ttl-head"><span data-i18n="cacheTtlLabel">Cache freshness</span><strong id="panel-cache-ttl-text">—</strong></div>
+          <div class="panel-ttl-track"><i id="panel-cache-ttl-fill"></i></div>
+        </div>
         <dl><div><dt data-i18n="cacheRate">Cache hit</dt><dd id="cache-rate">—</dd></div><div><dt data-i18n="cacheMiss">Uncached input</dt><dd id="cache-miss">—</dd></div><div><dt data-i18n="cacheRead">Cache read</dt><dd id="cache-read">—</dd></div><div><dt data-i18n="cacheOutput">Output</dt><dd id="cache-output">—</dd></div><div id="cache-write-row" hidden><dt data-i18n="cacheWrite">Cache write</dt><dd id="cache-write">—</dd></div><div id="panel-task-tokens-row" hidden><dt data-i18n="taskTotalTokens">Task total tokens</dt><dd id="panel-task-total-tokens">—</dd></div><div id="panel-subagent-tokens-row" hidden><dt id="panel-subagent-tokens-label" data-i18n="taskTokensSubagents">Subagents</dt><dd id="panel-subagent-tokens">—</dd></div></dl>
         <section class="panel-model-mix" id="panel-model-mix" hidden>
           <div class="model-mix-head">
@@ -117,6 +135,16 @@
         <div class="card-heading"><span><svg class="icon"><use href="#context"/></svg><span data-i18n="context">Context window</span></span><span class="card-tag" id="context-compaction-pill" hidden></span></div>
         <strong id="context-summary">—</strong><p id="context-tokens">—</p>
         <div class="quota-track" role="progressbar" data-i18n-aria="context" id="context-track"><i id="context-fill"></i></div>
+        <div class="panel-ctx-breakdown" id="panel-context-breakdown" hidden>
+          <div class="panel-ctx-breakdown-title" data-i18n="contextBreakdownTitle">Context composition</div>
+          <div class="panel-ctx-seg-bar"><i class="seg-baseline" id="panel-ctx-seg-bar-baseline"></i><i class="seg-read" id="panel-ctx-seg-bar-read"></i><i class="seg-thinking" id="panel-ctx-seg-bar-thinking"></i><i class="seg-output" id="panel-ctx-seg-bar-output"></i></div>
+          <div class="panel-ctx-seg-legend">
+            <span class="panel-ctx-seg-item"><i class="seg-dot seg-baseline"></i><span data-i18n="contextSegBaseline">Baseline</span><strong id="panel-ctx-seg-val-baseline">—</strong></span>
+            <span class="panel-ctx-seg-item"><i class="seg-dot seg-read"></i><span data-i18n="contextSegRead">Read</span><strong id="panel-ctx-seg-val-read">—</strong></span>
+            <span class="panel-ctx-seg-item"><i class="seg-dot seg-thinking"></i><span data-i18n="contextSegThinking">Thinking</span><strong id="panel-ctx-seg-val-thinking">—</strong></span>
+            <span class="panel-ctx-seg-item"><i class="seg-dot seg-output"></i><span data-i18n="contextSegOutput">Output</span><strong id="panel-ctx-seg-val-output">—</strong></span>
+          </div>
+        </div>
         <p class="card-footnote" id="context-compacted-note" hidden></p>
         <dl><div><dt data-i18n="contextModel">Sampled model</dt><dd id="context-model">—</dd></div><div id="context-orchestrator-row" hidden><dt data-i18n="contextPlanner">Planner entrypoint</dt><dd id="context-orchestrator">—</dd></div></dl>
         <p class="card-footnote context-split-note" id="context-orchestrator-note" hidden></p>

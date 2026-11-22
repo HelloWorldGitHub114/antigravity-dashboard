@@ -1,4 +1,4 @@
-import type { ContextMetrics } from '../contracts/metrics.ts';
+import type { ContextBreakdown, ContextMetrics } from '../contracts/metrics.ts';
 
 // The current request's host-reported capacity is the occupancy denominator.
 // Provider specifications are separately sourced references, never overrides.
@@ -18,6 +18,7 @@ export interface ContextMetricsOptions {
   compacted?: boolean;
   preCompactionUsedTokens?: unknown;
   compactionCount?: unknown;
+  breakdown?: unknown;
 }
 
 const count = (value: unknown): number | null =>
@@ -185,6 +186,27 @@ export function modelCompressionLimit(_model?: unknown): number | null {
   return null;
 }
 
+function safeContextBreakdown(value: unknown): ContextBreakdown | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const baselineTokens = count(raw.baselineTokens);
+  const readTokens = count(raw.readTokens);
+  const thinkingTokens = count(raw.thinkingTokens);
+  const outputTokens = count(raw.outputTokens);
+  const totalTokens = count(raw.totalTokens);
+  if (
+    baselineTokens === null ||
+    readTokens === null ||
+    thinkingTokens === null ||
+    outputTokens === null ||
+    totalTokens === null ||
+    totalTokens <= 0
+  ) {
+    return null;
+  }
+  return { baselineTokens, readTokens, thinkingTokens, outputTokens, totalTokens };
+}
+
 export function contextMetrics(
   metadata: unknown,
   {
@@ -194,6 +216,7 @@ export function contextMetrics(
     compacted = false,
     preCompactionUsedTokens = null,
     compactionCount = null,
+    breakdown = null,
   }: ContextMetricsOptions = {},
 ): ContextMetrics | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
@@ -205,6 +228,7 @@ export function contextMetrics(
   const reference = modelContextReference(model);
   const safePreCompaction = count(preCompactionUsedTokens);
   const safeCompactions = count(compactionCount);
+  const safeBreakdown = compacted === true ? null : safeContextBreakdown(breakdown);
   const isCompacted = compacted === true;
   return {
     usedTokens,
@@ -230,6 +254,7 @@ export function contextMetrics(
     estimated: true,
     ...(isCompacted ? { compacted: true, preCompactionUsedTokens: safePreCompaction } : {}),
     ...(safeCompactions !== null && safeCompactions > 0 ? { compactionCount: safeCompactions } : {}),
+    ...(safeBreakdown ? { breakdown: safeBreakdown } : {}),
   };
 }
 
@@ -246,6 +271,7 @@ export function safeContext(value: unknown): ContextMetrics | null {
       compacted: raw.compacted === true,
       preCompactionUsedTokens: raw.preCompactionUsedTokens,
       compactionCount: raw.compactionCount,
+      breakdown: raw.breakdown,
     },
   );
 }

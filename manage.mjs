@@ -20,6 +20,22 @@ function resolveFontScale(value, fallback = 1) {
   const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
   return Math.round(clamped * 100) / 100;
 }
+var MONITOR_PREFERENCE_KEYS = [
+  "cacheWarnMinutes",
+  "cacheColdMinutes",
+  "firstTokenWaitSeconds",
+  "contextWarnPct",
+  "contextDangerPct",
+  "speedPulseEnabled"
+];
+var DEFAULT_MONITOR_PREFS = Object.freeze({
+  cacheWarnMinutes: 3,
+  cacheColdMinutes: 4,
+  firstTokenWaitSeconds: 30,
+  contextWarnPct: 75,
+  contextDangerPct: 90,
+  speedPulseEnabled: true
+});
 var PREFERENCE_KEYS = [
   "language",
   "languageGuideDismissed",
@@ -27,7 +43,8 @@ var PREFERENCE_KEYS = [
   "modelTimelineEnabled",
   "debugLaunchEnabled",
   ...FONT_SCALE_KEYS,
-  "modelPricingOverrides"
+  "modelPricingOverrides",
+  ...MONITOR_PREFERENCE_KEYS
 ];
 
 // src/platform/paths.ts

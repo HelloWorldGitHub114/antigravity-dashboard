@@ -11,6 +11,7 @@ import {
 import { resolveLocalAntigravityDir, statSqliteDbStamp } from './local-summaries.ts';
 import { readRemoteTrajectory, scheduleRemoteBackfill } from './remote-reader.ts';
 import { extractPlanModelFromSteps, normalizeRemoteSnapshot, settled, TOOL_STEP, unavailable } from './remote-snapshot.ts';
+import { readSqliteTurnDiagnostics } from './sqlite-diagnostics.ts';
 
 function normalizeSqliteStatus(rawStatus: unknown, summaryStatus?: unknown): string {
   if (typeof summaryStatus === 'string' && summaryStatus.trim()) return summaryStatus.trim();
@@ -274,12 +275,14 @@ export class TrajectoryReader implements RemoteReaderHost {
     }
     const meta = readSqliteConversationMeta(dbPath, id);
     const status = normalizeSqliteStatus(raw.status, resolvedSummary?.status);
+    const sqliteDiagnostics = readSqliteTurnDiagnostics(dbPath);
     return {
       ...raw,
       status,
       numTotalSteps: numSteps,
       numTotalGeneratorMetadata: numGens,
       ...(meta ? { trajectoryMetadata: meta } : {}),
+      ...(sqliteDiagnostics ? { sqliteDiagnostics } : {}),
     } as TrajectoryResult;
   }
 
@@ -492,11 +495,13 @@ export class TrajectoryReader implements RemoteReaderHost {
     if (generators.some((g) => (g.stepIndices || []).some((i) => typeof i === 'number' && Number.isInteger(i) && i >= steps.length))) {
       if (settled(resolvedSummary.status)) throw new Error('会话仍在更新，请等待下一次刷新');
     }
+    const sqliteDiagnostics = dbPath ? readSqliteTurnDiagnostics(dbPath) : null;
     const value: TrajectoryResult = {
       trajectory: { cascadeId: id, ...(planModel ? { planModel } : {}), steps, generatorMetadata: generators },
       numTotalSteps: steps.length,
       numTotalGeneratorMetadata: generators.length,
       status: resolvedSummary.status,
+      ...(sqliteDiagnostics ? { sqliteDiagnostics } : {}),
     };
     assertCurrent();
     this.cachedBytes -= entry.bytes; entry.bytes = bytes; this.cachedBytes += bytes;

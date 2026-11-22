@@ -134,13 +134,27 @@ function modelContextCapacity(model) {
 function modelCompressionLimit(_model) {
   return null;
 }
+function safeContextBreakdown(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value;
+  const baselineTokens = count(raw.baselineTokens);
+  const readTokens = count(raw.readTokens);
+  const thinkingTokens = count(raw.thinkingTokens);
+  const outputTokens = count(raw.outputTokens);
+  const totalTokens = count(raw.totalTokens);
+  if (baselineTokens === null || readTokens === null || thinkingTokens === null || outputTokens === null || totalTokens === null || totalTokens <= 0) {
+    return null;
+  }
+  return { baselineTokens, readTokens, thinkingTokens, outputTokens, totalTokens };
+}
 function contextMetrics(metadata, {
   model = null,
   sampledAt = null,
   source = "Antigravity context window metadata",
   compacted = false,
   preCompactionUsedTokens = null,
-  compactionCount = null
+  compactionCount = null,
+  breakdown = null
 } = {}) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const meta = metadata;
@@ -151,6 +165,7 @@ function contextMetrics(metadata, {
   const reference = modelContextReference(model);
   const safePreCompaction = count(preCompactionUsedTokens);
   const safeCompactions = count(compactionCount);
+  const safeBreakdown = compacted === true ? null : safeContextBreakdown(breakdown);
   const isCompacted = compacted === true;
   return {
     usedTokens,
@@ -172,7 +187,8 @@ function contextMetrics(metadata, {
     source: isCompacted ? "Post-compaction estimate" : source,
     estimated: true,
     ...isCompacted ? { compacted: true, preCompactionUsedTokens: safePreCompaction } : {},
-    ...safeCompactions !== null && safeCompactions > 0 ? { compactionCount: safeCompactions } : {}
+    ...safeCompactions !== null && safeCompactions > 0 ? { compactionCount: safeCompactions } : {},
+    ...safeBreakdown ? { breakdown: safeBreakdown } : {}
   };
 }
 function safeContext(value) {
@@ -185,7 +201,8 @@ function safeContext(value) {
       sampledAt: raw.sampledAt,
       compacted: raw.compacted === true,
       preCompactionUsedTokens: raw.preCompactionUsedTokens,
-      compactionCount: raw.compactionCount
+      compactionCount: raw.compactionCount,
+      breakdown: raw.breakdown
     }
   );
 }

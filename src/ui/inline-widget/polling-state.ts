@@ -10,6 +10,7 @@ import type {
   UpdatePluginState,
 } from '../../contracts/index.ts';
 import { setText } from '../../shared/dom.ts';
+import { tickInlineMonitorLive } from './speed-card.ts';
 import type { WidgetLanguage, WidgetMetricsSnapshot } from './types.ts';
 
 interface ManualRefreshState {
@@ -249,6 +250,7 @@ export class WidgetPollingState {
         void this.refresh(true);
       }
     }
+    tickInlineMonitorLive(root, this.data, language, Date.now());
   }
 
   pollIfDue(): void {

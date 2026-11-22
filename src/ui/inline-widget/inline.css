@@ -1232,4 +1232,334 @@ select {
   #open-usage:active {
     transform: none;
   }
+
+  .speed-pulse.is-blinking {
+    animation: none;
+  }
+}
+
+/* 速度呼吸灯、缓存保鲜提醒、上下文预警与四段拆解、本轮汇总、异常告警胶囊 */
+@keyframes pulse-speed-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .32; transform: scale(.82); }
+}
+
+.speed-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--pulse-dot);
+  transition: background-color 220ms ease, opacity 220ms ease;
+}
+
+.speed-pulse[hidden] {
+  display: none;
+}
+
+.speed-pulse[data-level="fast"] {
+  background: var(--pulse-success);
+}
+
+.speed-pulse[data-level="medium"] {
+  background: var(--pulse-warning);
+}
+
+.speed-pulse[data-level="slow"] {
+  background: var(--pulse-danger);
+}
+
+.speed-pulse[data-level="pending"] {
+  background: var(--pulse-accent);
+}
+
+.speed-pulse[data-level="idle"] {
+  background: var(--pulse-dot);
+  opacity: .55;
+}
+
+.speed-pulse.is-blinking {
+  animation: pulse-speed-blink 1.1s ease-in-out infinite;
+}
+
+.chip[data-card="cache"][data-ttl="warn"],
+.chip[data-card="cache"][data-ttl="warn"] svg {
+  color: var(--pulse-warning);
+}
+
+.chip[data-card="cache"][data-ttl="cold"],
+.chip[data-card="cache"][data-ttl="cold"] svg {
+  color: var(--pulse-danger);
+}
+
+.chip[data-card="context"][data-load="warn"] strong {
+  color: var(--pulse-warning);
+}
+
+.chip[data-card="context"][data-load="warn"] .context-ring {
+  background: conic-gradient(var(--pulse-warning) var(--used-angle, 0deg), var(--pulse-ring-track) 0);
+}
+
+.chip[data-card="context"][data-load="danger"] strong {
+  color: var(--pulse-danger);
+}
+
+.chip[data-card="context"][data-load="danger"] .context-ring {
+  background: conic-gradient(var(--pulse-danger) var(--used-angle, 0deg), var(--pulse-ring-track) 0);
+}
+
+.alert-chip[hidden] {
+  display: none;
+}
+
+.alert-chip[data-severity="wait"] {
+  color: var(--pulse-warning);
+  background: color-mix(in srgb, var(--pulse-warning) 13%, transparent);
+}
+
+.alert-chip[data-severity="wait"]:hover,
+.alert-chip[data-severity="wait"][aria-expanded="true"] {
+  background: color-mix(in srgb, var(--pulse-warning) 22%, transparent);
+  color: var(--pulse-warning);
+}
+
+.alert-chip[data-severity="error"] {
+  color: var(--pulse-danger);
+  background: color-mix(in srgb, var(--pulse-danger) 14%, transparent);
+}
+
+.alert-chip[data-severity="error"]:hover,
+.alert-chip[data-severity="error"][aria-expanded="true"] {
+  background: color-mix(in srgb, var(--pulse-danger) 24%, transparent);
+  color: var(--pulse-danger);
+}
+
+.turn-section {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--pulse-separator);
+}
+
+.turn-section[hidden] {
+  display: none;
+}
+
+.sub-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: calc(11px * var(--pulse-inline-font-scale, 1));
+  font-weight: 600;
+  color: var(--pulse-foreground);
+  margin-bottom: 6px;
+}
+
+.cache-ttl-section {
+  margin: 0 0 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--pulse-separator);
+}
+
+.cache-ttl-section[hidden] {
+  display: none;
+}
+
+.cache-ttl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(11px * var(--pulse-inline-font-scale, 1));
+  color: var(--pulse-label);
+  margin-bottom: 6px;
+}
+
+.cache-ttl-head strong {
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  color: var(--pulse-foreground);
+}
+
+.cache-ttl-section[data-ttl="active"] .cache-ttl-head strong,
+.cache-ttl-section[data-ttl="fresh"] .cache-ttl-head strong {
+  color: var(--pulse-success);
+}
+
+.cache-ttl-section[data-ttl="warn"] .cache-ttl-head strong {
+  color: var(--pulse-warning);
+}
+
+.cache-ttl-section[data-ttl="cold"] .cache-ttl-head strong {
+  color: var(--pulse-danger);
+}
+
+.ttl-track {
+  height: 3px;
+  border-radius: 99px;
+  background: var(--pulse-track);
+  overflow: hidden;
+}
+
+.ttl-track i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--pulse-success);
+  transition: width 350ms linear, background-color 200ms ease;
+}
+
+.cache-ttl-section[data-ttl="warn"] .ttl-track i {
+  background: var(--pulse-warning);
+}
+
+.cache-ttl-section[data-ttl="cold"] .ttl-track i {
+  background: var(--pulse-danger);
+}
+
+.ctx-breakdown {
+  margin: -4px 0 11px;
+}
+
+.ctx-breakdown[hidden] {
+  display: none;
+}
+
+.ctx-breakdown-title {
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  color: var(--pulse-muted);
+  margin-bottom: 5px;
+}
+
+.ctx-seg-bar {
+  display: flex;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--pulse-track);
+  overflow: hidden;
+  gap: 1px;
+  margin-bottom: 7px;
+}
+
+.ctx-seg-bar i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  transition: width 260ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.seg-baseline {
+  background: var(--pulse-muted);
+}
+
+.seg-read {
+  background: var(--pulse-accent);
+}
+
+.seg-thinking {
+  background: var(--pulse-warning);
+}
+
+.seg-output {
+  background: var(--pulse-success);
+}
+
+.ctx-seg-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+}
+
+.ctx-seg-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  color: var(--pulse-label);
+  min-width: 0;
+}
+
+.ctx-seg-item strong {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--pulse-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.seg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.alert-card {
+  width: 288px;
+}
+
+.alert-block + .alert-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pulse-separator);
+}
+
+.alert-block[hidden] {
+  display: none;
+}
+
+.alert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.alert-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  font-weight: 600;
+}
+
+.alert-kind-badge.is-error {
+  color: var(--pulse-danger);
+  background: color-mix(in srgb, var(--pulse-danger) 15%, transparent);
+}
+
+.alert-kind-badge.is-wait {
+  color: var(--pulse-warning);
+  background: color-mix(in srgb, var(--pulse-warning) 15%, transparent);
+}
+
+.alert-retry {
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-desc {
+  margin: 0;
+  font-size: calc(11px * var(--pulse-inline-font-scale, 1));
+  line-height: 1.5;
+  color: var(--pulse-foreground);
+}
+
+.alert-diag {
+  margin: 8px 0 0;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pulse-track) 70%, transparent);
+  color: var(--pulse-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 110px;
+  overflow-y: auto;
 }

@@ -1,5 +1,12 @@
 import type { UsageAccountInfo } from '../../contracts/index.ts';
-import type { LanguageCode, PreferencesSnapshot, PreferencesUpdateInput } from '../../contracts/preferences.ts';
+import {
+  DEFAULT_MONITOR_PREFS,
+  resolveMonitorPrefs,
+  type LanguageCode,
+  type PreferencesSnapshot,
+  type PreferencesUpdateInput,
+  type ResolvedMonitorPrefs,
+} from '../../contracts/preferences.ts';
 import { setAttr, setHidden, setText } from '../../shared/dom.ts';
 import type { DashboardI18n } from '../i18n/index.ts';
 import { createFontScaleControls, type FontScaleValues } from '../shared/font-popover.ts';
@@ -35,6 +42,7 @@ export interface SettingsPopoverOptions {
   onRefreshDebugLaunch?: () => void | Promise<void>;
   onSelectRecordingAccount?: (scope: string | null) => void | Promise<void>;
   onAddRecordingAccount?: (identifier: string) => void | Promise<void>;
+  onMonitorPrefsChange?: (update: PreferencesUpdateInput) => void | Promise<void>;
 }
 
 export interface SettingsPopoverHandle {
@@ -65,6 +73,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     onRefreshDebugLaunch,
     onSelectRecordingAccount,
     onAddRecordingAccount,
+    onMonitorPrefsChange,
   } = options;
   const doc = trigger.ownerDocument;
   const t = language.t;
@@ -294,7 +303,102 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   });
   fontSection.append(fontControls.headElement, fontControls.rowsElement);
 
-  popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection);
+  const div3 = doc.createElement('div');
+  div3.className = 'settings-divider';
+
+  // --- Section 4: Monitor & Alert Thresholds ---
+  let monitorState: ResolvedMonitorPrefs = resolveMonitorPrefs(options.initialPreferences);
+  const monitorSection = doc.createElement('div');
+  monitorSection.className = 'settings-section settings-monitor-section';
+
+  const monitorHead = doc.createElement('div');
+  monitorHead.className = 'settings-monitor-head';
+  const monitorTitle = doc.createElement('span');
+  monitorTitle.className = 'settings-row-title';
+  const monitorResetBtn = doc.createElement('button');
+  monitorResetBtn.type = 'button';
+  monitorResetBtn.className = 'settings-account-btn';
+  monitorHead.append(monitorTitle, monitorResetBtn);
+
+  const monitorGrid = doc.createElement('div');
+  monitorGrid.className = 'settings-monitor-grid';
+
+  const makeNumberField = (id: string, min: number, max: number) => {
+    const row = doc.createElement('label');
+    row.className = 'settings-monitor-field';
+    const labelEl = doc.createElement('span');
+    const inputEl = doc.createElement('input');
+    inputEl.id = id;
+    inputEl.type = 'number';
+    inputEl.min = String(min);
+    inputEl.max = String(max);
+    inputEl.step = '1';
+    inputEl.className = 'settings-monitor-input';
+    row.append(labelEl, inputEl);
+    return { row, labelEl, inputEl };
+  };
+
+  const cacheWarnField = makeNumberField('monitor-cache-warn', 0, 998);
+  const cacheColdField = makeNumberField('monitor-cache-cold', 0, 999);
+  const waitSecField = makeNumberField('monitor-wait-sec', 0, 999);
+
+  const pulseRow = doc.createElement('div');
+  pulseRow.className = 'settings-row settings-monitor-toggle-row';
+  const pulseLabel = doc.createElement('span');
+  pulseLabel.className = 'settings-monitor-label';
+  const pulseToggle = doc.createElement('button');
+  pulseToggle.id = 'monitor-speed-pulse-toggle';
+  pulseToggle.type = 'button';
+  pulseToggle.className = 'settings-switch';
+  pulseToggle.setAttribute('role', 'switch');
+  const pulseThumb = doc.createElement('span');
+  pulseThumb.className = 'settings-switch-thumb';
+  pulseToggle.append(pulseThumb);
+  pulseRow.append(pulseLabel, pulseToggle);
+
+  const syncMonitorInputs = (): void => {
+    cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
+    cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
+    waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
+    setAttr(pulseToggle, 'aria-checked', String(monitorState.speedPulseEnabled));
+  };
+
+  const commitMonitorChange = (patch: Partial<ResolvedMonitorPrefs>): void => {
+    monitorState = resolveMonitorPrefs({ ...monitorState, ...patch });
+    syncMonitorInputs();
+    void onMonitorPrefsChange?.({
+      cacheWarnMinutes: monitorState.cacheWarnMinutes,
+      cacheColdMinutes: monitorState.cacheColdMinutes,
+      firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds,
+      speedPulseEnabled: monitorState.speedPulseEnabled,
+    });
+  };
+
+  const readIntInput = (input: HTMLInputElement, fallback: number): number => {
+    const n = Number.parseInt(input.value, 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  cacheWarnField.inputEl.addEventListener('change', () => {
+    commitMonitorChange({ cacheWarnMinutes: readIntInput(cacheWarnField.inputEl, monitorState.cacheWarnMinutes) });
+  });
+  cacheColdField.inputEl.addEventListener('change', () => {
+    commitMonitorChange({ cacheColdMinutes: readIntInput(cacheColdField.inputEl, monitorState.cacheColdMinutes) });
+  });
+  waitSecField.inputEl.addEventListener('change', () => {
+    commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
+  });
+  pulseToggle.addEventListener('click', () => {
+    commitMonitorChange({ speedPulseEnabled: !monitorState.speedPulseEnabled });
+  });
+  monitorResetBtn.addEventListener('click', () => {
+    commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
+  });
+
+  monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
+  monitorSection.append(monitorHead, monitorGrid, pulseRow);
+
+  popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
   mountRoot.append(popover);
 
   const isOpen = (): boolean => popover.matches(':popover-open') || popover.dataset.open === 'true';
@@ -450,6 +554,14 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     renderDebugStatus();
     renderRecordingAccount();
     fontControls.localize();
+    setText(monitorTitle, t('settingsMonitorTitle'));
+    setText(monitorResetBtn, t('settingsMonitorReset'));
+    setText(cacheWarnField.labelEl, t('settingsCacheWarn'));
+    setText(cacheColdField.labelEl, t('settingsCacheCold'));
+    setText(waitSecField.labelEl, t('settingsWaitAlert'));
+    setText(pulseLabel, t('settingsSpeedPulse'));
+    setAttr(pulseToggle, 'aria-label', t('settingsSpeedPulse'));
+    syncMonitorInputs();
   };
 
   const syncPreferences = (prefs?: Partial<PreferencesSnapshot> | null): void => {
@@ -470,6 +582,16 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
         debugState.enabled = prefs.debugLaunchEnabled;
         renderDebugStatus();
       }
+    }
+    const nextMonitor = resolveMonitorPrefs(prefs);
+    if (
+      nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes ||
+      nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes ||
+      nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds ||
+      nextMonitor.speedPulseEnabled !== monitorState.speedPulseEnabled
+    ) {
+      monitorState = nextMonitor;
+      syncMonitorInputs();
     }
   };
 

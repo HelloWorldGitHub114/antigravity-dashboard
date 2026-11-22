@@ -9,11 +9,14 @@ import type {
   PreferencesUpdateInput,
 } from '../contracts/preferences.ts';
 import {
+  extractMonitorPrefOverrides,
   FONT_SCALE_KEYS,
+  MONITOR_PREFERENCE_KEYS,
   PREFERENCE_KEYS,
   resolveFontScale,
   sanitizePricingOverrides,
   validateFontScaleInput,
+  validateMonitorPrefsInput,
   validatePricingOverridesInput,
 } from '../contracts/preferences.ts';
 import { atomicWriteJson, readJsonSafe } from '../shared/atomic-fs.ts';
@@ -87,6 +90,7 @@ export class PreferencesStore {
         throw new Error('Invalid preferences schema');
       }
       const pricingOverrides = sanitizePricingOverrides(value.modelPricingOverrides);
+      const monitorOverrides = extractMonitorPrefOverrides(value);
       const parsed: PreferencesState = {
         language: value.language === null ? null : validateLanguage(value.language),
         languageGuideDismissed: value.languageGuideDismissed === true,
@@ -97,6 +101,7 @@ export class PreferencesStore {
         sidebarFontScale: resolveFontScale(value.sidebarFontScale),
         inlineFontScale: resolveFontScale(value.inlineFontScale),
         ...(Object.keys(pricingOverrides).length > 0 ? { modelPricingOverrides: pricingOverrides } : {}),
+        ...monitorOverrides,
         revision:
           typeof value.revision === 'number' &&
           Number.isSafeInteger(value.revision) &&
@@ -168,6 +173,7 @@ export class PreferencesStore {
     }
     validateFontScaleInput(input as Record<string, unknown>);
     validatePricingOverridesInput(input as Record<string, unknown>);
+    validateMonitorPrefsInput(input as Record<string, unknown>);
 
     const operation = this.queue.then(async (): Promise<PreferencesState> => {
       const existing = await readJsonSafe<Record<string, unknown>>(this.file);
@@ -217,6 +223,15 @@ export class PreferencesStore {
       const modelPricingOverrides = Object.hasOwn(input, 'modelPricingOverrides')
         ? sanitizePricingOverrides(input.modelPricingOverrides)
         : previous.modelPricingOverrides;
+      const mergedMonitorSource: Record<string, unknown> = {
+        ...extractMonitorPrefOverrides(validRecord),
+      };
+      for (const key of MONITOR_PREFERENCE_KEYS) {
+        if (Object.hasOwn(input, key)) {
+          mergedMonitorSource[key] = (input as Record<string, unknown>)[key];
+        }
+      }
+      const monitorOverrides = extractMonitorPrefOverrides(mergedMonitorSource);
       const revision = Math.max(Date.now(), prior + 1);
 
       const hasPricingOverrides = Object.keys(modelPricingOverrides).length > 0;
@@ -229,6 +244,7 @@ export class PreferencesStore {
         debugLaunchEnabled,
         ...scales,
         ...(hasPricingOverrides ? { modelPricingOverrides } : {}),
+        ...monitorOverrides,
         revision,
       };
       this.cache = null;
@@ -242,6 +258,7 @@ export class PreferencesStore {
         debugLaunchEnabled,
         ...scales,
         ...(hasPricingOverrides ? { modelPricingOverrides } : {}),
+        ...monitorOverrides,
         revision,
       };
       try {

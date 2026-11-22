@@ -524,11 +524,650 @@ function accumulateGeneratorUsage(acc, chat, usage) {
   return { output, visible, thinking, rawVisible, duration, ttft };
 }
 
-// src/telemetry/metrics/trajectory.ts
-var parseMs = (value) => typeof value === "string" ? Date.parse(value) : NaN;
+// src/contracts/preferences.ts
+var FONT_SCALE_KEYS = [
+  "usageFontScale",
+  "sidebarFontScale",
+  "inlineFontScale"
+];
+var MAX_PRICING_OVERRIDE_ENTRIES = 64;
+var MAX_PRICING_KEY_LENGTH = 80;
+var MAX_USD_PER_MTOK = 1e4;
+function isValidRateNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
+}
+function roundRate(value) {
+  return Math.round(value * 1e4) / 1e4;
+}
+function sanitizePricingOverrides(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  let count = 0;
+  for (const [rawKey, rawRates] of Object.entries(raw)) {
+    if (count >= MAX_PRICING_OVERRIDE_ENTRIES) break;
+    const key = rawKey.trim().toLowerCase();
+    if (!key || key.length > MAX_PRICING_KEY_LENGTH) continue;
+    if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) continue;
+    const r = rawRates;
+    if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output)) {
+      continue;
+    }
+    const entry = {
+      input: roundRate(r.input),
+      cacheRead: roundRate(r.cacheRead),
+      output: roundRate(r.output)
+    };
+    if (r.cacheWrite !== void 0) {
+      if (!isValidRateNumber(r.cacheWrite)) continue;
+      entry.cacheWrite = roundRate(r.cacheWrite);
+    }
+    out[key] = entry;
+    count++;
+  }
+  return out;
+}
+var MONITOR_PREFERENCE_KEYS = [
+  "cacheWarnMinutes",
+  "cacheColdMinutes",
+  "firstTokenWaitSeconds",
+  "contextWarnPct",
+  "contextDangerPct",
+  "speedPulseEnabled"
+];
+var DEFAULT_MONITOR_PREFS = Object.freeze({
+  cacheWarnMinutes: 3,
+  cacheColdMinutes: 4,
+  firstTokenWaitSeconds: 30,
+  contextWarnPct: 75,
+  contextDangerPct: 90,
+  speedPulseEnabled: true
+});
+var PREFERENCE_KEYS = [
+  "language",
+  "languageGuideDismissed",
+  "usageGuideDismissed",
+  "modelTimelineEnabled",
+  "debugLaunchEnabled",
+  ...FONT_SCALE_KEYS,
+  "modelPricingOverrides",
+  ...MONITOR_PREFERENCE_KEYS
+];
+
+// src/shared/request-alerts.ts
+function classifyRequestError(value = "") {
+  const text = typeof value === "string" ? value.trim() : "";
+  const diagnostic = text.replace(/https?:\/\/[^\s"'<>]+/g, "<API>").replace(/[\r\n\t]+/g, " ").slice(0, 400);
+  const make = (kind, retryAfterSec = null) => ({
+    kind,
+    diagnostic,
+    retryAfterSec
+  });
+  if (!text) return make("none");
+  if (/\bcontext cancel(?:ed|led)\b|user cancel(?:led|ed)|cancel(?:led|ed) by user|request was aborted|AbortError/i.test(
+    text
+  )) {
+    return make("canceled");
+  }
+  if (/\b(?:deadline[ _]exceeded|(?:idle|request|connect(?:ion)?|i\/o) timeout|timed out|ETIMEDOUT|TimeoutError)\b/i.test(
+    text
+  )) {
+    return make("request_timeout");
+  }
+  if (/input token count(?:\s*\([^)]*\)|\s+[\d,]+)?\s+exceeds|context\s*(?:window|length|tokens?|limit|size|capacity)?.{0,35}(?:exceed|too long)|maximum context length|prompt exceeds maximum context length|prompt (?:is )?too long|max_tokens exceeded/i.test(
+    text
+  )) {
+    return make("context_overflow");
+  }
+  if (/UNAUTHENTICATED|PERMISSION_DENIED|\b401\b|\b403\b|invalid api key|credentials expired|permission denied/i.test(
+    text
+  )) {
+    return make("auth_error");
+  }
+  if (/UNAVAILABLE|\b50[234]\b|server overloaded|high demand|Bad Gateway|Service Unavailable/i.test(text)) {
+    return make("service_unavailable");
+  }
+  if (/\bEOF\b|ECONNRESET|ECONNREFUSED|ENOTFOUND|connection reset|connection refused|socket hang up|fetch failed|NetworkError/i.test(
+    text
+  )) {
+    return make("network_error");
+  }
+  if (/quota\s*(?:exceeded|reached|limit|exhausted)|out\s+of\s+quota|exhausted.*(?:capacity|quota)|resource_exhausted.*(?:quota|capacity|billing)|free\s+tier\s+quota|daily\s+quota|weekly\s+quota/i.test(
+    text
+  )) {
+    return make("quota_exhausted");
+  }
+  if (/rate\s*limit|too\s+many\s+requests|\b429\b|RateLimitError|RESOURCE_EXHAUSTED.*rate/i.test(text)) {
+    const wait = text.match(/(?:retry\s+in|retry-after|wait)\s*[:=]?\s*([\d.]+)\s*(?:s|sec|seconds)?/i);
+    const seconds2 = wait ? Number(wait[1]) : null;
+    return make("rate_limited", seconds2 !== null && Number.isFinite(seconds2) && seconds2 >= 0 ? seconds2 : null);
+  }
+  return make("unknown");
+}
+function resolveCacheTtl(lastResponseAtMs, nowMs, isGenerating, prefs = DEFAULT_MONITOR_PREFS) {
+  const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 6e4 : 0;
+  const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 6e4 : 0;
+  if (warnMs <= 0 || coldMs <= 0) {
+    return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+  }
+  if (isGenerating) {
+    return { state: "active", elapsedMs: 0, progress: 0, warnMs, coldMs };
+  }
+  if (typeof lastResponseAtMs !== "number" || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
+    return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+  }
+  const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
+  const progress = Math.min(1, elapsedMs / coldMs);
+  const state = elapsedMs >= coldMs ? "cold" : elapsedMs >= warnMs ? "warn" : "fresh";
+  return { state, elapsedMs, progress, warnMs, coldMs };
+}
+function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
+  if (typeof usedFraction !== "number" || !Number.isFinite(usedFraction) || usedFraction < 0) {
+    return "normal";
+  }
+  const pct = usedFraction * 100;
+  if (pct >= prefs.contextDangerPct) return "danger";
+  if (pct >= prefs.contextWarnPct) return "warn";
+  return "normal";
+}
+var SPEED_PULSE_HOLD_MS = 15e3;
+function resolveSpeedPulse(tps, isGenerating, lastResponseAtMs, nowMs, enabled = true) {
+  if (!enabled) return { visible: false, level: "idle", blinking: false };
+  const levelFromTps = (val) => {
+    if (typeof val !== "number" || !Number.isFinite(val) || val <= 0) return "pending";
+    if (val < 10) return "slow";
+    if (val < 25) return "medium";
+    return "fast";
+  };
+  if (isGenerating) {
+    return { visible: true, level: levelFromTps(tps), blinking: true };
+  }
+  if (typeof lastResponseAtMs === "number" && Number.isFinite(lastResponseAtMs) && lastResponseAtMs > 0 && nowMs - lastResponseAtMs >= 0 && nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS && typeof tps === "number" && Number.isFinite(tps) && tps > 0) {
+    return { visible: true, level: levelFromTps(tps), blinking: false };
+  }
+  return { visible: true, level: "idle", blinking: false };
+}
+function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
+  if (!turnQueue || thresholdSeconds <= 0) {
+    return { active: false, count: 0, currentWaitSec: null, maxWaitSec: 0, isWaitingNow: false };
+  }
+  const completedOver = (Array.isArray(turnQueue.waits) ? turnQueue.waits : []).filter(
+    (s) => typeof s === "number" && Number.isFinite(s) && s >= thresholdSeconds
+  );
+  let currentWaitSec = null;
+  if (!turnQueue.turnTerminal && typeof turnQueue.waitingSinceMs === "number" && Number.isFinite(turnQueue.waitingSinceMs) && turnQueue.waitingSinceMs > 0) {
+    const elapsedSec = Math.max(0, (nowMs - turnQueue.waitingSinceMs) / 1e3);
+    if (elapsedSec >= thresholdSeconds) {
+      currentWaitSec = elapsedSec;
+    }
+  }
+  const count = completedOver.length + (currentWaitSec !== null ? 1 : 0);
+  const maxCompleted = completedOver.length ? Math.max(...completedOver) : 0;
+  const maxWaitSec = Math.max(maxCompleted, currentWaitSec ?? 0);
+  return {
+    active: count > 0,
+    count,
+    currentWaitSec,
+    maxWaitSec,
+    isWaitingNow: currentWaitSec !== null
+  };
+}
+function formatCompactElapsedMs(elapsedMs) {
+  const totalSec = Math.max(0, Math.floor(elapsedMs / 1e3));
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins >= 60) {
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+  }
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
+// src/telemetry/metrics/turn-diagnostics.ts
+var parseMs = (value) => {
+  if (typeof value !== "string" || !value) return null;
+  const n = Date.parse(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 var COMPACTION_STEP_RE = /(?:^|_)(?:CHECKPOINT|COMPACTION|CONTEXT_COMPACTION)$/i;
 var UNSETTLED_STEP_RE = /RUNNING|PENDING|IN_PROGRESS|ERROR|FAILED|CANCEL/i;
+var ACTIVE_STATUS_NUMS = /* @__PURE__ */ new Set([1, 2, 8, 9, 11]);
+var ACTIVE_STATUS_RE = /PENDING|RUNNING|GENERATING|WAITING|QUEUED|IN_PROGRESS/i;
 function stepNumber(step, fallback) {
+  const explicit = step?.i;
+  return typeof explicit === "number" && Number.isInteger(explicit) && explicit >= 0 ? explicit : fallback;
+}
+function stepIndicesOf(gen) {
+  return Array.isArray(gen?.stepIndices) ? gen.stepIndices.filter((i) => typeof i === "number" && Number.isInteger(i) && i >= 0) : [];
+}
+function computeContextBreakdown(generators, steps, contextUsedTokens, isCompacted) {
+  if (isCompacted) return null;
+  const checkpointIndices = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (!COMPACTION_STEP_RE.test(String(step?.type || ""))) continue;
+    const st = String(step?.status || "");
+    if (st && UNSETTLED_STEP_RE.test(st)) continue;
+    checkpointIndices.push(stepNumber(step, i));
+  }
+  checkpointIndices.sort((a, b) => b - a);
+  const turns = [];
+  for (const gen of generators) {
+    const chat = gen?.chatModel;
+    const usage = chat?.usage && typeof chat.usage === "object" ? chat.usage : null;
+    if (!usage) continue;
+    const uncached = tokenCount(usage.inputTokens) ?? 0;
+    const cached = tokenCount(usage.cacheReadTokens) ?? 0;
+    const cacheWrite = tokenCount(usage.cacheWriteTokens) ?? 0;
+    const ctxMeta = chat?.chatStartMetadata?.contextWindowMetadata;
+    const hostUsed = tokenCount(ctxMeta?.estimatedTokensUsed);
+    const contextTokens = uncached + cached > 0 ? uncached + cached + cacheWrite : hostUsed ?? 0;
+    if (contextTokens <= 0) continue;
+    const rawTotalOut = tokenCount(usage.outputTokens) ?? 0;
+    const rawThinking = tokenCount(usage.thinkingOutputTokens);
+    const rawReply = tokenCount(usage.responseOutputTokens);
+    const thinkingTokens2 = rawThinking ?? 0;
+    const outputTokens2 = rawReply !== null ? rawReply : Math.max(0, rawTotalOut - thinkingTokens2);
+    const indices = stepIndicesOf(gen);
+    turns.push({
+      minStep: indices.length ? Math.min(...indices) : null,
+      contextTokens,
+      outputTokens: outputTokens2,
+      thinkingTokens: thinkingTokens2
+    });
+  }
+  if (!turns.length) return null;
+  let epochStart = 0;
+  for (const cpIdx of checkpointIndices) {
+    const postIdx = turns.findIndex((t) => t.minStep !== null && t.minStep > cpIdx);
+    if (postIdx >= 0) {
+      epochStart = postIdx;
+      break;
+    }
+  }
+  for (let i = epochStart + 1; i < turns.length; i++) {
+    if (turns[i].contextTokens < turns[i - 1].contextTokens * 0.7) {
+      epochStart = i;
+    }
+  }
+  const latest = turns[turns.length - 1];
+  const totalTokens = typeof contextUsedTokens === "number" && Number.isFinite(contextUsedTokens) && contextUsedTokens > 0 ? Math.round(contextUsedTokens) : latest.contextTokens;
+  if (totalTokens <= 0) return null;
+  let rawOut = 0;
+  let rawThink = 0;
+  for (let i = epochStart; i < turns.length - 1; i++) {
+    rawOut += turns[i].outputTokens;
+    rawThink += turns[i].thinkingTokens;
+  }
+  const baselineTokens = Math.min(turns[epochStart].contextTokens, totalTokens);
+  const availGen = Math.max(0, totalTokens - baselineTokens);
+  const genSum = rawOut + rawThink;
+  const genScale = genSum > availGen && genSum > 0 ? availGen / genSum : 1;
+  const outputTokens = Math.round(rawOut * genScale);
+  const thinkingTokens = Math.round(rawThink * genScale);
+  const readTokens = Math.max(0, totalTokens - baselineTokens - outputTokens - thinkingTokens);
+  return {
+    baselineTokens,
+    readTokens,
+    thinkingTokens,
+    outputTokens,
+    totalTokens
+  };
+}
+function extractErrorString(raw) {
+  if (!raw) return "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object") {
+    const obj = raw;
+    for (const k of ["message", "error", "userErrorMessage"]) {
+      if (typeof obj[k] === "string" && obj[k].trim()) return obj[k].trim();
+    }
+  }
+  return "";
+}
+function visibleRequestError(error, failedStepIndices, diag, steps) {
+  if (error.kind === "none") return error;
+  const lastOutIdx = failedStepIndices.length ? Math.max(...failedStepIndices) : -1;
+  if (lastOutIdx < 0) return error;
+  if (diag && diag.turnSteps.length > 0) {
+    const lastOut = diag.turnSteps.find((s) => s.idx === lastOutIdx);
+    if (!lastOut) return error;
+    const failedAt = lastOut.recordedCompletedAtMs ?? lastOut.terminalAtMs;
+    const resumed2 = diag.turnSteps.some(
+      (s) => s.idx > lastOutIdx && s.stepType === 15 && (s.status === 8 || s.status === 3 && (s.generatingAtMs ?? 0) > 0) && (!lastOut.executionId || s.executionId === lastOut.executionId) && (!failedAt || (s.createdAtMs ?? 0) >= failedAt)
+    );
+    return resumed2 ? classifyRequestError("") : error;
+  }
+  const resumed = steps.some((s, i) => {
+    const idx = stepNumber(s, i);
+    if (idx <= lastOutIdx) return false;
+    if (!/PLANNER_RESPONSE/.test(String(s?.type || ""))) return false;
+    const st = String(s?.status || "");
+    return /GENERATING|DONE/i.test(st);
+  });
+  return resumed ? classifyRequestError("") : error;
+}
+function computeTurnAndAlerts(steps, generators, resp, isRunning, diag) {
+  let lastResponseAtMs = null;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    const type = String(step?.type || "");
+    if (/PLANNER_RESPONSE/.test(type)) {
+      const st = String(step?.status || "");
+      if (!st || /DONE|COMPLETED/i.test(st)) {
+        const ts = parseMs(step?.metadata?.finishedGeneratingAt) ?? parseMs(step?.metadata?.completedAt) ?? parseMs(step?.metadata?.startedAt) ?? parseMs(step?.metadata?.createdAt);
+        if (ts !== null) {
+          lastResponseAtMs = ts;
+          break;
+        }
+      }
+    }
+  }
+  if (lastResponseAtMs === null && diag?.turnSteps.length) {
+    for (let i = diag.turnSteps.length - 1; i >= 0; i--) {
+      const s = diag.turnSteps[i];
+      if (s.stepType === 15 && s.status === 3) {
+        lastResponseAtMs = s.recordedCompletedAtMs ?? s.terminalAtMs ?? s.createdAtMs;
+        if (lastResponseAtMs !== null) break;
+      }
+    }
+  }
+  if (lastResponseAtMs === null) {
+    for (let i = generators.length - 1; i >= 0; i--) {
+      const chat = generators[i]?.chatModel;
+      const startMs = parseMs(chat?.chatStartMetadata?.createdAt);
+      if (startMs !== null) {
+        const durSec = (seconds(chat?.timeToFirstToken) ?? 0) + (seconds(chat?.streamingDuration) ?? 0);
+        lastResponseAtMs = Math.round(startMs + durSec * 1e3);
+        break;
+      }
+    }
+  }
+  let hasStreamingPlanner = false;
+  let hasActiveStep = false;
+  if (diag?.turnSteps.length) {
+    hasStreamingPlanner = diag.turnSteps.some((s) => s.stepType === 15 && s.status === 8);
+    hasActiveStep = diag.turnSteps.some((s) => s.stepType !== 14 && ACTIVE_STATUS_NUMS.has(s.status));
+  } else {
+    for (let i = Math.max(0, steps.length - 20); i < steps.length; i++) {
+      const s = steps[i];
+      const st = String(s?.status || "");
+      const type = String(s?.type || "");
+      if (/PLANNER_RESPONSE/.test(type) && /GENERATING/i.test(st)) hasStreamingPlanner = true;
+      if (!/USER_INPUT/.test(type) && ACTIVE_STATUS_RE.test(st)) hasActiveStep = true;
+    }
+  }
+  const isGenerating = isRunning || hasStreamingPlanner || hasActiveStep;
+  let userStepIndex = diag?.userStepIndex ?? null;
+  let latestUserStepIndex = diag?.latestUserStepIndex ?? null;
+  if (userStepIndex === null && latestUserStepIndex === null) {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const s = steps[i];
+      if (!/USER_INPUT/.test(String(s?.type || ""))) continue;
+      const idx = stepNumber(s, i);
+      if (latestUserStepIndex === null) latestUserStepIndex = idx;
+      const st = String(s?.status || "");
+      if (!/QUEUED/i.test(st)) {
+        userStepIndex = idx;
+        break;
+      }
+    }
+  }
+  const effectiveUserIdx = userStepIndex ?? latestUserStepIndex;
+  let turnRequests = 0;
+  let turnInputTokens = 0;
+  let turnCachedTokens = 0;
+  let turnThinkingTokens = 0;
+  let turnOutputTokens = 0;
+  let turnTotalOutputTokens = 0;
+  const userStepFallback = effectiveUserIdx !== null ? steps.find((s, i) => stepNumber(s, i) === effectiveUserIdx) ?? null : null;
+  const userCreatedMsFallback = parseMs(userStepFallback?.metadata?.createdAt);
+  const turnWaits = [];
+  const coveredPlannerSteps = /* @__PURE__ */ new Set();
+  let rpcErrorCandidate = null;
+  for (const gen of generators) {
+    const chat = gen?.chatModel;
+    if (!chat) continue;
+    const indices = stepIndicesOf(gen);
+    const genStartMs = parseMs(chat.chatStartMetadata?.createdAt);
+    const belongsToTurn = effectiveUserIdx !== null && (indices.length > 0 ? indices.some((idx) => idx > effectiveUserIdx) : userCreatedMsFallback !== null && genStartMs !== null && genStartMs >= userCreatedMsFallback);
+    if (belongsToTurn) {
+      const usage = chat.usage && typeof chat.usage === "object" ? chat.usage : null;
+      const retries = Array.isArray(chat.retryInfos) ? chat.retryInfos : [];
+      if (usage || retries.length > 0 || chat.timeToFirstToken !== void 0 || chat.streamingDuration !== void 0) {
+        turnRequests += Math.max(1, retries.length);
+      }
+      if (usage) {
+        const uncached = tokenCount(usage.inputTokens) ?? 0;
+        const cached = tokenCount(usage.cacheReadTokens) ?? 0;
+        const cacheWrite = tokenCount(usage.cacheWriteTokens) ?? 0;
+        const totalOut = tokenCount(usage.outputTokens) ?? 0;
+        const thinking = tokenCount(usage.thinkingOutputTokens) ?? 0;
+        const reply = tokenCount(usage.responseOutputTokens);
+        turnInputTokens += uncached + cached + cacheWrite;
+        turnCachedTokens += cached;
+        turnThinkingTokens += thinking;
+        turnOutputTokens += reply !== null ? reply : Math.max(0, totalOut - thinking);
+        turnTotalOutputTokens += totalOut || thinking + (reply ?? 0);
+      }
+      const ttft = seconds(chat.timeToFirstToken);
+      if (ttft !== null && ttft >= 0) {
+        turnWaits.push(ttft);
+        for (const idx of indices) coveredPlannerSteps.add(idx);
+      }
+      const lastRetry = retries.at(-1);
+      const errStr = extractErrorString(lastRetry?.error) || extractErrorString(chat.error);
+      const classified = classifyRequestError(errStr);
+      rpcErrorCandidate = { error: classified, stepIndices: indices };
+    }
+  }
+  let turnMetrics = null;
+  if (effectiveUserIdx !== null) {
+    const diagUserStep = diag?.turnSteps.find((s) => s.idx === effectiveUserIdx && s.stepType === 14) ?? null;
+    const startedAtMs = diagUserStep?.createdAtMs ?? userCreatedMsFallback;
+    let state = "unknown";
+    let endedAtMs = null;
+    if (diag && diagUserStep) {
+      const scope = diag.turnSteps.filter((s) => s.idx >= effectiveUserIdx);
+      const active = scope.some((s) => s.stepType !== 14 && ACTIVE_STATUS_NUMS.has(s.status));
+      const executor = diag.executors.filter((ex) => ex.lastStepIndex >= effectiveUserIdx).at(-1);
+      const finalStep = executor ? scope.find((s) => s.idx === executor.lastStepIndex) : void 0;
+      const laterExec = Boolean(
+        executor && scope.some((s) => s.idx > executor.lastStepIndex && s.stepType !== 14 && s.stepType !== 17 && s.stepType !== 101)
+      );
+      const execMatch = Boolean(
+        finalStep && (!executor?.executionId || !finalStep.executionId || executor.executionId === finalStep.executionId)
+      );
+      if (diagUserStep.status === 11) {
+        state = "queued";
+      } else if (active || isRunning) {
+        state = "running";
+      } else if (executor && execMatch && !laterExec && ![0, 7, 12].includes(executor.reason)) {
+        state = executor.reason === 1 ? "failed" : [2, 3, 6, 11].includes(executor.reason) ? "interrupted" : "completed";
+        if (executor.reason === 2) {
+          const lastCompleted = finalStep.recordedCompletedAtMs ?? finalStep.terminalAtMs;
+          const cancels = scope.filter(
+            (s) => (s.status === 6 || s.status === 12) && (!executor.executionId || !s.executionId || s.executionId === executor.executionId)
+          ).map((s) => s.terminalAtMs ?? s.recordedCompletedAtMs).filter((t) => t !== null && (!lastCompleted || t >= lastCompleted));
+          endedAtMs = cancels.length ? Math.max(...cancels) : null;
+        } else {
+          const errorStep = executor.reason === 1 ? [...scope].reverse().find((s) => s.stepType === 17 && s.idx >= executor.lastStepIndex) : void 0;
+          const endStep = errorStep ?? finalStep;
+          endedAtMs = endStep?.recordedCompletedAtMs ?? endStep?.terminalAtMs ?? null;
+        }
+      } else if ((diagUserStep.status === 6 || diagUserStep.status === 12) && scope.every((s) => s.stepType === 14)) {
+        state = "interrupted";
+        endedAtMs = diagUserStep.terminalAtMs;
+      } else if (!isRunning && scope.length > 1) {
+        const lastDone = [...scope].reverse().find((s) => s.stepType !== 14);
+        state = lastDone?.status === 7 ? "failed" : "completed";
+        endedAtMs = lastDone?.recordedCompletedAtMs ?? lastDone?.terminalAtMs ?? null;
+      }
+    } else {
+      const scopeSteps = steps.filter((s, i) => stepNumber(s, i) >= effectiveUserIdx);
+      if (isRunning || hasActiveStep) {
+        state = "running";
+      } else if (scopeSteps.length > 1) {
+        const lastStep = scopeSteps[scopeSteps.length - 1];
+        const st = String(lastStep?.status || "");
+        state = /ERROR|FAIL/i.test(st) ? "failed" : /CANCEL/i.test(st) ? "interrupted" : "completed";
+        endedAtMs = parseMs(lastStep?.metadata?.completedAt) ?? parseMs(lastStep?.metadata?.finishedGeneratingAt) ?? parseMs(lastStep?.metadata?.startedAt) ?? parseMs(lastStep?.metadata?.createdAt);
+      }
+    }
+    if (startedAtMs !== null && endedAtMs !== null && endedAtMs < startedAtMs) {
+      endedAtMs = null;
+    }
+    turnMetrics = {
+      userStepIndex: effectiveUserIdx,
+      state,
+      startedAtMs,
+      endedAtMs,
+      durationSeconds: startedAtMs !== null && endedAtMs !== null ? (endedAtMs - startedAtMs) / 1e3 : null,
+      requests: turnRequests,
+      inputTokens: turnInputTokens,
+      cachedTokens: turnCachedTokens,
+      thinkingTokens: turnThinkingTokens,
+      outputTokens: turnOutputTokens,
+      totalOutputTokens: turnTotalOutputTokens
+    };
+  }
+  let turnQueue = null;
+  if (userStepIndex !== null) {
+    let waitingSinceMs = null;
+    let hasPendingPlanner = false;
+    let turnTerminal = !isRunning;
+    if (diag && diag.turnSteps.length > 0) {
+      const scope = diag.turnSteps.filter((s) => s.idx >= userStepIndex);
+      const user = scope.find((s) => s.idx === userStepIndex && s.stepType === 14);
+      const active = scope.some((s) => s.stepType !== 14 && ACTIVE_STATUS_NUMS.has(s.status));
+      const executor = diag.executors.filter((ex) => ex.lastStepIndex >= userStepIndex).at(-1);
+      const finalStep = executor ? scope.find((s) => s.idx === executor.lastStepIndex) : void 0;
+      const laterExec = Boolean(
+        executor && scope.some((s) => s.idx > executor.lastStepIndex && s.stepType !== 14 && s.stepType !== 17 && s.stepType !== 101)
+      );
+      const execMatch = Boolean(
+        finalStep && (!executor?.executionId || !finalStep.executionId || executor.executionId === finalStep.executionId)
+      );
+      const executorEnded = Boolean(executor && execMatch && !laterExec && ![0, 7, 12].includes(executor.reason));
+      turnTerminal = !active && (executorEnded || Boolean(user && (user.status === 6 || user.status === 12)) && scope.every((s) => s.stepType === 14));
+      for (const s of scope) {
+        if (s.stepType !== 15 || coveredPlannerSteps.has(s.idx)) continue;
+        if (s.createdAtMs && s.generatingAtMs && s.generatingAtMs >= s.createdAtMs) {
+          turnWaits.push((s.generatingAtMs - s.createdAtMs) / 1e3);
+        }
+      }
+      const hasActiveTool = scope.some(
+        (s) => s.stepType !== 14 && s.stepType !== 15 && ACTIVE_STATUS_NUMS.has(s.status)
+      );
+      const streamingNow = scope.some((s) => s.stepType === 15 && s.status === 8);
+      const pendingPlanner = [...scope].reverse().find((s) => s.stepType === 15 && (s.status === 1 || s.status === 2));
+      hasPendingPlanner = Boolean(
+        pendingPlanner && !coveredPlannerSteps.has(pendingPlanner.idx) && !pendingPlanner.generatingAtMs
+      );
+      if (!turnTerminal && !hasActiveTool && !streamingNow) {
+        if (pendingPlanner) {
+          if (hasPendingPlanner) waitingSinceMs = pendingPlanner.createdAtMs;
+        } else {
+          const relevant = scope.filter(
+            (s) => !(s.stepType === 14 && s.status === 11) && s.stepType !== 17 && s.stepType !== 101
+          );
+          const last = relevant.at(-1);
+          if (last) {
+            if (last.stepType === 14) {
+              waitingSinceMs = last.inputStartedAtMs;
+            } else if (last.stepType !== 15 || last.status === 3) {
+              waitingSinceMs = last.recordedCompletedAtMs ?? last.terminalAtMs;
+            }
+          }
+        }
+      }
+    } else {
+      const scope = steps.filter((s, i) => stepNumber(s, i) >= userStepIndex);
+      for (let i = 0; i < scope.length; i++) {
+        const s = scope[i];
+        const idx = stepNumber(s, i);
+        if (!/PLANNER_RESPONSE/.test(String(s?.type || "")) || coveredPlannerSteps.has(idx)) continue;
+        const cMs = parseMs(s?.metadata?.createdAt);
+        const gMs = parseMs(s?.metadata?.viewableAt) ?? parseMs(s?.metadata?.startedAt);
+        if (cMs !== null && gMs !== null && gMs >= cMs) {
+          turnWaits.push((gMs - cMs) / 1e3);
+        }
+      }
+      const hasActiveTool = scope.some((s) => {
+        const type = String(s?.type || "");
+        const st = String(s?.status || "");
+        return !/USER_INPUT|PLANNER_RESPONSE/.test(type) && ACTIVE_STATUS_RE.test(st);
+      });
+      const streamingNow = scope.some((s) => {
+        const type = String(s?.type || "");
+        const st = String(s?.status || "");
+        return /PLANNER_RESPONSE/.test(type) && /GENERATING/i.test(st);
+      });
+      const pendingPlanner = [...scope].reverse().find((s) => {
+        const type = String(s?.type || "");
+        const st = String(s?.status || "");
+        return /PLANNER_RESPONSE/.test(type) && /PENDING|RUNNING/i.test(st);
+      });
+      hasPendingPlanner = Boolean(
+        pendingPlanner && !coveredPlannerSteps.has(stepNumber(pendingPlanner, -1)) && !parseMs(pendingPlanner.metadata?.viewableAt)
+      );
+      if (!turnTerminal && !hasActiveTool && !streamingNow && pendingPlanner && hasPendingPlanner) {
+        waitingSinceMs = parseMs(pendingPlanner.metadata?.createdAt);
+      }
+    }
+    turnQueue = {
+      userStepIndex,
+      waits: turnWaits,
+      waitingSinceMs,
+      hasPendingPlanner,
+      turnTerminal
+    };
+  }
+  let requestError = classifyRequestError("");
+  if (diag && diag.recentRequests.length > 0) {
+    let latestTurnReq = null;
+    for (const req of diag.recentRequests) {
+      const earlier = userStepIndex !== null && req.lastStepIndex >= 0 && req.lastStepIndex < userStepIndex;
+      if (!earlier) latestTurnReq = req;
+    }
+    if (latestTurnReq && latestTurnReq.retryErrorText) {
+      requestError = visibleRequestError(
+        classifyRequestError(latestTurnReq.retryErrorText),
+        latestTurnReq.stepIndices,
+        diag,
+        steps
+      );
+    }
+  }
+  if (requestError.kind === "none" && rpcErrorCandidate && rpcErrorCandidate.error.kind !== "none") {
+    requestError = visibleRequestError(
+      rpcErrorCandidate.error,
+      rpcErrorCandidate.stepIndices,
+      diag,
+      steps
+    );
+  }
+  if (requestError.kind === "none") {
+    const rawLastStepErr = extractErrorString(resp.lastStepError);
+    if (rawLastStepErr) {
+      requestError = classifyRequestError(rawLastStepErr);
+    }
+  }
+  return {
+    isGenerating,
+    lastResponseAtMs,
+    turnMetrics,
+    turnQueue,
+    requestError: requestError.kind !== "none" ? requestError : null
+  };
+}
+
+// src/telemetry/metrics/trajectory.ts
+var parseMs2 = (value) => typeof value === "string" ? Date.parse(value) : NaN;
+var COMPACTION_STEP_RE2 = /(?:^|_)(?:CHECKPOINT|COMPACTION|CONTEXT_COMPACTION)$/i;
+var UNSETTLED_STEP_RE2 = /RUNNING|PENDING|IN_PROGRESS|ERROR|FAILED|CANCEL/i;
+function stepNumber2(step, fallback) {
   const explicit = step?.i;
   return typeof explicit === "number" && Number.isInteger(explicit) && explicit >= 0 ? explicit : fallback;
 }
@@ -542,13 +1181,13 @@ function collectCompactionSteps(steps) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const type = String(step?.type || "");
-    if (!COMPACTION_STEP_RE.test(type)) continue;
+    if (!COMPACTION_STEP_RE2.test(type)) continue;
     const status = String(step?.status || "");
-    if (status && UNSETTLED_STEP_RE.test(status)) continue;
+    if (status && UNSETTLED_STEP_RE2.test(status)) continue;
     const atIso = typeof step?.metadata?.completedAt === "string" && step.metadata.completedAt ? step.metadata.completedAt : typeof step?.metadata?.createdAt === "string" && step.metadata.createdAt ? step.metadata.createdAt : null;
-    const atMs = atIso ? parseMs(atIso) : NaN;
+    const atMs = atIso ? parseMs2(atIso) : NaN;
     out.push({
-      stepIdx: stepNumber(step, i),
+      stepIdx: stepNumber2(step, i),
       atIso,
       atMs: Number.isFinite(atMs) ? atMs : null
     });
@@ -563,11 +1202,21 @@ function resolveTrajectoryContext(steps, generators, resp, trajectory) {
   const sampledAt = lastChat?.chatStartMetadata?.createdAt ?? null;
   const compactions = collectCompactionSteps(steps);
   const compactionCount = compactions.length;
-  const liveContext = contextMetrics(rawMeta, { model, sampledAt, compactionCount });
+  const liveContext = contextMetrics(rawMeta, {
+    model,
+    sampledAt,
+    compactionCount,
+    breakdown: computeContextBreakdown(
+      generators,
+      steps,
+      rawMeta && typeof rawMeta === "object" ? tokenCount(rawMeta.estimatedTokensUsed) : null,
+      false
+    )
+  });
   if (!compactionCount || !liveContext) return liveContext;
   const latestCompaction = compactions[compactions.length - 1];
   const lastRange = generatorStepRange(lastChatGen);
-  const lastChatMs = typeof sampledAt === "string" ? parseMs(sampledAt) : NaN;
+  const lastChatMs = typeof sampledAt === "string" ? parseMs2(sampledAt) : NaN;
   const compactedAfterLastChat = lastRange.max !== null ? latestCompaction.stepIdx > lastRange.max : latestCompaction.atMs !== null && Number.isFinite(lastChatMs) ? latestCompaction.atMs > lastChatMs : false;
   if (!compactedAfterLastChat) return liveContext;
   let firstMeasuredUsed = null;
@@ -579,7 +1228,7 @@ function resolveTrajectoryContext(steps, generators, resp, trajectory) {
     if (firstMeasuredUsed === null) firstMeasuredUsed = parsed.usedTokens;
     if (prevCompaction && prevPostCompactionUsed === null) {
       const range = generatorStepRange(gen);
-      const genMs = parseMs(gen?.chatModel?.chatStartMetadata?.createdAt);
+      const genMs = parseMs2(gen?.chatModel?.chatStartMetadata?.createdAt);
       const isAfterPrev = range.min !== null ? range.min > prevCompaction.stepIdx && range.min < latestCompaction.stepIdx : Number.isFinite(genMs) && prevCompaction.atMs !== null && latestCompaction.atMs !== null && genMs > prevCompaction.atMs && genMs < latestCompaction.atMs;
       if (isAfterPrev) prevPostCompactionUsed = parsed.usedTokens;
     }
@@ -661,8 +1310,8 @@ function trajectoryMetrics(response) {
   );
   const toolSeconds = unionSeconds(
     tools.map((s) => [
-      parseMs(s.metadata?.startedAt || s.metadata?.createdAt),
-      parseMs(s.metadata?.completedAt)
+      parseMs2(s.metadata?.startedAt || s.metadata?.createdAt),
+      parseMs2(s.metadata?.completedAt)
     ])
   );
   const pool = isRunning && hasActiveInSamples && samples.length > 0 ? samples.slice(0, -1) : samples;
@@ -682,6 +1331,8 @@ function trajectoryMetrics(response) {
   const lastStepModel = [...steps].reverse().find((s) => typeof s?.metadata?.generatorModel === "string" && s.metadata.generatorModel.trim())?.metadata?.generatorModel || null;
   const activeModel = resolveChatModelName(lastChat) || (latest?.model ? formatModelName4(latest.model) : null) || (lastStepModel ? formatModelName4(lastStepModel) : null);
   const modelUsage = buildModelUsage(modelBuckets.values(), { planModel, activeModel });
+  const sqliteDiag = resp.sqliteDiagnostics && typeof resp.sqliteDiagnostics === "object" ? resp.sqliteDiagnostics : null;
+  const turnDiag = computeTurnAndAlerts(steps, generators, resp, isRunning, sqliteDiag);
   return {
     source: "Antigravity request metadata",
     status: statusStr || null,
@@ -719,7 +1370,12 @@ function trajectoryMetrics(response) {
     ),
     model: latest?.model || null,
     context: resolveTrajectoryContext(steps, generators, resp, trajectory),
-    complete: Number(resp.numTotalGeneratorMetadata ?? generators.length) === generators.length
+    complete: Number(resp.numTotalGeneratorMetadata ?? generators.length) === generators.length,
+    isGenerating: turnDiag.isGenerating,
+    lastResponseAtMs: turnDiag.lastResponseAtMs,
+    turnMetrics: turnDiag.turnMetrics,
+    turnQueue: turnDiag.turnQueue,
+    requestError: turnDiag.requestError
   };
 }
 
@@ -978,58 +1634,6 @@ function finalizeQuotaWindows(specs, counts = {}, meta = null) {
   }
   return out;
 }
-
-// src/contracts/preferences.ts
-var FONT_SCALE_KEYS = [
-  "usageFontScale",
-  "sidebarFontScale",
-  "inlineFontScale"
-];
-var MAX_PRICING_OVERRIDE_ENTRIES = 64;
-var MAX_PRICING_KEY_LENGTH = 80;
-var MAX_USD_PER_MTOK = 1e4;
-function isValidRateNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_USD_PER_MTOK;
-}
-function roundRate(value) {
-  return Math.round(value * 1e4) / 1e4;
-}
-function sanitizePricingOverrides(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
-  let count = 0;
-  for (const [rawKey, rawRates] of Object.entries(raw)) {
-    if (count >= MAX_PRICING_OVERRIDE_ENTRIES) break;
-    const key = rawKey.trim().toLowerCase();
-    if (!key || key.length > MAX_PRICING_KEY_LENGTH) continue;
-    if (!rawRates || typeof rawRates !== "object" || Array.isArray(rawRates)) continue;
-    const r = rawRates;
-    if (!isValidRateNumber(r.input) || !isValidRateNumber(r.cacheRead) || !isValidRateNumber(r.output)) {
-      continue;
-    }
-    const entry = {
-      input: roundRate(r.input),
-      cacheRead: roundRate(r.cacheRead),
-      output: roundRate(r.output)
-    };
-    if (r.cacheWrite !== void 0) {
-      if (!isValidRateNumber(r.cacheWrite)) continue;
-      entry.cacheWrite = roundRate(r.cacheWrite);
-    }
-    out[key] = entry;
-    count++;
-  }
-  return out;
-}
-var PREFERENCE_KEYS = [
-  "language",
-  "languageGuideDismissed",
-  "usageGuideDismissed",
-  "modelTimelineEnabled",
-  "debugLaunchEnabled",
-  ...FONT_SCALE_KEYS,
-  "modelPricingOverrides"
-];
 
 // src/shared/model-pricing.ts
 var ONE_MILLION = 1e6;
@@ -1296,8 +1900,12 @@ export {
   buildQuotaWindowSpecs,
   calculateBucketCost,
   classifyQuotaGroupId,
+  classifyRequestError,
+  computeContextBreakdown,
+  computeTurnAndAlerts,
   extractPlanModel,
   finalizeQuotaWindows,
+  formatCompactElapsedMs,
   formatRateSummary,
   formatUsd,
   groupQuotaPace,
@@ -1309,12 +1917,16 @@ export {
   quotaRemaining,
   requestCacheMetrics,
   resolveBuiltinRatesForDate,
+  resolveCacheTtl,
   resolveChatModelName,
+  resolveContextLoad,
   resolveModelPricing,
   resolvePricingKey,
+  resolveSpeedPulse,
   safeModelUsage,
   seconds,
   shortEta,
+  summarizeActiveWaitAlert,
   summarizeSnapshotPeriodCosts,
   tokenCount,
   trajectoryMetrics

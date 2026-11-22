@@ -36,3 +36,12 @@ export {
   formatRateSummary,
   listConfigurablePricingRows,
 } from '../../shared/model-pricing.ts';
+export {
+  classifyRequestError,
+  resolveCacheTtl,
+  resolveContextLoad,
+  resolveSpeedPulse,
+  summarizeActiveWaitAlert,
+  formatCompactElapsedMs,
+} from '../../shared/request-alerts.ts';
+export { computeContextBreakdown, computeTurnAndAlerts } from './turn-diagnostics.ts';

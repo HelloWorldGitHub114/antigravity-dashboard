@@ -50,6 +50,54 @@
     }
     return out;
   }
+  var MONITOR_PREFERENCE_KEYS = [
+    "cacheWarnMinutes",
+    "cacheColdMinutes",
+    "firstTokenWaitSeconds",
+    "contextWarnPct",
+    "contextDangerPct",
+    "speedPulseEnabled"
+  ];
+  var DEFAULT_MONITOR_PREFS = Object.freeze({
+    cacheWarnMinutes: 3,
+    cacheColdMinutes: 4,
+    firstTokenWaitSeconds: 30,
+    contextWarnPct: 75,
+    contextDangerPct: 90,
+    speedPulseEnabled: true
+  });
+  function clampInt(value, min, max, fallback) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(value)));
+  }
+  function resolveMonitorPrefs(raw) {
+    const src = raw && typeof raw === "object" && !("error" in raw) ? raw : {};
+    const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
+    let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
+    if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
+      cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
+    }
+    const firstTokenWaitSeconds = clampInt(
+      src.firstTokenWaitSeconds,
+      0,
+      999,
+      DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds
+    );
+    const contextWarnPct = clampInt(src.contextWarnPct, 50, 95, DEFAULT_MONITOR_PREFS.contextWarnPct);
+    let contextDangerPct = clampInt(src.contextDangerPct, 60, 99, DEFAULT_MONITOR_PREFS.contextDangerPct);
+    if (contextDangerPct <= contextWarnPct) {
+      contextDangerPct = Math.min(99, contextWarnPct + 5);
+    }
+    const speedPulseEnabled = typeof src.speedPulseEnabled === "boolean" ? src.speedPulseEnabled : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
+    return {
+      cacheWarnMinutes,
+      cacheColdMinutes,
+      firstTokenWaitSeconds,
+      contextWarnPct,
+      contextDangerPct,
+      speedPulseEnabled
+    };
+  }
   var PREFERENCE_KEYS = [
     "language",
     "languageGuideDismissed",
@@ -57,7 +105,8 @@
     "modelTimelineEnabled",
     "debugLaunchEnabled",
     ...FONT_SCALE_KEYS,
-    "modelPricingOverrides"
+    "modelPricingOverrides",
+    ...MONITOR_PREFERENCE_KEYS
   ];
 
   // src/shared/dom.ts
@@ -529,7 +578,64 @@
     forecastBasisWeekly: "{remaining} quota left \xB7 {time} of the week left \xB7 warms up for 12h (under 25% used) and smooths day 1 against a 24h day",
     quotaWindowUsage: "Window tokens",
     quotaWindowFullRef: "~{full} full",
-    quotaWindowBasis: "Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache)."
+    quotaWindowBasis: "Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache).",
+    cacheTtlLabel: "Cache freshness",
+    cacheTtlActive: "Active now",
+    cacheTtlFresh: "Fresh \xB7 {time}",
+    cacheTtlWarn: "Expiring soon \xB7 {time}",
+    cacheTtlCold: "Likely expired \xB7 {time}",
+    cacheTtlHint: "Estimated locally from idle time since the last model reply; server cache TTL may vary.",
+    contextBreakdownTitle: "Context composition",
+    contextSegBaseline: "Baseline",
+    contextSegRead: "Read",
+    contextSegThinking: "Thinking",
+    contextSegOutput: "Output",
+    turnSectionTitle: "Latest turn",
+    turnDuration: "Turn time",
+    turnRequests: "Turn requests",
+    turnRequestsCount: "{n} req",
+    turnThinkWrite: "Thinking / output",
+    turnStateRunning: "Running",
+    turnStateQueued: "Queued",
+    turnStateCompleted: "Done",
+    turnStateFailed: "Failed",
+    turnStateInterrupted: "Stopped",
+    alertCardTitle: "Request & wait alert",
+    alertChipTitle: "Request alerts",
+    alertWaitChip: "Wait {sec}s",
+    alertWaitChipMulti: "Wait\xD7{n} {sec}s",
+    alertWaitLabel: "First-token wait",
+    alertWaitActive: "Waiting {sec}s ({n} slow segment(s) in this turn)",
+    alertWaitCompleted: "{n} wait(s) exceeded {threshold}s (peak {sec}s)",
+    alertWaitHint: "Counts time waiting for the first token; pauses during tool execution and streaming.",
+    alertErrorLabel: "Request error",
+    alertRetryAfter: "Suggested retry in ~{sec}s",
+    alertDiagnosticLabel: "Diagnostic",
+    alertErrorTimeout: "Timeout",
+    alertErrorTimeoutDesc: "The model request timed out; a single timeout does not necessarily stop the turn.",
+    alertErrorNetwork: "Disconnected",
+    alertErrorNetworkDesc: "Network or proxy connection dropped during the model request.",
+    alertErrorRateLimit: "Rate limited",
+    alertErrorRateLimitDesc: "HTTP 429 or temporary rate limit from the upstream service.",
+    alertErrorQuota: "Quota exhausted",
+    alertErrorQuotaDesc: "Account or tier quota has been exhausted.",
+    alertErrorOverflow: "Context overflow",
+    alertErrorOverflowDesc: "Prompt exceeded the model context limit; compact or start a new chat.",
+    alertErrorAuth: "Auth error",
+    alertErrorAuthDesc: "Authentication or permission check failed (401/403).",
+    alertErrorUnavailable: "Service busy",
+    alertErrorUnavailableDesc: "Upstream service returned 502/503/504 or high demand.",
+    alertErrorCanceled: "Canceled",
+    alertErrorCanceledDesc: "The request was canceled before completion.",
+    alertErrorUnknown: "Request failed",
+    alertErrorUnknownDesc: "The latest model request reported an error.",
+    settingsMonitorTitle: "Alerts & indicators",
+    settingsCacheWarn: "Cache warn (min)",
+    settingsCacheCold: "Cache expire (min)",
+    settingsWaitAlert: "First-token wait (sec)",
+    settingsSpeedPulse: "Speed pulse dot",
+    settingsMonitorReset: "Reset",
+    settingsMonitorSaved: "Saved monitor settings"
   };
 
   // src/ui/i18n/dictionary-zh.ts
@@ -769,7 +875,64 @@
     forecastBasisWeekly: "\u5269\u4F59\u989D\u5EA6 {remaining} \xB7 \u5269\u4F59\u65F6\u95F4 {time} \xB7 \u524D 12h\uFF08\u7528\u91CF\u4F4E\u4E8E 25%\uFF09\u9884\u70ED\uFF0C\u9996\u65E5\u6309\u5B8C\u6574\u65E5\u6298\u7B97\uFF0C\u6EE1 24h \u540E\u6309\u8DE8\u5929\u5747\u503C\u63A8\u7B97",
     quotaWindowUsage: "\u5468\u671F\u7528\u91CF",
     quotaWindowFullRef: "\u7EA6 {full} \u6EE1\u989D",
-    quotaWindowBasis: "\u5F53\u524D\u8D26\u53F7\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u672C\u673A\u5B9E\u6D4B\u6D41\u7ECF Token\uFF1B\u4F30\u7B97\u6EE1\u989D\u4EC5\u4F5C\u540C\u6BD4\u4F8B\u53C2\u8003\uFF08\u4E0D\u540C\u6A21\u578B\u4E0E\u7F13\u5B58\u6298\u7B97\u6743\u91CD\u4E0D\u540C\uFF09\u3002"
+    quotaWindowBasis: "\u5F53\u524D\u8D26\u53F7\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u672C\u673A\u5B9E\u6D4B\u6D41\u7ECF Token\uFF1B\u4F30\u7B97\u6EE1\u989D\u4EC5\u4F5C\u540C\u6BD4\u4F8B\u53C2\u8003\uFF08\u4E0D\u540C\u6A21\u578B\u4E0E\u7F13\u5B58\u6298\u7B97\u6743\u91CD\u4E0D\u540C\uFF09\u3002",
+    cacheTtlLabel: "\u7F13\u5B58\u4FDD\u9C9C",
+    cacheTtlActive: "\u751F\u6210\u4E2D",
+    cacheTtlFresh: "\u4FDD\u9C9C\u4E2D \xB7 {time}",
+    cacheTtlWarn: "\u5373\u5C06\u8FC7\u671F \xB7 {time}",
+    cacheTtlCold: "\u53EF\u80FD\u5DF2\u8FC7\u671F \xB7 {time}",
+    cacheTtlHint: "\u6309\u8DDD\u4E0A\u6B21\u56DE\u590D\u7684\u9759\u7F6E\u65F6\u957F\u672C\u5730\u4F30\u7B97\uFF0C\u670D\u52A1\u7AEF\u5B9E\u9645\u7F13\u5B58\u7559\u5B58\u4EE5\u5B9E\u6D4B\u4E3A\u51C6\u3002",
+    contextBreakdownTitle: "\u4E0A\u4E0B\u6587\u6784\u6210",
+    contextSegBaseline: "\u9996\u8F6E",
+    contextSegRead: "\u8BFB\u53D6",
+    contextSegThinking: "\u601D\u8003",
+    contextSegOutput: "\u5199\u5165",
+    turnSectionTitle: "\u672C\u8F6E\u7EDF\u8BA1",
+    turnDuration: "\u672C\u8F6E\u8017\u65F6",
+    turnRequests: "\u672C\u8F6E\u8BF7\u6C42",
+    turnRequestsCount: "{n} \u6B21",
+    turnThinkWrite: "\u601D\u8003 / \u5199\u5165",
+    turnStateRunning: "\u8FD0\u884C\u4E2D",
+    turnStateQueued: "\u6392\u961F\u4E2D",
+    turnStateCompleted: "\u5DF2\u5B8C\u6210",
+    turnStateFailed: "\u5931\u8D25",
+    turnStateInterrupted: "\u5DF2\u4E2D\u65AD",
+    alertCardTitle: "\u5F02\u5E38\u4E0E\u7B49\u5F85\u63D0\u9192",
+    alertChipTitle: "\u5F02\u5E38\u4E0E\u7B49\u5F85\u63D0\u9192",
+    alertWaitChip: "\u7B49\u5F85 {sec}s",
+    alertWaitChipMulti: "\u7B49\u5F85\xD7{n} {sec}s",
+    alertWaitLabel: "\u9996\u5B57\u7B49\u5F85",
+    alertWaitActive: "\u6B63\u5728\u7B49\u5F85 {sec}s\uFF08\u672C\u8F6E\u5DF2\u6709 {n} \u6BB5\u8FBE\u9608\u503C\uFF09",
+    alertWaitCompleted: "\u672C\u8F6E\u6709 {n} \u6BB5\u7B49\u5F85\u8D85\u8FC7 {threshold}s\uFF08\u5CF0\u503C {sec}s\uFF09",
+    alertWaitHint: "\u7EDF\u8BA1\u7B49\u5F85\u6A21\u578B\u9996\u4E2A token \u7684\u8017\u65F6\uFF1B\u5DE5\u5177\u8FD0\u884C\u4E0E\u6D41\u5F0F\u8F93\u51FA\u671F\u95F4\u81EA\u52A8\u505C\u8868\u3002",
+    alertErrorLabel: "\u8BF7\u6C42\u5F02\u5E38",
+    alertRetryAfter: "\u5EFA\u8BAE\u7EA6 {sec}s \u540E\u91CD\u8BD5",
+    alertDiagnosticLabel: "\u8BCA\u65AD\u4FE1\u606F",
+    alertErrorTimeout: "\u8BF7\u6C42\u8D85\u65F6",
+    alertErrorTimeoutDesc: "\u6A21\u578B\u8BF7\u6C42\u8D85\u65F6\uFF0C\u5355\u6B21\u8D85\u65F6\u4E0D\u4EE3\u8868\u6574\u8F6E\u5DF2\u505C\u6B62\u3002",
+    alertErrorNetwork: "\u7F51\u7EDC\u65AD\u5F00",
+    alertErrorNetworkDesc: "\u6A21\u578B\u8BF7\u6C42\u8FC7\u7A0B\u4E2D\u8FDE\u63A5\u4E2D\u65AD\u6216\u4EE3\u7406\u5F02\u5E38\u3002",
+    alertErrorRateLimit: "\u89E6\u53D1\u9650\u6D41",
+    alertErrorRateLimitDesc: "\u4E0A\u6E38\u8FD4\u56DE 429 \u6216\u4E34\u65F6\u9891\u7387\u9650\u5236\u3002",
+    alertErrorQuota: "\u989D\u5EA6\u8017\u5C3D",
+    alertErrorQuotaDesc: "\u5F53\u524D\u8D26\u53F7\u6216\u6A21\u578B\u6C60\u914D\u989D\u5DF2\u7528\u5C3D\u3002",
+    alertErrorOverflow: "\u4E0A\u4E0B\u6587\u8D85\u9650",
+    alertErrorOverflowDesc: "\u8F93\u5165\u957F\u5EA6\u8D85\u8FC7\u6A21\u578B\u4E0A\u4E0B\u6587\u4E0A\u9650\uFF0C\u5EFA\u8BAE\u538B\u7F29\u6216\u65B0\u5F00\u4F1A\u8BDD\u3002",
+    alertErrorAuth: "\u9274\u6743\u5F02\u5E38",
+    alertErrorAuthDesc: "\u767B\u5F55\u51ED\u636E\u6216\u6743\u9650\u6821\u9A8C\u5931\u8D25\uFF08401/403\uFF09\u3002",
+    alertErrorUnavailable: "\u670D\u52A1\u7E41\u5FD9",
+    alertErrorUnavailableDesc: "\u4E0A\u6E38\u670D\u52A1\u8FD4\u56DE 502/503/504 \u6216\u5F53\u524D\u8D1F\u8F7D\u8FC7\u9AD8\u3002",
+    alertErrorCanceled: "\u5DF2\u53D6\u6D88",
+    alertErrorCanceledDesc: "\u8BE5\u6B21\u6A21\u578B\u8BF7\u6C42\u5728\u5B8C\u6210\u524D\u88AB\u53D6\u6D88\u3002",
+    alertErrorUnknown: "\u8BF7\u6C42\u5931\u8D25",
+    alertErrorUnknownDesc: "\u6700\u8FD1\u4E00\u6B21\u6A21\u578B\u8BF7\u6C42\u8FD4\u56DE\u4E86\u9519\u8BEF\u3002",
+    settingsMonitorTitle: "\u63D0\u9192\u4E0E\u52A8\u6548\u9608\u503C",
+    settingsCacheWarn: "\u7F13\u5B58\u53D8\u9EC4\uFF08\u5206\u949F\uFF09",
+    settingsCacheCold: "\u7F13\u5B58\u8FC7\u671F\uFF08\u5206\u949F\uFF09",
+    settingsWaitAlert: "\u9996\u5B57\u7B49\u5F85\uFF08\u79D2\uFF09",
+    settingsSpeedPulse: "\u751F\u6210\u901F\u5EA6\u547C\u5438\u706F",
+    settingsMonitorReset: "\u6062\u590D\u9ED8\u8BA4",
+    settingsMonitorSaved: "\u63D0\u9192\u9608\u503C\u5DF2\u4FDD\u5B58"
   };
 
   // src/ui/i18n/index.ts
@@ -7912,6 +8075,169 @@ ${FONT_POPOVER_CSS}`;
     };
   }
 
+  // src/shared/request-alerts.ts
+  function resolveCacheTtl(lastResponseAtMs, nowMs, isGenerating, prefs = DEFAULT_MONITOR_PREFS) {
+    const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 6e4 : 0;
+    const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 6e4 : 0;
+    if (warnMs <= 0 || coldMs <= 0) {
+      return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+    }
+    if (isGenerating) {
+      return { state: "active", elapsedMs: 0, progress: 0, warnMs, coldMs };
+    }
+    if (typeof lastResponseAtMs !== "number" || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
+      return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+    }
+    const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
+    const progress = Math.min(1, elapsedMs / coldMs);
+    const state = elapsedMs >= coldMs ? "cold" : elapsedMs >= warnMs ? "warn" : "fresh";
+    return { state, elapsedMs, progress, warnMs, coldMs };
+  }
+  function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
+    if (typeof usedFraction !== "number" || !Number.isFinite(usedFraction) || usedFraction < 0) {
+      return "normal";
+    }
+    const pct = usedFraction * 100;
+    if (pct >= prefs.contextDangerPct) return "danger";
+    if (pct >= prefs.contextWarnPct) return "warn";
+    return "normal";
+  }
+  var SPEED_PULSE_HOLD_MS = 15e3;
+  function resolveSpeedPulse(tps, isGenerating, lastResponseAtMs, nowMs, enabled = true) {
+    if (!enabled) return { visible: false, level: "idle", blinking: false };
+    const levelFromTps = (val) => {
+      if (typeof val !== "number" || !Number.isFinite(val) || val <= 0) return "pending";
+      if (val < 10) return "slow";
+      if (val < 25) return "medium";
+      return "fast";
+    };
+    if (isGenerating) {
+      return { visible: true, level: levelFromTps(tps), blinking: true };
+    }
+    if (typeof lastResponseAtMs === "number" && Number.isFinite(lastResponseAtMs) && lastResponseAtMs > 0 && nowMs - lastResponseAtMs >= 0 && nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS && typeof tps === "number" && Number.isFinite(tps) && tps > 0) {
+      return { visible: true, level: levelFromTps(tps), blinking: false };
+    }
+    return { visible: true, level: "idle", blinking: false };
+  }
+  function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
+    if (!turnQueue || thresholdSeconds <= 0) {
+      return { active: false, count: 0, currentWaitSec: null, maxWaitSec: 0, isWaitingNow: false };
+    }
+    const completedOver = (Array.isArray(turnQueue.waits) ? turnQueue.waits : []).filter(
+      (s) => typeof s === "number" && Number.isFinite(s) && s >= thresholdSeconds
+    );
+    let currentWaitSec = null;
+    if (!turnQueue.turnTerminal && typeof turnQueue.waitingSinceMs === "number" && Number.isFinite(turnQueue.waitingSinceMs) && turnQueue.waitingSinceMs > 0) {
+      const elapsedSec = Math.max(0, (nowMs - turnQueue.waitingSinceMs) / 1e3);
+      if (elapsedSec >= thresholdSeconds) {
+        currentWaitSec = elapsedSec;
+      }
+    }
+    const count2 = completedOver.length + (currentWaitSec !== null ? 1 : 0);
+    const maxCompleted = completedOver.length ? Math.max(...completedOver) : 0;
+    const maxWaitSec = Math.max(maxCompleted, currentWaitSec ?? 0);
+    return {
+      active: count2 > 0,
+      count: count2,
+      currentWaitSec,
+      maxWaitSec,
+      isWaitingNow: currentWaitSec !== null
+    };
+  }
+  function formatCompactElapsedMs(elapsedMs) {
+    const totalSec = Math.max(0, Math.floor(elapsedMs / 1e3));
+    if (totalSec < 60) return `${totalSec}s`;
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins >= 60) {
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+    }
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  }
+
+  // src/ui/shared/monitor-ui.ts
+  function errorKindCopy(kind, t) {
+    switch (kind) {
+      case "request_timeout":
+        return { label: t("alertErrorTimeout"), desc: t("alertErrorTimeoutDesc") };
+      case "network_error":
+        return { label: t("alertErrorNetwork"), desc: t("alertErrorNetworkDesc") };
+      case "rate_limited":
+        return { label: t("alertErrorRateLimit"), desc: t("alertErrorRateLimitDesc") };
+      case "quota_exhausted":
+        return { label: t("alertErrorQuota"), desc: t("alertErrorQuotaDesc") };
+      case "context_overflow":
+        return { label: t("alertErrorOverflow"), desc: t("alertErrorOverflowDesc") };
+      case "auth_error":
+        return { label: t("alertErrorAuth"), desc: t("alertErrorAuthDesc") };
+      case "service_unavailable":
+        return { label: t("alertErrorUnavailable"), desc: t("alertErrorUnavailableDesc") };
+      case "canceled":
+        return { label: t("alertErrorCanceled"), desc: t("alertErrorCanceledDesc") };
+      default:
+        return { label: t("alertErrorUnknown"), desc: t("alertErrorUnknownDesc") };
+    }
+  }
+  function formatCacheTtlText(ttl, t) {
+    if (ttl.state === "active") return t("cacheTtlActive");
+    if (ttl.state === "idle") return "\u2014";
+    const time = formatCompactElapsedMs(ttl.elapsedMs);
+    if (ttl.state === "cold") return t("cacheTtlCold", { time });
+    if (ttl.state === "warn") return t("cacheTtlWarn", { time });
+    return t("cacheTtlFresh", { time });
+  }
+  function formatTurnStateLabel(state, t) {
+    switch (state) {
+      case "running":
+        return t("turnStateRunning");
+      case "queued":
+        return t("turnStateQueued");
+      case "completed":
+        return t("turnStateCompleted");
+      case "failed":
+        return t("turnStateFailed");
+      case "interrupted":
+        return t("turnStateInterrupted");
+      default:
+        return "";
+    }
+  }
+  function resolveAlertBadge(error, waitAlert, t) {
+    if (error && error.kind !== "none" && error.kind !== "canceled") {
+      return {
+        visible: true,
+        severity: "error",
+        label: errorKindCopy(error.kind, t).label
+      };
+    }
+    if (waitAlert.active) {
+      const displaySec = Math.max(
+        1,
+        Math.round(waitAlert.currentWaitSec ?? waitAlert.maxWaitSec)
+      );
+      const label = waitAlert.count > 1 ? t("alertWaitChipMulti", { n: waitAlert.count, sec: displaySec }) : t("alertWaitChip", { sec: displaySec });
+      return {
+        visible: true,
+        severity: "wait",
+        label
+      };
+    }
+    return { visible: false, severity: "none", label: "" };
+  }
+  function buildContextBreakdownSegments(breakdown) {
+    if (!breakdown || breakdown.totalTokens <= 0) return [];
+    const total = breakdown.totalTokens;
+    const pct = (n) => Math.min(100, Math.max(0, n / total * 100));
+    return [
+      { key: "baseline", labelKey: "contextSegBaseline", tokens: breakdown.baselineTokens, pct: pct(breakdown.baselineTokens) },
+      { key: "read", labelKey: "contextSegRead", tokens: breakdown.readTokens, pct: pct(breakdown.readTokens) },
+      { key: "thinking", labelKey: "contextSegThinking", tokens: breakdown.thinkingTokens, pct: pct(breakdown.thinkingTokens) },
+      { key: "output", labelKey: "contextSegOutput", tokens: breakdown.outputTokens, pct: pct(breakdown.outputTokens) }
+    ];
+  }
+
   // src/ui/panel-webview/quota-section.ts
   var quotaCaches = /* @__PURE__ */ new WeakMap();
   function getQuotaCache(state) {
@@ -8423,8 +8749,18 @@ ${FONT_POPOVER_CSS}`;
       setText($("context-orchestrator"), planModel || t("modelMixModelsCount", { count: sessionModelCount }));
       setText($("context-orchestrator-note"), t(isHybrid ? "contextQuotaSplit" : "contextMultiModelHint"));
     }
+    const monitorPrefs = resolveMonitorPrefs(value.preferences);
+    const contextLoad = hasCapacity && !isCompacted ? resolveContextLoad(context.usedFraction, monitorPrefs) : "normal";
+    const contextTab = $("context-tab");
+    if (contextTab) contextTab.dataset.load = contextLoad;
     const fillScale = hasCapacity && context.usedFraction != null ? String(clampRatio(context.usedFraction)) : "0";
-    const ctxColor = hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? "var(--pulse-danger)" : hasCapacity && (context.usedFraction ?? 0) >= 0.8 ? "var(--pulse-warning)" : "";
+    const ctxColor = contextLoad === "danger" ? "var(--pulse-danger)" : contextLoad === "warn" ? "var(--pulse-warning)" : "";
+    const breakdownSegments = buildContextBreakdownSegments(isCompacted ? null : context?.breakdown);
+    setHidden($("panel-context-breakdown"), breakdownSegments.length === 0);
+    for (const seg of breakdownSegments) {
+      setStyle($(`panel-ctx-seg-bar-${seg.key}`), "width", `${seg.pct.toFixed(2)}%`);
+      setText($(`panel-ctx-seg-val-${seg.key}`), `${compact(seg.tokens)} (${Math.round(seg.pct)}%)`);
+    }
     const stripFill = $("strip-context-fill");
     const stripTrack = $("strip-context-track");
     setStyle(stripFill, "--fill-scale", fillScale);
@@ -8480,11 +8816,102 @@ ${FONT_POPOVER_CSS}`;
       setHidden($("panel-task-tokens-row"), true);
       setHidden($("panel-subagent-tokens-row"), true);
     }
-    void value;
+    const turn = speed?.turnMetrics ?? null;
+    setHidden($("panel-turn-section"), !turn);
+    if (turn) {
+      setText($("panel-turn-state"), formatTurnStateLabel(turn.state, t));
+      setText($("panel-turn-requests"), t("turnRequestsCount", { n: turn.requests }));
+      setText($("panel-turn-tokens"), `${compact(turn.thinkingTokens)} / ${compact(turn.outputTokens)} tok`);
+    }
+    updatePanelMonitorLive(ctx, Date.now());
+  }
+  function updatePanelMonitorLive(ctx, nowMs = Date.now()) {
+    const { $, state, language } = ctx;
+    const snapshot = state.snapshot;
+    if (!snapshot) return;
+    const speed = snapshot.speed;
+    const t = language.t;
+    const prefs = resolveMonitorPrefs(snapshot.preferences);
+    const pulse = resolveSpeedPulse(
+      speed?.latestTps ?? speed?.tps,
+      speed?.isGenerating === true,
+      speed?.lastResponseAtMs,
+      nowMs,
+      prefs.speedPulseEnabled
+    );
+    const pulseEl = $("panel-speed-pulse");
+    if (pulseEl) {
+      setHidden(pulseEl, !pulse.visible || !speed);
+      pulseEl.dataset.level = pulse.level;
+      pulseEl.classList.toggle("is-blinking", pulse.blinking);
+    }
+    const turn = speed?.turnMetrics ?? null;
+    if (turn) {
+      const liveSec = turn.durationSeconds !== null ? turn.durationSeconds : (turn.state === "running" || turn.state === "queued") && turn.startedAtMs ? Math.max(0, (nowMs - turn.startedAtMs) / 1e3) : null;
+      setText($("panel-turn-duration"), language.elapsed(liveSec));
+    }
+    const ttl = resolveCacheTtl(
+      speed?.lastResponseAtMs,
+      nowMs,
+      speed?.isGenerating === true,
+      prefs
+    );
+    const cacheTab = $("cache-tab");
+    if (cacheTab) cacheTab.dataset.ttl = ttl.state;
+    const ttlBox = $("panel-cache-ttl");
+    if (ttlBox) {
+      setHidden(ttlBox, !speed || ttl.state === "idle");
+      ttlBox.dataset.ttl = ttl.state;
+      setText($("panel-cache-ttl-text"), formatCacheTtlText(ttl, t));
+      setStyle(
+        $("panel-cache-ttl-fill"),
+        "width",
+        ttl.state === "active" ? "100%" : `${Math.round(ttl.progress * 100)}%`
+      );
+    }
+    const err = speed?.requestError ?? null;
+    const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);
+    const badge = resolveAlertBadge(err, waitAlert, t);
+    const banner = $("panel-alert-banner");
+    if (banner) {
+      setHidden(banner, !badge.visible);
+      banner.dataset.severity = badge.severity;
+      if (badge.visible) {
+        setText($("panel-alert-title"), badge.label);
+        const hasVisibleErr = Boolean(err && err.kind !== "none" && err.kind !== "canceled");
+        if (hasVisibleErr && err) {
+          const copy = errorKindCopy(err.kind, t);
+          setText($("panel-alert-desc"), copy.desc);
+          setHidden($("panel-alert-retry"), err.retryAfterSec === null);
+          if (err.retryAfterSec !== null) {
+            setText($("panel-alert-retry"), t("alertRetryAfter", { sec: Math.round(err.retryAfterSec) }));
+          }
+          setHidden($("panel-alert-diag"), !err.diagnostic);
+          if (err.diagnostic) setText($("panel-alert-diag"), err.diagnostic);
+        } else {
+          setHidden($("panel-alert-retry"), true);
+          setHidden($("panel-alert-diag"), true);
+          setText(
+            $("panel-alert-desc"),
+            waitAlert.isWaitingNow && waitAlert.currentWaitSec !== null ? t("alertWaitActive", {
+              sec: Math.round(waitAlert.currentWaitSec),
+              n: waitAlert.count
+            }) : t("alertWaitCompleted", {
+              n: waitAlert.count,
+              threshold: prefs.firstTokenWaitSeconds,
+              sec: Math.round(waitAlert.maxWaitSec)
+            })
+          );
+        }
+      }
+    }
   }
   function updateCountdowns(ctx, onExpiredRefresh, options = {}) {
     const { $, state, language } = ctx;
     const now = Date.now() + state.serverOffset;
+    if (!document.hidden || options.forceDom) {
+      updatePanelMonitorLive(ctx, Date.now());
+    }
     const popover = $("quota-popover");
     const pill = $("quota-rings-pill");
     const popoverOpen = Boolean(
@@ -8544,7 +8971,8 @@ ${FONT_POPOVER_CSS}`;
       onToggleDebugLaunch,
       onRefreshDebugLaunch,
       onSelectRecordingAccount,
-      onAddRecordingAccount
+      onAddRecordingAccount,
+      onMonitorPrefsChange
     } = options;
     const doc = trigger.ownerDocument;
     const t = language.t;
@@ -8733,7 +9161,89 @@ ${FONT_POPOVER_CSS}`;
       onChange: onFontChange
     });
     fontSection.append(fontControls.headElement, fontControls.rowsElement);
-    popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection);
+    const div3 = doc.createElement("div");
+    div3.className = "settings-divider";
+    let monitorState = resolveMonitorPrefs(options.initialPreferences);
+    const monitorSection = doc.createElement("div");
+    monitorSection.className = "settings-section settings-monitor-section";
+    const monitorHead = doc.createElement("div");
+    monitorHead.className = "settings-monitor-head";
+    const monitorTitle = doc.createElement("span");
+    monitorTitle.className = "settings-row-title";
+    const monitorResetBtn = doc.createElement("button");
+    monitorResetBtn.type = "button";
+    monitorResetBtn.className = "settings-account-btn";
+    monitorHead.append(monitorTitle, monitorResetBtn);
+    const monitorGrid = doc.createElement("div");
+    monitorGrid.className = "settings-monitor-grid";
+    const makeNumberField = (id, min, max) => {
+      const row = doc.createElement("label");
+      row.className = "settings-monitor-field";
+      const labelEl = doc.createElement("span");
+      const inputEl = doc.createElement("input");
+      inputEl.id = id;
+      inputEl.type = "number";
+      inputEl.min = String(min);
+      inputEl.max = String(max);
+      inputEl.step = "1";
+      inputEl.className = "settings-monitor-input";
+      row.append(labelEl, inputEl);
+      return { row, labelEl, inputEl };
+    };
+    const cacheWarnField = makeNumberField("monitor-cache-warn", 0, 998);
+    const cacheColdField = makeNumberField("monitor-cache-cold", 0, 999);
+    const waitSecField = makeNumberField("monitor-wait-sec", 0, 999);
+    const pulseRow = doc.createElement("div");
+    pulseRow.className = "settings-row settings-monitor-toggle-row";
+    const pulseLabel = doc.createElement("span");
+    pulseLabel.className = "settings-monitor-label";
+    const pulseToggle = doc.createElement("button");
+    pulseToggle.id = "monitor-speed-pulse-toggle";
+    pulseToggle.type = "button";
+    pulseToggle.className = "settings-switch";
+    pulseToggle.setAttribute("role", "switch");
+    const pulseThumb = doc.createElement("span");
+    pulseThumb.className = "settings-switch-thumb";
+    pulseToggle.append(pulseThumb);
+    pulseRow.append(pulseLabel, pulseToggle);
+    const syncMonitorInputs = () => {
+      cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
+      cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
+      waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
+      setAttr(pulseToggle, "aria-checked", String(monitorState.speedPulseEnabled));
+    };
+    const commitMonitorChange = (patch) => {
+      monitorState = resolveMonitorPrefs({ ...monitorState, ...patch });
+      syncMonitorInputs();
+      void onMonitorPrefsChange?.({
+        cacheWarnMinutes: monitorState.cacheWarnMinutes,
+        cacheColdMinutes: monitorState.cacheColdMinutes,
+        firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds,
+        speedPulseEnabled: monitorState.speedPulseEnabled
+      });
+    };
+    const readIntInput = (input, fallback) => {
+      const n = Number.parseInt(input.value, 10);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    cacheWarnField.inputEl.addEventListener("change", () => {
+      commitMonitorChange({ cacheWarnMinutes: readIntInput(cacheWarnField.inputEl, monitorState.cacheWarnMinutes) });
+    });
+    cacheColdField.inputEl.addEventListener("change", () => {
+      commitMonitorChange({ cacheColdMinutes: readIntInput(cacheColdField.inputEl, monitorState.cacheColdMinutes) });
+    });
+    waitSecField.inputEl.addEventListener("change", () => {
+      commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
+    });
+    pulseToggle.addEventListener("click", () => {
+      commitMonitorChange({ speedPulseEnabled: !monitorState.speedPulseEnabled });
+    });
+    monitorResetBtn.addEventListener("click", () => {
+      commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
+    });
+    monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
+    monitorSection.append(monitorHead, monitorGrid, pulseRow);
+    popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
     mountRoot.append(popover);
     const isOpen = () => popover.matches(":popover-open") || popover.dataset.open === "true";
     const supportsAnchor = () => typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("position-area", "block-end");
@@ -8866,6 +9376,14 @@ ${FONT_POPOVER_CSS}`;
       renderDebugStatus();
       renderRecordingAccount();
       fontControls.localize();
+      setText(monitorTitle, t("settingsMonitorTitle"));
+      setText(monitorResetBtn, t("settingsMonitorReset"));
+      setText(cacheWarnField.labelEl, t("settingsCacheWarn"));
+      setText(cacheColdField.labelEl, t("settingsCacheCold"));
+      setText(waitSecField.labelEl, t("settingsWaitAlert"));
+      setText(pulseLabel, t("settingsSpeedPulse"));
+      setAttr(pulseToggle, "aria-label", t("settingsSpeedPulse"));
+      syncMonitorInputs();
     };
     const syncPreferences = (prefs) => {
       if (!prefs || typeof prefs !== "object" || "error" in prefs) return;
@@ -8880,6 +9398,11 @@ ${FONT_POPOVER_CSS}`;
           debugState.enabled = prefs.debugLaunchEnabled;
           renderDebugStatus();
         }
+      }
+      const nextMonitor = resolveMonitorPrefs(prefs);
+      if (nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes || nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes || nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds || nextMonitor.speedPulseEnabled !== monitorState.speedPulseEnabled) {
+        monitorState = nextMonitor;
+        syncMonitorInputs();
       }
     };
     const syncDebugLaunch = (next) => {
@@ -9702,6 +10225,17 @@ ${FONT_POPOVER_CSS}`;
               const resolved = resolveFontScale(saved.sidebarFontScale);
               controller.syncFontScaleCache(resolved);
               localSet("ag-pulse-sidebar-font-scale", String(resolved));
+            }
+          } catch {
+          }
+        },
+        onMonitorPrefsChange: async (update) => {
+          try {
+            const saved = await controller.savePreferences(update);
+            if (saved && !("error" in saved)) {
+              if (state.snapshot) state.snapshot.preferences = saved;
+              ctx.settingsPopover?.syncPreferences(saved);
+              render();
             }
           } catch {
           }

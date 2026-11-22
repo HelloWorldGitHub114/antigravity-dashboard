@@ -1,6 +1,20 @@
 import type { SpeedMetrics, TokenSummary } from '../../contracts/index.ts';
+import { resolveMonitorPrefs } from '../../contracts/preferences.ts';
 import { setAttr, setStyle, setText } from '../../shared/dom.ts';
 import { compact, count, percent, rate } from '../../shared/format.ts';
+import {
+  resolveCacheTtl,
+  resolveContextLoad,
+  resolveSpeedPulse,
+  summarizeActiveWaitAlert,
+} from '../../shared/request-alerts.ts';
+import {
+  buildContextBreakdownSegments,
+  errorKindCopy,
+  formatCacheTtlText,
+  formatTurnStateLabel,
+  resolveAlertBadge,
+} from '../shared/monitor-ui.ts';
 import { toggleHidden } from './cards.ts';
 import type { ComposerMatch, WidgetLanguage, WidgetMetricsSnapshot, WidgetSurface } from './types.ts';
 
@@ -108,17 +122,33 @@ export function renderSpeedContextCacheCards(params: {
     }
   }
 
+  const monitorPrefs = resolveMonitorPrefs(data.preferences);
+  const contextLoad = hasCapacity && !isCompacted ? resolveContextLoad(context.usedFraction, monitorPrefs) : 'normal';
+  const contextChip = root.querySelector<HTMLElement>('[data-card="context"]');
+  if (contextChip) contextChip.dataset.load = contextLoad;
+
   const contextFill = $('context-fill') as HTMLElement | null;
   setStyle(contextFill, 'width', hasCapacity ? `${Math.min(1, context.usedFraction ?? 0) * 100}%` : '0%');
   setStyle(
     contextFill,
     'background',
-    hasCapacity && (context.usedFraction ?? 0) >= 0.9 ? 'var(--pulse-danger)' : '',
+    contextLoad === 'danger'
+      ? 'var(--pulse-danger)'
+      : contextLoad === 'warn'
+        ? 'var(--pulse-warning)'
+        : '',
   );
   const contextTrack = $('context-track');
   setAttr(contextTrack, 'aria-valuenow', hasCapacity ? Math.min(100, (context.usedFraction ?? 0) * 100) : null);
   setAttr(contextTrack, 'aria-valuemin', '0');
   setAttr(contextTrack, 'aria-valuemax', '100');
+
+  const breakdownSegments = buildContextBreakdownSegments(isCompacted ? null : context?.breakdown);
+  toggleHidden($('context-breakdown') as HTMLElement | null, breakdownSegments.length === 0);
+  for (const seg of breakdownSegments) {
+    setStyle($(`ctx-seg-bar-${seg.key}`) as HTMLElement | null, 'width', `${seg.pct.toFixed(2)}%`);
+    setText($(`ctx-seg-val-${seg.key}`), `${compact(seg.tokens)} (${Math.round(seg.pct)}%)`);
+  }
 
   setText($('tps'), rate(speed?.tps));
   setText(
@@ -220,4 +250,139 @@ export function renderSpeedContextCacheCards(params: {
     toggleHidden($('subagent-tokens-row') as HTMLElement | null, true);
   }
   toggleHidden($('cache-note') as HTMLElement | null, true);
+
+  // 本轮汇总（最新一条用户消息维度）
+  const turn = speed?.turnMetrics ?? null;
+  toggleHidden($('turn-section') as HTMLElement | null, !turn);
+  if (turn) {
+    setText($('turn-state'), formatTurnStateLabel(turn.state, t));
+    setText($('turn-requests'), t('turnRequestsCount', { n: turn.requests }));
+    setText($('turn-tokens'), `${compact(turn.thinkingTokens)} / ${compact(turn.outputTokens)} tok`);
+  }
+
+  tickInlineMonitorLive(root, data, language);
+}
+
+/**
+ * 每秒实时刷新依赖本地时钟的底栏监控项：
+ * 速度呼吸灯（15 秒余晖）、Prompt Cache 保鲜进度条、本轮实时耗时与异常/首字等待告警胶囊。
+ */
+export function tickInlineMonitorLive(
+  root: ShadowRoot,
+  data: WidgetMetricsSnapshot | null | undefined,
+  language: WidgetLanguage,
+  nowMs = Date.now(),
+): void {
+  if (!data) return;
+  const $ = (id: string) => root.getElementById(id);
+  const t = language.t;
+  const speed = data.speed;
+  const prefs = resolveMonitorPrefs(data.preferences);
+
+  // 1. 生成速度呼吸灯
+  const pulse = resolveSpeedPulse(
+    speed?.latestTps ?? speed?.tps,
+    speed?.isGenerating === true,
+    speed?.lastResponseAtMs,
+    nowMs,
+    prefs.speedPulseEnabled,
+  );
+  const pulseEl = $('speed-pulse') as HTMLElement | null;
+  if (pulseEl) {
+    toggleHidden(pulseEl, !pulse.visible || !speed);
+    pulseEl.dataset.level = pulse.level;
+    pulseEl.classList.toggle('is-blinking', pulse.blinking);
+  }
+
+  // 2. 本轮实时耗时（运行中跳秒，结束后固定）
+  const turn = speed?.turnMetrics ?? null;
+  if (turn) {
+    const liveSec =
+      turn.durationSeconds !== null
+        ? turn.durationSeconds
+        : (turn.state === 'running' || turn.state === 'queued') && turn.startedAtMs
+          ? Math.max(0, (nowMs - turn.startedAtMs) / 1000)
+          : null;
+    setText($('turn-duration'), language.elapsed(liveSec));
+  }
+
+  // 3. Prompt Cache 过期倒计时提醒
+  const ttl = resolveCacheTtl(
+    speed?.lastResponseAtMs,
+    nowMs,
+    speed?.isGenerating === true,
+    prefs,
+  );
+  const cacheChip = root.querySelector<HTMLElement>('[data-card="cache"]');
+  if (cacheChip) {
+    cacheChip.dataset.ttl = ttl.state;
+  }
+  const ttlSection = $('cache-ttl-section') as HTMLElement | null;
+  if (ttlSection) {
+    toggleHidden(ttlSection, !speed || ttl.state === 'idle');
+    ttlSection.dataset.ttl = ttl.state;
+    setText($('cache-ttl-text'), formatCacheTtlText(ttl, t));
+    setStyle(
+      $('cache-ttl-fill') as HTMLElement | null,
+      'width',
+      ttl.state === 'active' ? '100%' : `${Math.round(ttl.progress * 100)}%`,
+    );
+  }
+
+  // 4. 请求失败 + 首字等待告警胶囊（平时隐藏，仅异常或卡首字时弹出）
+  const err = speed?.requestError ?? null;
+  const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);
+  const badge = resolveAlertBadge(err, waitAlert, t);
+  const alertChip = root.querySelector<HTMLElement>('[data-card="alert"]');
+  if (alertChip) {
+    toggleHidden(alertChip, !badge.visible);
+    alertChip.dataset.severity = badge.severity;
+    if (badge.visible) setText($('alert-chip-text'), badge.label);
+  }
+  if (!badge.visible) {
+    const alertCard = $('alert-card') as HTMLElement | null;
+    if (alertCard && !alertCard.hidden) {
+      if (alertCard.hasAttribute('popover') && alertCard.matches(':popover-open')) {
+        try { alertCard.hidePopover(); } catch {}
+      }
+      toggleHidden(alertCard, true);
+    }
+  }
+  const hasVisibleErr = Boolean(err && err.kind !== 'none' && err.kind !== 'canceled');
+  const errBlock = $('alert-error-block') as HTMLElement | null;
+  if (errBlock) {
+    toggleHidden(errBlock, !hasVisibleErr);
+    if (hasVisibleErr && err) {
+      const copy = errorKindCopy(err.kind, t);
+      setText($('alert-error-badge'), copy.label);
+      setText($('alert-error-desc'), copy.desc);
+      const retryEl = $('alert-error-retry') as HTMLElement | null;
+      toggleHidden(retryEl, err.retryAfterSec === null);
+      if (err.retryAfterSec !== null) {
+        setText(retryEl, t('alertRetryAfter', { sec: Math.round(err.retryAfterSec) }));
+      }
+      const diagEl = $('alert-error-diag') as HTMLElement | null;
+      toggleHidden(diagEl, !err.diagnostic);
+      if (err.diagnostic) setText(diagEl, err.diagnostic);
+    }
+  }
+  const waitBlock = $('alert-wait-block') as HTMLElement | null;
+  if (waitBlock) {
+    toggleHidden(waitBlock, !waitAlert.active);
+    if (waitAlert.active) {
+      setText(
+        $('alert-wait-summary'),
+        waitAlert.isWaitingNow && waitAlert.currentWaitSec !== null
+          ? t('alertWaitActive', {
+              sec: Math.round(waitAlert.currentWaitSec),
+              n: waitAlert.count,
+            })
+          : t('alertWaitCompleted', {
+              n: waitAlert.count,
+              threshold: prefs.firstTokenWaitSeconds,
+              sec: Math.round(waitAlert.maxWaitSec),
+            }),
+      );
+    }
+  }
 }

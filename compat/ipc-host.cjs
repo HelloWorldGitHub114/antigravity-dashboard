@@ -79,6 +79,39 @@ module.exports = function installAgPulseIpc(...args) {
         }
       }
     }
+    var MONITOR_PREFERENCE_KEYS = [
+      "cacheWarnMinutes",
+      "cacheColdMinutes",
+      "firstTokenWaitSeconds",
+      "contextWarnPct",
+      "contextDangerPct",
+      "speedPulseEnabled"
+    ];
+    var DEFAULT_MONITOR_PREFS = Object.freeze({
+      cacheWarnMinutes: 3,
+      cacheColdMinutes: 4,
+      firstTokenWaitSeconds: 30,
+      contextWarnPct: 75,
+      contextDangerPct: 90,
+      speedPulseEnabled: true
+    });
+    function validateMonitorPrefsInput(input) {
+      const checkIntRange = (key, min, max) => {
+        if (!Object.hasOwn(input, key)) return;
+        const raw = input[key];
+        if (typeof raw !== "number" || !Number.isInteger(raw) || raw < min || raw > max) {
+          throw new Error("Invalid monitor threshold preference");
+        }
+      };
+      checkIntRange("cacheWarnMinutes", 0, 998);
+      checkIntRange("cacheColdMinutes", 0, 999);
+      checkIntRange("firstTokenWaitSeconds", 0, 999);
+      checkIntRange("contextWarnPct", 50, 95);
+      checkIntRange("contextDangerPct", 60, 99);
+      if (Object.hasOwn(input, "speedPulseEnabled") && typeof input.speedPulseEnabled !== "boolean") {
+        throw new Error("Invalid speed pulse preference");
+      }
+    }
     var PREFERENCE_KEYS = [
       "language",
       "languageGuideDismissed",
@@ -86,7 +119,8 @@ module.exports = function installAgPulseIpc(...args) {
       "modelTimelineEnabled",
       "debugLaunchEnabled",
       ...FONT_SCALE_KEYS,
-      "modelPricingOverrides"
+      "modelPricingOverrides",
+      ...MONITOR_PREFERENCE_KEYS
     ];
 
     // src/shared/logger.ts
@@ -646,6 +680,7 @@ module.exports = function installAgPulseIpc(...args) {
             }
             validateFontScaleInput(input);
             validatePricingOverridesInput(input);
+            validateMonitorPrefsInput(input);
             if (!preferenceStore) {
               const file = path.join(
                 os.homedir(),

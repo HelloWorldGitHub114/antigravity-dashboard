@@ -130,6 +130,138 @@ export function validatePricingOverridesInput(input: Record<string, unknown>): v
   }
 }
 
+export const MONITOR_PREFERENCE_KEYS = [
+  'cacheWarnMinutes',
+  'cacheColdMinutes',
+  'firstTokenWaitSeconds',
+  'contextWarnPct',
+  'contextDangerPct',
+  'speedPulseEnabled',
+] as const;
+
+export type MonitorPreferenceKey = (typeof MONITOR_PREFERENCE_KEYS)[number];
+
+/**
+ * Resolved monitoring and alert threshold preferences with safe defaults.
+ */
+export interface ResolvedMonitorPrefs {
+  cacheWarnMinutes: number;
+  cacheColdMinutes: number;
+  firstTokenWaitSeconds: number;
+  contextWarnPct: number;
+  contextDangerPct: number;
+  speedPulseEnabled: boolean;
+}
+
+export const DEFAULT_MONITOR_PREFS: Readonly<ResolvedMonitorPrefs> = Object.freeze({
+  cacheWarnMinutes: 3,
+  cacheColdMinutes: 4,
+  firstTokenWaitSeconds: 30,
+  contextWarnPct: 75,
+  contextDangerPct: 90,
+  speedPulseEnabled: true,
+});
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/**
+ * Resolve monitor and alert thresholds from partial or persisted preferences.
+ */
+export function resolveMonitorPrefs(
+  raw?: Partial<PreferencesState> | PreferencesSnapshot | Record<string, unknown> | null,
+): ResolvedMonitorPrefs {
+  const src =
+    raw && typeof raw === 'object' && !('error' in raw) ? (raw as Record<string, unknown>) : {};
+  const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
+  let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
+  if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
+    cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
+  }
+  const firstTokenWaitSeconds = clampInt(
+    src.firstTokenWaitSeconds,
+    0,
+    999,
+    DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds,
+  );
+  const contextWarnPct = clampInt(src.contextWarnPct, 50, 95, DEFAULT_MONITOR_PREFS.contextWarnPct);
+  let contextDangerPct = clampInt(src.contextDangerPct, 60, 99, DEFAULT_MONITOR_PREFS.contextDangerPct);
+  if (contextDangerPct <= contextWarnPct) {
+    contextDangerPct = Math.min(99, contextWarnPct + 5);
+  }
+  const speedPulseEnabled =
+    typeof src.speedPulseEnabled === 'boolean'
+      ? src.speedPulseEnabled
+      : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
+  return {
+    cacheWarnMinutes,
+    cacheColdMinutes,
+    firstTokenWaitSeconds,
+    contextWarnPct,
+    contextDangerPct,
+    speedPulseEnabled,
+  };
+}
+
+/**
+ * Extract only explicitly persisted non-default monitor preferences so default state stays minimal.
+ */
+export function extractMonitorPrefOverrides(
+  raw: Record<string, unknown> | null | undefined,
+): Partial<ResolvedMonitorPrefs> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Partial<ResolvedMonitorPrefs> = {};
+  const resolved = resolveMonitorPrefs(raw);
+  if (Object.hasOwn(raw, 'cacheWarnMinutes') && resolved.cacheWarnMinutes !== DEFAULT_MONITOR_PREFS.cacheWarnMinutes) {
+    out.cacheWarnMinutes = resolved.cacheWarnMinutes;
+  }
+  if (Object.hasOwn(raw, 'cacheColdMinutes') && resolved.cacheColdMinutes !== DEFAULT_MONITOR_PREFS.cacheColdMinutes) {
+    out.cacheColdMinutes = resolved.cacheColdMinutes;
+  }
+  if (
+    Object.hasOwn(raw, 'firstTokenWaitSeconds') &&
+    resolved.firstTokenWaitSeconds !== DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds
+  ) {
+    out.firstTokenWaitSeconds = resolved.firstTokenWaitSeconds;
+  }
+  if (Object.hasOwn(raw, 'contextWarnPct') && resolved.contextWarnPct !== DEFAULT_MONITOR_PREFS.contextWarnPct) {
+    out.contextWarnPct = resolved.contextWarnPct;
+  }
+  if (Object.hasOwn(raw, 'contextDangerPct') && resolved.contextDangerPct !== DEFAULT_MONITOR_PREFS.contextDangerPct) {
+    out.contextDangerPct = resolved.contextDangerPct;
+  }
+  if (
+    Object.hasOwn(raw, 'speedPulseEnabled') &&
+    resolved.speedPulseEnabled !== DEFAULT_MONITOR_PREFS.speedPulseEnabled
+  ) {
+    out.speedPulseEnabled = resolved.speedPulseEnabled;
+  }
+  return out;
+}
+
+/**
+ * Validate monitor threshold keys on an incoming preference update payload.
+ */
+export function validateMonitorPrefsInput(input: Record<string, unknown>): void {
+  const checkIntRange = (key: string, min: number, max: number): void => {
+    if (!Object.hasOwn(input, key)) return;
+    const raw = input[key];
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < min || raw > max) {
+      throw new Error('Invalid monitor threshold preference');
+    }
+  };
+  checkIntRange('cacheWarnMinutes', 0, 998);
+  checkIntRange('cacheColdMinutes', 0, 999);
+  checkIntRange('firstTokenWaitSeconds', 0, 999);
+  checkIntRange('contextWarnPct', 50, 95);
+  checkIntRange('contextDangerPct', 60, 99);
+  if (Object.hasOwn(input, 'speedPulseEnabled') && typeof input.speedPulseEnabled !== 'boolean') {
+    throw new Error('Invalid speed pulse preference');
+  }
+}
+
 export const PREFERENCE_KEYS = [
   'language',
   'languageGuideDismissed',
@@ -138,6 +270,7 @@ export const PREFERENCE_KEYS = [
   'debugLaunchEnabled',
   ...FONT_SCALE_KEYS,
   'modelPricingOverrides',
+  ...MONITOR_PREFERENCE_KEYS,
 ] as const;
 
 export type PreferenceKey = (typeof PREFERENCE_KEYS)[number];
@@ -155,6 +288,12 @@ export interface PreferencesState {
   sidebarFontScale?: number;
   inlineFontScale?: number;
   modelPricingOverrides?: ModelPricingOverrides;
+  cacheWarnMinutes?: number;
+  cacheColdMinutes?: number;
+  firstTokenWaitSeconds?: number;
+  contextWarnPct?: number;
+  contextDangerPct?: number;
+  speedPulseEnabled?: boolean;
   revision: number;
 }
 
@@ -171,6 +310,12 @@ export interface PreferencesUpdateInput {
   sidebarFontScale?: number;
   inlineFontScale?: number;
   modelPricingOverrides?: ModelPricingOverrides;
+  cacheWarnMinutes?: number;
+  cacheColdMinutes?: number;
+  firstTokenWaitSeconds?: number;
+  contextWarnPct?: number;
+  contextDangerPct?: number;
+  speedPulseEnabled?: boolean;
 }
 
 /**

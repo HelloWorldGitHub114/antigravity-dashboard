@@ -20,6 +20,7 @@ import type {
 import {
   PREFERENCE_KEYS,
   validateFontScaleInput,
+  validateMonitorPrefsInput,
   validatePricingOverridesInput,
 } from '../../contracts/preferences.ts';
 import { platformPaths } from '../../platform/paths.ts';
@@ -116,6 +117,7 @@ export async function dispatchBindingCall(
     }
     validateFontScaleInput(value);
     validatePricingOverridesInput(value);
+    validateMonitorPrefsInput(value);
     result = Object.keys(value).length
       ? await host.preferences.set(value as PreferencesUpdateInput)
       : await host.preferences.get();
