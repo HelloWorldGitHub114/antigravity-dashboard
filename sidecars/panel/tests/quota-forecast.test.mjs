@@ -228,17 +228,14 @@ test('summarizeQuotaWindows aggregates active-window tokens by model family and 
   assert.equal(classifyQuotaGroupId(groups, 'Claude Opus 5.5'), '3p');
 
   const result = await summarizeQuotaWindows(ledger, scope, groups);
-  // gemini:5h -> only r1 (1,020,000 tok), usedFraction=0.2 >= 0.05 -> estFull = 5,100,000
+  // gemini:5h -> only r1 (1,020,000 tok)
   assert.equal(result['gemini:5h']?.observedTokens, 1020000);
   assert.equal(result['gemini:5h']?.requests, 1);
-  assert.equal(result['gemini:5h']?.estimatedFullTokens, 5100000);
 
-  // gemini:weekly -> r1 + r2 (1,570,000 tok), usedFraction=0.02 < 0.05 -> estFull = null
+  // gemini:weekly -> r1 + r2 (1,570,000 tok)
   assert.equal(result['gemini:weekly']?.observedTokens, 1570000);
   assert.equal(result['gemini:weekly']?.requests, 2);
-  assert.equal(result['gemini:weekly']?.estimatedFullTokens, null);
 
-  // 3p:5h -> r3 (210,000 tok), usedFraction=0.1 -> estFull = 2,100,000
+  // 3p:5h -> r3 (210,000 tok)
   assert.equal(result['3p:5h']?.observedTokens, 210000);
-  assert.equal(result['3p:5h']?.estimatedFullTokens, 2100000);
 });

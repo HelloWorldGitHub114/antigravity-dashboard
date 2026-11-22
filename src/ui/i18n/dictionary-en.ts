@@ -242,9 +242,7 @@ export const EN_DICTIONARY = {
   forecastBasisWeekly:
     '{remaining} quota left · {time} of the week left · warms up for 12h (under 25% used) and smooths day 1 against a 24h day',
   quotaWindowUsage: 'Window tokens',
-  quotaWindowFullRef: '~{full} full',
-  quotaWindowBasis:
-    'Recorded local tokens for this account in this quota window; estimated full capacity is a proportional reference only (weighting varies by model and cache).',
+  quotaWindowBasis: 'Local tokens recorded for this account in the current quota window.',
   cacheTtlLabel: 'Cache freshness',
   cacheTtlActive: 'Active now',
   cacheTtlFresh: 'Fresh · {time}',

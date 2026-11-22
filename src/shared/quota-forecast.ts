@@ -339,8 +339,7 @@ export function quotaWindowMeta(specs: ReadonlyArray<QuotaWindowSpec>): QuotaWin
 }
 
 /**
- * 将本周期实测 Token 计数与实时剩余额度合并，计算按比例推算的满额参考容量。
- * 消耗比例低于 5% 时不输出满额推算，防止微小误差被放大。
+ * 汇总当前活跃额度窗口内的本机实测流经 Token。
  */
 export function finalizeQuotaWindows(
   specs: ReadonlyArray<QuotaWindowSpec>,
@@ -357,13 +356,8 @@ export function finalizeQuotaWindows(
     const c = counts[spec.id];
     if (!c || !c.requests) continue;
     const usedFraction = typeof spec.remaining === 'number' ? Math.max(0, Math.min(1, 1 - spec.remaining)) : null;
-    const estimatedFullTokens =
-      c.observedTokens > 0 && usedFraction !== null && usedFraction >= 0.05
-        ? Math.round(c.observedTokens / usedFraction)
-        : null;
     out[spec.id] = {
       observedTokens: c.observedTokens,
-      estimatedFullTokens,
       requests: c.requests,
       usedFraction,
     };

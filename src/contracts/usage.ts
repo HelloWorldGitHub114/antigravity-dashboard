@@ -128,12 +128,10 @@ export interface UsageUserMeta {
 export type DesktopUsageSyncStatus = 'waiting' | 'syncing' | 'partial' | 'ready' | 'offline';
 
 /**
- * Per-window observed token volume and proportional full-capacity reference
- * for an active quota window (`<groupId>:5h` or `<groupId>:weekly`).
+ * Per-window observed local token volume for an active quota window (`<groupId>:5h` or `<groupId>:weekly`).
  */
 export interface QuotaWindowUsage {
   observedTokens: number;
-  estimatedFullTokens: number | null;
   requests: number;
   usedFraction: number | null;
 }

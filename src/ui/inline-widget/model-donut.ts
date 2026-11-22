@@ -270,12 +270,7 @@ export function renderQuotaSection(
       } else if (winKey && available && !disabled && !quotaWindowsMap && resetMinute !== null) {
         const prev = usageCache.windows.get(winKey);
         if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
-          const usedFrac = typeof remaining === 'number' ? Math.max(0, Math.min(1, 1 - remaining)) : null;
-          const estFull =
-            prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05
-              ? Math.round(prev.usage.observedTokens / usedFrac)
-              : null;
-          winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+          winUsage = prev.usage;
         }
       } else if (winKey && quotaWindowsMap) {
         usageCache.windows.delete(winKey);
@@ -284,10 +279,7 @@ export function renderQuotaSection(
       const showUsage = Boolean(winUsage && winUsage.observedTokens > 0);
       toggleHidden(usageRow, !showUsage);
       if (showUsage && winUsage) {
-        const refText = winUsage.estimatedFullTokens
-          ? ` (${language.t('quotaWindowFullRef', { full: compact(winUsage.estimatedFullTokens) })})`
-          : '';
-        setText($(`${name}-usage-value`), `${compact(winUsage.observedTokens)} tok${refText}`);
+        setText($(`${name}-usage-value`), `${compact(winUsage.observedTokens)} tok`);
         setAttr(usageRow, 'title', language.t('quotaWindowBasis'));
       } else {
         setAttr(usageRow, 'title', null);

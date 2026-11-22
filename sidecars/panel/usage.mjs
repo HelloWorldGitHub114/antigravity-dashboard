@@ -1809,10 +1809,8 @@ function finalizeQuotaWindows(specs, counts = {}, meta = null) {
     const c = counts[spec.id];
     if (!c || !c.requests) continue;
     const usedFraction = typeof spec.remaining === "number" ? Math.max(0, Math.min(1, 1 - spec.remaining)) : null;
-    const estimatedFullTokens = c.observedTokens > 0 && usedFraction !== null && usedFraction >= 0.05 ? Math.round(c.observedTokens / usedFraction) : null;
     out[spec.id] = {
       observedTokens: c.observedTokens,
-      estimatedFullTokens,
       requests: c.requests,
       usedFraction
     };

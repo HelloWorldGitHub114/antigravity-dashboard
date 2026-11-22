@@ -333,12 +333,7 @@ function syncPopoverRow(
   } else if (!quotaWindows && resetMinute !== null) {
     const prev = usageCache.get(winKey);
     if (prev && prev.resetMinute !== null && Math.abs(prev.resetMinute - resetMinute) <= 2) {
-      const usedFrac = remaining !== null ? Math.max(0, Math.min(1, 1 - remaining)) : null;
-      const estFull =
-        prev.usage.observedTokens > 0 && usedFrac !== null && usedFrac >= 0.05
-          ? Math.round(prev.usage.observedTokens / usedFrac)
-          : null;
-      winUsage = { ...prev.usage, estimatedFullTokens: estFull };
+      winUsage = prev.usage;
     }
   } else if (quotaWindows) {
     usageCache.delete(winKey);
@@ -348,10 +343,7 @@ function syncPopoverRow(
   setHidden(rowRef.usageEl, !showUsage);
   if (showUsage && winUsage) {
     setText(rowRef.usageLabelEl, language.t('quotaWindowUsage'));
-    const refText = winUsage.estimatedFullTokens
-      ? ` (${language.t('quotaWindowFullRef', { full: compact(winUsage.estimatedFullTokens) })})`
-      : '';
-    setText(rowRef.usageValEl, `${compact(winUsage.observedTokens)} tok${refText}`);
+    setText(rowRef.usageValEl, `${compact(winUsage.observedTokens)} tok`);
     setAttr(rowRef.usageEl, 'title', language.t('quotaWindowBasis'));
   } else {
     setAttr(rowRef.usageEl, 'title', null);
@@ -449,7 +441,7 @@ export function renderQuotaRings(
   const winUsageSig = quotaWindows
     ? Object.entries(quotaWindows)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${k}=${v.observedTokens}/${v.estimatedFullTokens ?? ''}`)
+        .map(([k, v]) => `${k}=${v.observedTokens}`)
         .join(',')
     : '';
   const sig = `${language.language}|${minuteBucket}|${winUsageSig}|${usable
