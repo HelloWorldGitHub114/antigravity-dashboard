@@ -21,15 +21,13 @@ function resolveFontScale(value, fallback = 1) {
   return Math.round(clamped * 100) / 100;
 }
 var MONITOR_PREFERENCE_KEYS = [
-  "cacheWarnMinutes",
-  "cacheColdMinutes",
+  "cacheChipScope",
   "firstTokenWaitSeconds",
   "contextWarnPct",
   "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
-  cacheWarnMinutes: 3,
-  cacheColdMinutes: 4,
+  cacheChipScope: "session",
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90

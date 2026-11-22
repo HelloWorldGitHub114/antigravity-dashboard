@@ -8,7 +8,7 @@ import type {
 import { classifyRequestError } from '../../shared/request-alerts.ts';
 import type { GeneratorMetadataLike, TrajectoryStepLike } from '../identity.ts';
 import type { SqliteTurnDiagnostics } from '../reader/sqlite-diagnostics.ts';
-import { seconds, tokenCount } from './primitives.ts';
+import { requestCacheMetrics, seconds, tokenCount } from './primitives.ts';
 
 const parseMs = (value: unknown): number | null => {
   if (typeof value !== 'string' || !value) return null;
@@ -287,7 +287,12 @@ export function computeTurnAndAlerts(
   // 3. 归属当前轮次的模型请求与 token 汇总
   let turnRequests = 0;
   let turnInputTokens = 0;
+  let turnCacheInputTokens = 0;
   let turnCachedTokens = 0;
+  let turnCacheWriteTokens = 0;
+  let turnCacheMeasuredRequests = 0;
+  let firstRequestCacheHitRate: number | null = null;
+  let lastRequestCacheHitRate: number | null = null;
   let turnThinkingTokens = 0;
   let turnOutputTokens = 0;
   let turnTotalOutputTokens = 0;
@@ -328,7 +333,18 @@ export function computeTurnAndAlerts(
         const thinking = tokenCount(usage.thinkingOutputTokens) ?? 0;
         const reply = tokenCount(usage.responseOutputTokens);
         turnInputTokens += uncached + cached + cacheWrite;
-        turnCachedTokens += cached;
+        const cacheSample = requestCacheMetrics(usage);
+        if (cacheSample) {
+          turnCacheInputTokens += cacheSample.inputTokens;
+          turnCachedTokens += cacheSample.cachedTokens;
+          turnCacheWriteTokens += cacheSample.cacheWriteTokens;
+          if (cacheSample.inputTokens > 0) {
+            turnCacheMeasuredRequests += 1;
+            const reqRate = cacheSample.cachedTokens / cacheSample.inputTokens;
+            if (firstRequestCacheHitRate === null) firstRequestCacheHitRate = reqRate;
+            lastRequestCacheHitRate = reqRate;
+          }
+        }
         turnThinkingTokens += thinking;
         turnOutputTokens += reply !== null ? reply : Math.max(0, totalOut - thinking);
         turnTotalOutputTokens += totalOut || thinking + (reply ?? 0);
@@ -436,8 +452,13 @@ export function computeTurnAndAlerts(
       durationSeconds:
         startedAtMs !== null && endedAtMs !== null ? (endedAtMs - startedAtMs) / 1000 : null,
       requests: turnRequests,
-      inputTokens: turnInputTokens,
+      inputTokens: turnCacheInputTokens > 0 ? turnCacheInputTokens : turnInputTokens,
       cachedTokens: turnCachedTokens,
+      cacheWriteTokens: turnCacheWriteTokens,
+      cacheMeasuredRequests: turnCacheMeasuredRequests,
+      cacheHitRate: turnCacheInputTokens > 0 ? turnCachedTokens / turnCacheInputTokens : null,
+      firstRequestCacheHitRate,
+      lastRequestCacheHitRate,
       thinkingTokens: turnThinkingTokens,
       outputTokens: turnOutputTokens,
       totalOutputTokens: turnTotalOutputTokens,

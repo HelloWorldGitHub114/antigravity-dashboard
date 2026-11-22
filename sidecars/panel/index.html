@@ -54,7 +54,7 @@
       </button>
       <button class="metric-chip" id="cache-tab" type="button" role="tab" data-card="cache" aria-controls="cache-card" aria-selected="false" tabindex="-1">
         <div class="chip-col-left">
-          <span class="metric-label"><svg class="icon"><use href="#cache"/></svg><span data-i18n="panelCache">Cache</span></span>
+          <span class="metric-label"><svg class="icon"><use href="#cache"/></svg><span id="panel-cache-tab-label" data-i18n="panelCache">Cache</span></span>
           <span class="chip-secondary" id="strip-cache-total">— tok</span>
         </div>
         <span class="chip-primary"><strong id="strip-cache">—</strong></span>
@@ -97,9 +97,10 @@
       </article>
       <article class="detail-card" id="cache-card" role="tabpanel" tabindex="0" aria-labelledby="cache-tab" hidden>
         <div class="card-heading"><span><svg class="icon"><use href="#cache"/></svg><span data-i18n="cacheTitle">Token cache</span></span><span class="card-tag" id="cache-coverage">—</span></div>
-        <div class="panel-cache-ttl" id="panel-cache-ttl" hidden>
-          <div class="panel-cache-ttl-head"><span data-i18n="cacheTtlLabel">Cache freshness</span><strong id="panel-cache-ttl-text">—</strong></div>
-          <div class="panel-ttl-track"><i id="panel-cache-ttl-fill"></i></div>
+        <div class="panel-turn-cache" id="panel-turn-cache" hidden>
+          <div class="panel-turn-cache-head"><span data-i18n="turnCacheLabel">Latest turn cache</span><strong id="panel-turn-cache-text">—</strong></div>
+          <div class="panel-turn-cache-track"><i id="panel-turn-cache-fill"></i></div>
+          <div class="panel-turn-cache-meta" id="panel-turn-cache-meta"></div>
         </div>
         <dl><div><dt data-i18n="cacheRate">Cache hit</dt><dd id="cache-rate">—</dd></div><div><dt data-i18n="cacheMiss">Uncached input</dt><dd id="cache-miss">—</dd></div><div><dt data-i18n="cacheRead">Cache read</dt><dd id="cache-read">—</dd></div><div><dt data-i18n="cacheOutput">Output</dt><dd id="cache-output">—</dd></div><div id="cache-write-row" hidden><dt data-i18n="cacheWrite">Cache write</dt><dd id="cache-write">—</dd></div><div id="panel-task-tokens-row" hidden><dt data-i18n="taskTotalTokens">Task total tokens</dt><dd id="panel-task-total-tokens">—</dd></div><div id="panel-subagent-tokens-row" hidden><dt id="panel-subagent-tokens-label" data-i18n="taskTokensSubagents">Subagents</dt><dd id="panel-subagent-tokens">—</dd></div></dl>
         <section class="panel-model-mix" id="panel-model-mix" hidden>

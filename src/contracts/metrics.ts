@@ -138,6 +138,11 @@ export interface TurnMetrics {
   requests: number;
   inputTokens: number;
   cachedTokens: number;
+  cacheWriteTokens: number;
+  cacheMeasuredRequests: number;
+  cacheHitRate: number | null;
+  firstRequestCacheHitRate: number | null;
+  lastRequestCacheHitRate: number | null;
   thinkingTokens: number;
   outputTokens: number;
   totalOutputTokens: number;

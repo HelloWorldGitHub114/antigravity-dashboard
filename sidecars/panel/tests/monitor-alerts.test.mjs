@@ -4,14 +4,13 @@ import {
   classifyRequestError,
   computeContextBreakdown,
   computeTurnAndAlerts,
-  formatCompactElapsedMs,
-  resolveCacheTtl,
   resolveContextLoad,
+  resolveTurnCacheStatus,
   summarizeActiveWaitAlert,
   trajectoryMetrics,
 } from '../metrics.mjs';
 import { PreferencesStore } from '../../../compat/preferences.mjs';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,14 +33,53 @@ test('classifyRequestError categorizes errors and redacts URLs', () => {
   assert.equal(rl.retryAfterSec, 18.5);
 });
 
-test('resolveCacheTtl tracks active, fresh, warn, and cold stages', () => {
-  const base = 1_700_000_000_000;
-  assert.equal(resolveCacheTtl(base, base + 30_000, true).state, 'active');
-  assert.equal(resolveCacheTtl(base, base + 90_000, false).state, 'fresh');
-  assert.equal(resolveCacheTtl(base, base + 185_000, false).state, 'warn');
-  assert.equal(resolveCacheTtl(base, base + 250_000, false).state, 'cold');
-  assert.equal(resolveCacheTtl(base, base + 250_000, false, { cacheWarnMinutes: 0, cacheColdMinutes: 0 }).state, 'idle');
-  assert.equal(formatCompactElapsedMs(192_000), '3m 12s');
+test('resolveTurnCacheStatus classifies idle, hot, warm, cold, and cold-start recovery', () => {
+  assert.equal(resolveTurnCacheStatus(null).status, 'idle');
+  assert.equal(
+    resolveTurnCacheStatus({
+      userStepIndex: 1,
+      state: 'running',
+      startedAtMs: null,
+      endedAtMs: null,
+      durationSeconds: null,
+      requests: 0,
+      inputTokens: 0,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+      cacheMeasuredRequests: 0,
+      cacheHitRate: null,
+      firstRequestCacheHitRate: null,
+      lastRequestCacheHitRate: null,
+      thinkingTokens: 0,
+      outputTokens: 0,
+      totalOutputTokens: 0,
+    }).status,
+    'idle',
+  );
+
+  const hot = resolveTurnCacheStatus({
+    userStepIndex: 1,
+    state: 'completed',
+    startedAtMs: null,
+    endedAtMs: null,
+    durationSeconds: 3,
+    requests: 2,
+    inputTokens: 100_000,
+    cachedTokens: 85_000,
+    cacheWriteTokens: 0,
+    cacheMeasuredRequests: 2,
+    cacheHitRate: 0.85,
+    firstRequestCacheHitRate: 0.1,
+    lastRequestCacheHitRate: 0.96,
+    thinkingTokens: 200,
+    outputTokens: 500,
+    totalOutputTokens: 700,
+  });
+  assert.equal(hot.status, 'hot');
+  assert.equal(hot.coldStartRecovered, true);
+
+  assert.equal(resolveTurnCacheStatus({ ...hot, cacheHitRate: 0.45 }).status, 'warm');
+  assert.equal(resolveTurnCacheStatus({ ...hot, cacheHitRate: 0.08 }).status, 'cold');
 });
 
 test('resolveContextLoad applies configurable warn and danger thresholds', () => {
@@ -125,7 +163,29 @@ test('computeTurnAndAlerts pauses wait timer during tools and clears resolved er
       chatModel: {
         timeToFirstToken: '35s',
         streamingDuration: '4s',
-        usage: { inputTokens: 1000, cacheReadTokens: 9000, outputTokens: 800, thinkingOutputTokens: 300, responseOutputTokens: 500 },
+        usage: {
+          apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+          inputTokens: 1000,
+          cacheReadTokens: 9000,
+          outputTokens: 800,
+          thinkingOutputTokens: 300,
+          responseOutputTokens: 500,
+        },
+      },
+    },
+    {
+      stepIndices: [12],
+      chatModel: {
+        timeToFirstToken: '2s',
+        streamingDuration: '1s',
+        usage: {
+          apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+          inputTokens: 500,
+          cacheReadTokens: 9500,
+          outputTokens: 400,
+          thinkingOutputTokens: 100,
+          responseOutputTokens: 300,
+        },
       },
     },
   ];
@@ -133,11 +193,15 @@ test('computeTurnAndAlerts pauses wait timer during tools and clears resolved er
   const result = computeTurnAndAlerts(steps, generators, { status: 'CASCADE_RUN_STATUS_RUNNING' }, true, diag);
   assert.equal(result.isGenerating, true);
   assert.equal(result.turnMetrics?.state, 'running');
-  assert.equal(result.turnMetrics?.requests, 1);
-  assert.equal(result.turnMetrics?.thinkingTokens, 300);
-  assert.equal(result.turnMetrics?.outputTokens, 500);
+  assert.equal(result.turnMetrics?.requests, 2);
+  assert.equal(result.turnMetrics?.cacheMeasuredRequests, 2);
+  assert.ok(Math.abs((result.turnMetrics?.cacheHitRate ?? 0) - 18500 / 20000) < 1e-6);
+  assert.ok(Math.abs((result.turnMetrics?.firstRequestCacheHitRate ?? 0) - 0.9) < 1e-6);
+  assert.ok(Math.abs((result.turnMetrics?.lastRequestCacheHitRate ?? 0) - 0.95) < 1e-6);
+  assert.equal(result.turnMetrics?.thinkingTokens, 400);
+  assert.equal(result.turnMetrics?.outputTokens, 800);
   assert.equal(result.turnQueue?.waitingSinceMs, null);
-  assert.deepEqual(result.turnQueue?.waits, [35]);
+  assert.deepEqual(result.turnQueue?.waits, [35, 2]);
   assert.equal(result.requestError, null);
 
   const waitSummary = summarizeActiveWaitAlert(result.turnQueue, t0 + 100_000, 30);
@@ -184,27 +248,38 @@ test('trajectoryMetrics populates context breakdown, turn metrics, and request e
   assert.equal(m.requestError?.kind, 'request_timeout');
 });
 
-test('PreferencesStore validates and persists monitor thresholds without polluting defaults', async () => {
+test('PreferencesStore validates and persists monitor settings without polluting defaults', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ag-pulse-monitor-prefs-'));
   try {
-    const store = new PreferencesStore({ file: join(dir, 'preferences.json') });
+    const file = join(dir, 'preferences.json');
+    const store = new PreferencesStore({ file });
     const initial = await store.get();
-    assert.equal('cacheWarnMinutes' in initial, false);
+    assert.equal('cacheChipScope' in initial, false);
 
     const updated = await store.set({
-      cacheWarnMinutes: 5,
-      cacheColdMinutes: 8,
+      cacheChipScope: 'turn',
       firstTokenWaitSeconds: 45,
     });
-    assert.equal(updated.cacheWarnMinutes, 5);
-    assert.equal(updated.cacheColdMinutes, 8);
+    assert.equal(updated.cacheChipScope, 'turn');
     assert.equal(updated.firstTokenWaitSeconds, 45);
 
     const reloaded = await store.get();
-    assert.equal(reloaded.cacheWarnMinutes, 5);
+    assert.equal(reloaded.cacheChipScope, 'turn');
     assert.equal(reloaded.firstTokenWaitSeconds, 45);
 
-    await assert.rejects(() => store.set({ cacheWarnMinutes: -1 }), /Invalid monitor threshold preference/);
+    await assert.rejects(() => store.set({ cacheChipScope: 'invalid' }), /Invalid monitor threshold preference/);
+    await assert.rejects(() => store.set({ firstTokenWaitSeconds: -1 }), /Invalid monitor threshold preference/);
+
+    // 兼容旧版配置文件中残留的 cacheWarnMinutes / cacheColdMinutes 字段，静默忽略不报错
+    writeFileSync(
+      file,
+      JSON.stringify({ schema: 1, language: null, cacheWarnMinutes: 3, cacheColdMinutes: 5, firstTokenWaitSeconds: 20, revision: 2 }),
+      'utf8',
+    );
+    const store2 = new PreferencesStore({ file });
+    const migrated = await store2.get();
+    assert.equal(migrated.firstTokenWaitSeconds, 20);
+    assert.equal('cacheWarnMinutes' in migrated, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

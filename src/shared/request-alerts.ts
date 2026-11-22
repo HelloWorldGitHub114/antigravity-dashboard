@@ -1,17 +1,21 @@
-import type { FirstTokenWaitMetrics, RequestErrorInfo, RequestErrorKind } from '../contracts/metrics.ts';
+import type { FirstTokenWaitMetrics, RequestErrorInfo, RequestErrorKind, TurnMetrics } from '../contracts/metrics.ts';
 import { DEFAULT_MONITOR_PREFS, type ResolvedMonitorPrefs } from '../contracts/preferences.ts';
 
 /**
- * Prompt Cache TTL freshness stage computed from idle time since the last completed model response.
+ * 本轮真实缓存命中状态（依据实际返回中的 cacheReadTokens 与总输入比值判定）。
  */
-export type CacheTtlState = 'idle' | 'active' | 'fresh' | 'warn' | 'cold';
+export type TurnCacheStatusKind = 'idle' | 'hot' | 'warm' | 'cold';
 
-export interface CacheTtlSummary {
-  state: CacheTtlState;
-  elapsedMs: number;
-  progress: number;
-  warnMs: number;
-  coldMs: number;
+export interface TurnCacheSummary {
+  status: TurnCacheStatusKind;
+  hitRate: number | null;
+  firstHitRate: number | null;
+  lastHitRate: number | null;
+  measuredRequests: number;
+  cachedTokens: number;
+  inputTokens: number;
+  /** 多请求轮次中首击显著冷启动（<20%），但后续请求已重新热命中 */
+  coldStartRecovered: boolean;
 }
 
 export type ContextLoadLevel = 'normal' | 'warn' | 'danger';
@@ -96,30 +100,46 @@ export function classifyRequestError(value: unknown = ''): RequestErrorInfo {
 }
 
 /**
- * 计算服务端 Prompt Cache 距上次响应结束后的本地保鲜估算状态。
+ * 基于本轮真实返回的缓存读取与总输入 Token，评估本轮缓存命中冷热级别。
+ * - >= 70%：hot（热命中）
+ * - 20% ~ 70%：warm（部分命中）
+ * - < 20%：cold（未命中 / 冷启动）
  */
-export function resolveCacheTtl(
-  lastResponseAtMs: number | null | undefined,
-  nowMs: number,
-  isGenerating: boolean,
-  prefs: Pick<ResolvedMonitorPrefs, 'cacheWarnMinutes' | 'cacheColdMinutes'> = DEFAULT_MONITOR_PREFS,
-): CacheTtlSummary {
-  const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 60_000 : 0;
-  const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 60_000 : 0;
-  if (warnMs <= 0 || coldMs <= 0) {
-    return { state: 'idle', elapsedMs: 0, progress: 0, warnMs, coldMs };
+export function resolveTurnCacheStatus(turn: TurnMetrics | null | undefined): TurnCacheSummary {
+  if (!turn || turn.cacheMeasuredRequests <= 0 || turn.cacheHitRate === null || !Number.isFinite(turn.cacheHitRate)) {
+    return {
+      status: 'idle',
+      hitRate: null,
+      firstHitRate: null,
+      lastHitRate: null,
+      measuredRequests: turn?.cacheMeasuredRequests ?? 0,
+      cachedTokens: turn?.cachedTokens ?? 0,
+      inputTokens: turn?.inputTokens ?? 0,
+      coldStartRecovered: false,
+    };
   }
-  if (isGenerating) {
-    return { state: 'active', elapsedMs: 0, progress: 0, warnMs, coldMs };
-  }
-  if (typeof lastResponseAtMs !== 'number' || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
-    return { state: 'idle', elapsedMs: 0, progress: 0, warnMs, coldMs };
-  }
-  const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
-  const progress = Math.min(1, elapsedMs / coldMs);
-  const state: CacheTtlState =
-    elapsedMs >= coldMs ? 'cold' : elapsedMs >= warnMs ? 'warn' : 'fresh';
-  return { state, elapsedMs, progress, warnMs, coldMs };
+  const hitRate = Math.min(1, Math.max(0, turn.cacheHitRate));
+  const firstHitRate =
+    typeof turn.firstRequestCacheHitRate === 'number' && Number.isFinite(turn.firstRequestCacheHitRate)
+      ? Math.min(1, Math.max(0, turn.firstRequestCacheHitRate))
+      : null;
+  const lastHitRate =
+    typeof turn.lastRequestCacheHitRate === 'number' && Number.isFinite(turn.lastRequestCacheHitRate)
+      ? Math.min(1, Math.max(0, turn.lastRequestCacheHitRate))
+      : null;
+  const status: TurnCacheStatusKind = hitRate >= 0.7 ? 'hot' : hitRate >= 0.2 ? 'warm' : 'cold';
+  const coldStartRecovered =
+    turn.cacheMeasuredRequests >= 2 && firstHitRate !== null && firstHitRate < 0.2 && hitRate >= 0.2;
+  return {
+    status,
+    hitRate,
+    firstHitRate,
+    lastHitRate,
+    measuredRequests: turn.cacheMeasuredRequests,
+    cachedTokens: turn.cachedTokens,
+    inputTokens: turn.inputTokens,
+    coldStartRecovered,
+  };
 }
 
 /**
@@ -174,20 +194,4 @@ export function summarizeActiveWaitAlert(
     maxWaitSec,
     isWaitingNow: currentWaitSec !== null,
   };
-}
-
-/**
- * 将毫秒耗时格式化为紧凑的短时长文本（如 `42s`、`3m 12s`、`12m+`）。
- */
-export function formatCompactElapsedMs(elapsedMs: number): string {
-  const totalSec = Math.max(0, Math.floor(elapsedMs / 1000));
-  if (totalSec < 60) return `${totalSec}s`;
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  if (mins >= 60) {
-    const hours = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  }
-  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }

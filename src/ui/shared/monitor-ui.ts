@@ -1,8 +1,8 @@
 import type { ContextBreakdown, RequestErrorInfo, RequestErrorKind, TurnState } from '../../contracts/metrics.ts';
-import {
-  formatCompactElapsedMs,
-  type ActiveWaitAlertSummary,
-  type CacheTtlSummary,
+import { compact, percent } from '../../shared/format.ts';
+import type {
+  ActiveWaitAlertSummary,
+  TurnCacheSummary,
 } from '../../shared/request-alerts.ts';
 
 type Translator = (key: string, params?: Record<string, string | number>) => string;
@@ -35,13 +35,47 @@ export function errorKindCopy(kind: RequestErrorKind, t: Translator): ErrorKindC
   }
 }
 
-export function formatCacheTtlText(ttl: CacheTtlSummary, t: Translator): string {
-  if (ttl.state === 'active') return t('cacheTtlActive');
-  if (ttl.state === 'idle') return '—';
-  const time = formatCompactElapsedMs(ttl.elapsedMs);
-  if (ttl.state === 'cold') return t('cacheTtlCold', { time });
-  if (ttl.state === 'warn') return t('cacheTtlWarn', { time });
-  return t('cacheTtlFresh', { time });
+export interface TurnCacheDisplay {
+  visible: boolean;
+  status: TurnCacheSummary['status'];
+  headline: string;
+  meta: string;
+  barPct: number;
+}
+
+/**
+ * 生成“本轮缓存命中”区块的主标题文案、进度条宽度与首击/末次明细。
+ */
+export function formatTurnCacheDisplay(summary: TurnCacheSummary, t: Translator): TurnCacheDisplay {
+  if (summary.status === 'idle' || summary.hitRate === null) {
+    return { visible: false, status: 'idle', headline: '—', meta: '', barPct: 0 };
+  }
+  const rateText = percent(summary.hitRate);
+  const statusLabel =
+    summary.status === 'hot'
+      ? t('turnCacheHot')
+      : summary.status === 'warm'
+        ? t('turnCacheWarm')
+        : t('turnCacheCold');
+  const headline = `${rateText} · ${statusLabel}`;
+  const tokPart = `${compact(summary.cachedTokens)} / ${compact(summary.inputTokens)} tok`;
+  const parts: string[] = [];
+  if (summary.measuredRequests >= 2 && summary.firstHitRate !== null && summary.lastHitRate !== null) {
+    parts.push(
+      t('turnCacheRange', {
+        first: percent(summary.firstHitRate),
+        last: percent(summary.lastHitRate),
+      }),
+    );
+  }
+  parts.push(tokPart);
+  return {
+    visible: true,
+    status: summary.status,
+    headline,
+    meta: parts.join(' · '),
+    barPct: Math.round(summary.hitRate * 100),
+  };
 }
 
 export function formatTurnStateLabel(state: TurnState | undefined, t: Translator): string {

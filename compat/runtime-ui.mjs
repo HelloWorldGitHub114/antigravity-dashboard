@@ -412,20 +412,23 @@ function validatePricingOverridesInput(input) {
   }
 }
 var MONITOR_PREFERENCE_KEYS = [
-  "cacheWarnMinutes",
-  "cacheColdMinutes",
+  "cacheChipScope",
   "firstTokenWaitSeconds",
   "contextWarnPct",
   "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
-  cacheWarnMinutes: 3,
-  cacheColdMinutes: 4,
+  cacheChipScope: "session",
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90
 });
 function validateMonitorPrefsInput(input) {
+  if (Object.hasOwn(input, "cacheChipScope")) {
+    if (input.cacheChipScope !== "session" && input.cacheChipScope !== "turn") {
+      throw new Error("Invalid monitor threshold preference");
+    }
+  }
   const checkIntRange = (key, min, max) => {
     if (!Object.hasOwn(input, key)) return;
     const raw = input[key];
@@ -433,8 +436,6 @@ function validateMonitorPrefsInput(input) {
       throw new Error("Invalid monitor threshold preference");
     }
   };
-  checkIntRange("cacheWarnMinutes", 0, 998);
-  checkIntRange("cacheColdMinutes", 0, 999);
   checkIntRange("firstTokenWaitSeconds", 0, 999);
   checkIntRange("contextWarnPct", 50, 95);
   checkIntRange("contextDangerPct", 60, 99);

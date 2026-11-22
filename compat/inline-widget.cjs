@@ -41,15 +41,13 @@ module.exports = function installAgPulseInlineWidget(...args) {
       return Math.round(clamped * 100) / 100;
     }
     var MONITOR_PREFERENCE_KEYS = [
-      "cacheWarnMinutes",
-      "cacheColdMinutes",
+      "cacheChipScope",
       "firstTokenWaitSeconds",
       "contextWarnPct",
       "contextDangerPct"
     ];
     var DEFAULT_MONITOR_PREFS = Object.freeze({
-      cacheWarnMinutes: 3,
-      cacheColdMinutes: 4,
+      cacheChipScope: "session",
       firstTokenWaitSeconds: 30,
       contextWarnPct: 75,
       contextDangerPct: 90
@@ -58,13 +56,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
       if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
       return Math.min(max, Math.max(min, Math.round(value)));
     }
+    function resolveCacheChipScope(value) {
+      return value === "turn" ? "turn" : "session";
+    }
     function resolveMonitorPrefs(raw) {
       const src = raw && typeof raw === "object" && !("error" in raw) ? raw : {};
-      const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
-      let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
-      if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
-        cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
-      }
+      const cacheChipScope = resolveCacheChipScope(src.cacheChipScope);
       const firstTokenWaitSeconds = clampInt(
         src.firstTokenWaitSeconds,
         0,
@@ -77,8 +74,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         contextDangerPct = Math.min(99, contextWarnPct + 5);
       }
       return {
-        cacheWarnMinutes,
-        cacheColdMinutes,
+        cacheChipScope,
         firstTokenWaitSeconds,
         contextWarnPct,
         contextDangerPct
@@ -254,7 +250,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
   ${inlineCss}</style><div class="bar" data-i18n-aria="strip" aria-label="Dashboard statistics">
         <span class="dot" id="dot" title="Connecting"></span>
         <button class="chip" data-card="speed" data-i18n-aria="session" hidden aria-controls="speed-card" aria-expanded="false">${svg("speed")}<span class="rounds dim" id="rounds"></span><strong id="tps">\u2014</strong><span>tok/s</span></button>
-        <button class="chip" data-card="cache" data-i18n-aria="cacheTitle" hidden aria-controls="cache-card" aria-expanded="false">${svg("cache")}<span class="cache-total" id="cache-total">\u2014 tok</span><span class="dim">\xB7</span><span data-i18n="cache">Cache hit</span><strong id="cache-rate">\u2014</strong></button>
+        <button class="chip" data-card="cache" data-i18n-aria="cacheTitle" hidden aria-controls="cache-card" aria-expanded="false">${svg("cache")}<span class="cache-total" id="cache-total">\u2014 tok</span><span class="dim">\xB7</span><span id="cache-chip-label" data-i18n="cache">Cache hit</span><strong id="cache-rate">\u2014</strong></button>
         <button class="chip" data-card="context" data-i18n-aria="context" hidden aria-controls="context-card" aria-expanded="false"><span class="context-ring" id="context-ring" aria-hidden="true"></span><span class="context-label" data-i18n="contextShort">Ctx</span><strong id="context-percent">\u2014</strong></button>
         <button class="chip alert-chip" data-card="alert" data-i18n-aria="alertChipTitle" hidden aria-controls="alert-card" aria-expanded="false">${svg("alert")}<strong id="alert-chip-text">\u2014</strong></button>
       </div><section class="card" id="speed-card" role="region" data-i18n-aria="session" aria-label="Session statistics" hidden>
@@ -262,7 +258,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
         <dl>${speedRows}</dl><div class="turn-section" id="turn-section" hidden><div class="sub-heading"><span data-i18n="turnSectionTitle">${t("turnSectionTitle")}</span><span class="tag" id="turn-state"></span></div><dl><div><dt data-i18n="turnDuration">${t("turnDuration")}</dt><dd id="turn-duration">\u2014</dd></div><div><dt data-i18n="turnRequests">${t("turnRequests")}</dt><dd id="turn-requests">\u2014</dd></div><div><dt data-i18n="turnThinkWrite">${t("turnThinkWrite")}</dt><dd id="turn-tokens">\u2014</dd></div></dl></div><p class="footnote" id="rate-note" hidden>${t("responseBasis")}</p><div id="sidebar-entry"><button type="button" id="open-sidebar"><span id="sidebar-open-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button></div>
       </section><section class="card" id="cache-card" role="region" data-i18n-aria="cacheTitle" aria-label="Token cache" hidden>
         <div class="heading"><span>${svg("cache")}<span data-i18n="cacheTitle">Token cache</span></span><span class="tag" id="cache-coverage">\u2014</span></div>
-        <div class="cache-ttl-section" id="cache-ttl-section" hidden><div class="cache-ttl-head"><span data-i18n="cacheTtlLabel">${t("cacheTtlLabel")}</span><strong id="cache-ttl-text">\u2014</strong></div><div class="ttl-track"><i id="cache-ttl-fill"></i></div></div>
+        <div class="turn-cache-section" id="turn-cache-section" hidden><div class="turn-cache-head"><span data-i18n="turnCacheLabel">${t("turnCacheLabel")}</span><strong id="turn-cache-text">\u2014</strong></div><div class="turn-cache-track"><i id="turn-cache-fill"></i></div><div class="turn-cache-meta" id="turn-cache-meta"></div></div>
         <dl>${cacheRows}<div id="task-tokens-row" hidden><dt data-i18n="taskTotalTokens">${t("taskTotalTokens")}</dt><dd id="task-total-tokens">\u2014</dd></div><div id="subagent-tokens-row" hidden><dt id="subagent-tokens-label" data-i18n="taskTokensSubagents">${t("taskTokensSubagents")}</dt><dd id="subagent-tokens">\u2014</dd></div></dl><div id="model-mix-compact" class="model-mix-compact" data-signature="hidden" hidden><div class="model-mix-head"><span data-i18n="modelMixTitle">${t("modelMixTitle")}</span><span class="tag" id="model-mix-count"></span></div><div class="model-mix-body"><svg class="model-mix-svg" id="model-mix-svg" viewBox="0 0 36 36" aria-hidden="true"><circle class="model-mix-track" cx="18" cy="18" r="13"></circle></svg><div class="model-mix-legend" id="model-mix-legend"></div></div></div><p class="footnote" id="cache-note" hidden></p>
       </section><section class="card context-card" id="context-card" role="region" data-i18n-aria="context" aria-label="Context window" hidden>
         <div class="heading"><span>${svg("context")}<span data-i18n="context">Context window</span></span><span class="tag" id="context-compaction-pill" hidden></span></div>
@@ -3173,14 +3169,13 @@ module.exports = function installAgPulseInlineWidget(...args) {
     }
   }
 
-  /* \u7F13\u5B58\u4FDD\u9C9C\u63D0\u9192\u3001\u4E0A\u4E0B\u6587\u9884\u8B66\u4E0E\u56DB\u6BB5\u62C6\u89E3\u3001\u672C\u8F6E\u6C47\u603B\u3001\u5F02\u5E38\u544A\u8B66\u80F6\u56CA */
-  .chip[data-card="cache"][data-ttl="warn"],
-  .chip[data-card="cache"][data-ttl="warn"] svg {
+  /* \u672C\u8F6E\u7F13\u5B58\u547D\u4E2D\u3001\u4E0A\u4E0B\u6587\u9884\u8B66\u4E0E\u56DB\u6BB5\u62C6\u89E3\u3001\u672C\u8F6E\u6C47\u603B\u3001\u5F02\u5E38\u544A\u8B66\u80F6\u56CA */
+  .chip[data-card="cache"][data-cache-status="warm"] strong {
     color: var(--pulse-warning);
   }
 
-  .chip[data-card="cache"][data-ttl="cold"],
-  .chip[data-card="cache"][data-ttl="cold"] svg {
+  .chip[data-card="cache"][data-cache-status="cold"] strong,
+  .chip[data-card="cache"][data-cache-status="cold"] svg {
     color: var(--pulse-danger);
   }
 
@@ -3246,17 +3241,17 @@ module.exports = function installAgPulseInlineWidget(...args) {
     margin-bottom: 6px;
   }
 
-  .cache-ttl-section {
+  .turn-cache-section {
     margin: 0 0 10px;
     padding-bottom: 9px;
     border-bottom: 1px solid var(--pulse-separator);
   }
 
-  .cache-ttl-section[hidden] {
+  .turn-cache-section[hidden] {
     display: none;
   }
 
-  .cache-ttl-head {
+  .turn-cache-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -3266,47 +3261,58 @@ module.exports = function installAgPulseInlineWidget(...args) {
     margin-bottom: 6px;
   }
 
-  .cache-ttl-head strong {
+  .turn-cache-head strong {
     font-weight: 550;
     font-variant-numeric: tabular-nums;
     color: var(--pulse-foreground);
   }
 
-  .cache-ttl-section[data-ttl="active"] .cache-ttl-head strong,
-  .cache-ttl-section[data-ttl="fresh"] .cache-ttl-head strong {
+  .turn-cache-section[data-cache-status="hot"] .turn-cache-head strong {
     color: var(--pulse-success);
   }
 
-  .cache-ttl-section[data-ttl="warn"] .cache-ttl-head strong {
+  .turn-cache-section[data-cache-status="warm"] .turn-cache-head strong {
     color: var(--pulse-warning);
   }
 
-  .cache-ttl-section[data-ttl="cold"] .cache-ttl-head strong {
+  .turn-cache-section[data-cache-status="cold"] .turn-cache-head strong {
     color: var(--pulse-danger);
   }
 
-  .ttl-track {
+  .turn-cache-track {
     height: 3px;
     border-radius: 99px;
     background: var(--pulse-track);
     overflow: hidden;
   }
 
-  .ttl-track i {
+  .turn-cache-track i {
     display: block;
     height: 100%;
     width: 0;
     border-radius: inherit;
     background: var(--pulse-success);
-    transition: width 350ms linear, background-color 200ms ease;
+    transition: width 260ms cubic-bezier(.22, 1, .36, 1), background-color 200ms ease;
   }
 
-  .cache-ttl-section[data-ttl="warn"] .ttl-track i {
+  .turn-cache-section[data-cache-status="warm"] .turn-cache-track i {
     background: var(--pulse-warning);
   }
 
-  .cache-ttl-section[data-ttl="cold"] .ttl-track i {
+  .turn-cache-section[data-cache-status="cold"] .turn-cache-track i {
     background: var(--pulse-danger);
+  }
+
+  .turn-cache-meta {
+    margin-top: 5px;
+    font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+    color: var(--pulse-muted);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+  }
+
+  .turn-cache-meta:empty {
+    display: none;
   }
 
   .ctx-breakdown {
@@ -3963,22 +3969,34 @@ module.exports = function installAgPulseInlineWidget(...args) {
     }
 
     // src/shared/request-alerts.ts
-    function resolveCacheTtl(lastResponseAtMs, nowMs, isGenerating, prefs = DEFAULT_MONITOR_PREFS) {
-      const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 6e4 : 0;
-      const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 6e4 : 0;
-      if (warnMs <= 0 || coldMs <= 0) {
-        return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+    function resolveTurnCacheStatus(turn) {
+      if (!turn || turn.cacheMeasuredRequests <= 0 || turn.cacheHitRate === null || !Number.isFinite(turn.cacheHitRate)) {
+        return {
+          status: "idle",
+          hitRate: null,
+          firstHitRate: null,
+          lastHitRate: null,
+          measuredRequests: turn?.cacheMeasuredRequests ?? 0,
+          cachedTokens: turn?.cachedTokens ?? 0,
+          inputTokens: turn?.inputTokens ?? 0,
+          coldStartRecovered: false
+        };
       }
-      if (isGenerating) {
-        return { state: "active", elapsedMs: 0, progress: 0, warnMs, coldMs };
-      }
-      if (typeof lastResponseAtMs !== "number" || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
-        return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
-      }
-      const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
-      const progress = Math.min(1, elapsedMs / coldMs);
-      const state = elapsedMs >= coldMs ? "cold" : elapsedMs >= warnMs ? "warn" : "fresh";
-      return { state, elapsedMs, progress, warnMs, coldMs };
+      const hitRate = Math.min(1, Math.max(0, turn.cacheHitRate));
+      const firstHitRate = typeof turn.firstRequestCacheHitRate === "number" && Number.isFinite(turn.firstRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.firstRequestCacheHitRate)) : null;
+      const lastHitRate = typeof turn.lastRequestCacheHitRate === "number" && Number.isFinite(turn.lastRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.lastRequestCacheHitRate)) : null;
+      const status = hitRate >= 0.7 ? "hot" : hitRate >= 0.2 ? "warm" : "cold";
+      const coldStartRecovered = turn.cacheMeasuredRequests >= 2 && firstHitRate !== null && firstHitRate < 0.2 && hitRate >= 0.2;
+      return {
+        status,
+        hitRate,
+        firstHitRate,
+        lastHitRate,
+        measuredRequests: turn.cacheMeasuredRequests,
+        cachedTokens: turn.cachedTokens,
+        inputTokens: turn.inputTokens,
+        coldStartRecovered
+      };
     }
     function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
       if (typeof usedFraction !== "number" || !Number.isFinite(usedFraction) || usedFraction < 0) {
@@ -4014,18 +4032,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
         isWaitingNow: currentWaitSec !== null
       };
     }
-    function formatCompactElapsedMs(elapsedMs) {
-      const totalSec = Math.max(0, Math.floor(elapsedMs / 1e3));
-      if (totalSec < 60) return `${totalSec}s`;
-      const mins = Math.floor(totalSec / 60);
-      const secs = totalSec % 60;
-      if (mins >= 60) {
-        const hours = Math.floor(mins / 60);
-        const remMins = mins % 60;
-        return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-      }
-      return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-    }
 
     // src/ui/shared/monitor-ui.ts
     function errorKindCopy(kind, t) {
@@ -4050,13 +4056,31 @@ module.exports = function installAgPulseInlineWidget(...args) {
           return { label: t("alertErrorUnknown"), desc: t("alertErrorUnknownDesc") };
       }
     }
-    function formatCacheTtlText(ttl, t) {
-      if (ttl.state === "active") return t("cacheTtlActive");
-      if (ttl.state === "idle") return "\u2014";
-      const time = formatCompactElapsedMs(ttl.elapsedMs);
-      if (ttl.state === "cold") return t("cacheTtlCold", { time });
-      if (ttl.state === "warn") return t("cacheTtlWarn", { time });
-      return t("cacheTtlFresh", { time });
+    function formatTurnCacheDisplay(summary, t) {
+      if (summary.status === "idle" || summary.hitRate === null) {
+        return { visible: false, status: "idle", headline: "\u2014", meta: "", barPct: 0 };
+      }
+      const rateText = percent(summary.hitRate);
+      const statusLabel = summary.status === "hot" ? t("turnCacheHot") : summary.status === "warm" ? t("turnCacheWarm") : t("turnCacheCold");
+      const headline = `${rateText} \xB7 ${statusLabel}`;
+      const tokPart = `${compact(summary.cachedTokens)} / ${compact(summary.inputTokens)} tok`;
+      const parts = [];
+      if (summary.measuredRequests >= 2 && summary.firstHitRate !== null && summary.lastHitRate !== null) {
+        parts.push(
+          t("turnCacheRange", {
+            first: percent(summary.firstHitRate),
+            last: percent(summary.lastHitRate)
+          })
+        );
+      }
+      parts.push(tokPart);
+      return {
+        visible: true,
+        status: summary.status,
+        headline,
+        meta: parts.join(" \xB7 "),
+        barPct: Math.round(summary.hitRate * 100)
+      };
     }
     function formatTurnStateLabel(state, t) {
       switch (state) {
@@ -4242,8 +4266,36 @@ module.exports = function installAgPulseInlineWidget(...args) {
       const rateNoteEl = $("rate-note");
       if (rateNoteEl && !rateNoteEl.hidden) rateNoteEl.hidden = true;
       const cache = speed?.cache;
-      setText($("cache-rate"), percent(cache?.hitRate));
+      const turn = speed?.turnMetrics ?? null;
+      const turnCacheSummary = resolveTurnCacheStatus(turn);
+      const turnCacheView = formatTurnCacheDisplay(turnCacheSummary, t);
+      const useTurnScope = monitorPrefs.cacheChipScope === "turn";
+      const cacheChipLabel = $("cache-chip-label");
+      if (cacheChipLabel) {
+        const labelKey = useTurnScope ? "turnCacheChip" : "cache";
+        if (cacheChipLabel.getAttribute("data-i18n") !== labelKey) {
+          setAttr(cacheChipLabel, "data-i18n", labelKey);
+        }
+        setText(cacheChipLabel, t(labelKey));
+      }
+      setText($("cache-rate"), percent(useTurnScope ? turnCacheSummary.hitRate : cache?.hitRate));
       setText($("cache-detail-rate"), percent(cache?.hitRate));
+      const cacheChip = root.querySelector('[data-card="cache"]');
+      if (cacheChip) {
+        if (useTurnScope && turnCacheSummary.status !== "idle") {
+          cacheChip.dataset.cacheStatus = turnCacheSummary.status;
+        } else {
+          delete cacheChip.dataset.cacheStatus;
+        }
+      }
+      const turnCacheSec = $("turn-cache-section");
+      if (turnCacheSec) {
+        toggleHidden(turnCacheSec, !turnCacheView.visible);
+        turnCacheSec.dataset.cacheStatus = turnCacheView.status;
+        setText($("turn-cache-text"), turnCacheView.headline);
+        setText($("turn-cache-meta"), turnCacheView.meta);
+        setStyle($("turn-cache-fill"), "width", `${turnCacheView.barPct}%`);
+      }
       const tokens = speed?.tokens || cache;
       const hasTotal = Boolean(tokens?.measuredRequests) && Number.isSafeInteger(tokens?.totalTokens) && (tokens?.totalTokens ?? -1) >= 0;
       setText($("cache-total"), hasTotal ? `${compact(tokens?.totalTokens)} tok` : "\u2014 tok");
@@ -4280,7 +4332,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
         toggleHidden($("subagent-tokens-row"), true);
       }
       toggleHidden($("cache-note"), true);
-      const turn = speed?.turnMetrics ?? null;
       toggleHidden($("turn-section"), !turn);
       if (turn) {
         setText($("turn-state"), formatTurnStateLabel(turn.state, t));
@@ -4299,27 +4350,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
       if (turn) {
         const liveSec = turn.durationSeconds !== null ? turn.durationSeconds : (turn.state === "running" || turn.state === "queued") && turn.startedAtMs ? Math.max(0, (nowMs - turn.startedAtMs) / 1e3) : null;
         setText($("turn-duration"), language.elapsed(liveSec));
-      }
-      const ttl = resolveCacheTtl(
-        speed?.lastResponseAtMs,
-        nowMs,
-        speed?.isGenerating === true,
-        prefs
-      );
-      const cacheChip = root.querySelector('[data-card="cache"]');
-      if (cacheChip) {
-        cacheChip.dataset.ttl = ttl.state;
-      }
-      const ttlSection = $("cache-ttl-section");
-      if (ttlSection) {
-        toggleHidden(ttlSection, !speed || ttl.state === "idle");
-        ttlSection.dataset.ttl = ttl.state;
-        setText($("cache-ttl-text"), formatCacheTtlText(ttl, t));
-        setStyle(
-          $("cache-ttl-fill"),
-          "width",
-          ttl.state === "active" ? "100%" : `${Math.round(ttl.progress * 100)}%`
-        );
       }
       const err = speed?.requestError ?? null;
       const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);

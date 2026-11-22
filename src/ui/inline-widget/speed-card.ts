@@ -3,14 +3,14 @@ import { resolveMonitorPrefs } from '../../contracts/preferences.ts';
 import { setAttr, setStyle, setText } from '../../shared/dom.ts';
 import { compact, count, percent, rate } from '../../shared/format.ts';
 import {
-  resolveCacheTtl,
   resolveContextLoad,
+  resolveTurnCacheStatus,
   summarizeActiveWaitAlert,
 } from '../../shared/request-alerts.ts';
 import {
   buildContextBreakdownSegments,
   errorKindCopy,
-  formatCacheTtlText,
+  formatTurnCacheDisplay,
   formatTurnStateLabel,
   resolveAlertBadge,
 } from '../shared/monitor-ui.ts';
@@ -201,8 +201,37 @@ export function renderSpeedContextCacheCards(params: {
   if (rateNoteEl && !rateNoteEl.hidden) rateNoteEl.hidden = true;
 
   const cache = speed?.cache;
-  setText($('cache-rate'), percent(cache?.hitRate));
+  const turn = speed?.turnMetrics ?? null;
+  const turnCacheSummary = resolveTurnCacheStatus(turn);
+  const turnCacheView = formatTurnCacheDisplay(turnCacheSummary, t);
+  const useTurnScope = monitorPrefs.cacheChipScope === 'turn';
+  const cacheChipLabel = $('cache-chip-label');
+  if (cacheChipLabel) {
+    const labelKey = useTurnScope ? 'turnCacheChip' : 'cache';
+    if (cacheChipLabel.getAttribute('data-i18n') !== labelKey) {
+      setAttr(cacheChipLabel, 'data-i18n', labelKey);
+    }
+    setText(cacheChipLabel, t(labelKey));
+  }
+  setText($('cache-rate'), percent(useTurnScope ? turnCacheSummary.hitRate : cache?.hitRate));
   setText($('cache-detail-rate'), percent(cache?.hitRate));
+
+  const cacheChip = root.querySelector<HTMLElement>('[data-card="cache"]');
+  if (cacheChip) {
+    if (useTurnScope && turnCacheSummary.status !== 'idle') {
+      cacheChip.dataset.cacheStatus = turnCacheSummary.status;
+    } else {
+      delete cacheChip.dataset.cacheStatus;
+    }
+  }
+  const turnCacheSec = $('turn-cache-section') as HTMLElement | null;
+  if (turnCacheSec) {
+    toggleHidden(turnCacheSec, !turnCacheView.visible);
+    turnCacheSec.dataset.cacheStatus = turnCacheView.status;
+    setText($('turn-cache-text'), turnCacheView.headline);
+    setText($('turn-cache-meta'), turnCacheView.meta);
+    setStyle($('turn-cache-fill') as HTMLElement | null, 'width', `${turnCacheView.barPct}%`);
+  }
 
   const tokens = (speed?.tokens || cache) as Partial<TokenSummary> | undefined;
   // Keep coverage in the data model; the compact card shows readable counters.
@@ -251,7 +280,6 @@ export function renderSpeedContextCacheCards(params: {
   toggleHidden($('cache-note') as HTMLElement | null, true);
 
   // 本轮汇总（最新一条用户消息维度）
-  const turn = speed?.turnMetrics ?? null;
   toggleHidden($('turn-section') as HTMLElement | null, !turn);
   if (turn) {
     setText($('turn-state'), formatTurnStateLabel(turn.state, t));
@@ -264,7 +292,7 @@ export function renderSpeedContextCacheCards(params: {
 
 /**
  * 每秒实时刷新依赖本地时钟的底栏监控项：
- * Prompt Cache 保鲜进度条、本轮实时耗时与异常/首字等待告警胶囊。
+ * 本轮实时耗时与异常/首字等待告警胶囊。
  */
 export function tickInlineMonitorLive(
   root: ShadowRoot,
@@ -290,30 +318,7 @@ export function tickInlineMonitorLive(
     setText($('turn-duration'), language.elapsed(liveSec));
   }
 
-  // 3. Prompt Cache 过期倒计时提醒
-  const ttl = resolveCacheTtl(
-    speed?.lastResponseAtMs,
-    nowMs,
-    speed?.isGenerating === true,
-    prefs,
-  );
-  const cacheChip = root.querySelector<HTMLElement>('[data-card="cache"]');
-  if (cacheChip) {
-    cacheChip.dataset.ttl = ttl.state;
-  }
-  const ttlSection = $('cache-ttl-section') as HTMLElement | null;
-  if (ttlSection) {
-    toggleHidden(ttlSection, !speed || ttl.state === 'idle');
-    ttlSection.dataset.ttl = ttl.state;
-    setText($('cache-ttl-text'), formatCacheTtlText(ttl, t));
-    setStyle(
-      $('cache-ttl-fill') as HTMLElement | null,
-      'width',
-      ttl.state === 'active' ? '100%' : `${Math.round(ttl.progress * 100)}%`,
-    );
-  }
-
-  // 4. 请求失败 + 首字等待告警胶囊（平时隐藏，仅异常或卡首字时弹出）
+  // 2. 请求失败 + 首字等待告警胶囊（平时隐藏，仅异常或卡首字时弹出）
   const err = speed?.requestError ?? null;
   const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);
   const badge = resolveAlertBadge(err, waitAlert, t);

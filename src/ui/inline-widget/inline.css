@@ -1234,14 +1234,13 @@ select {
   }
 }
 
-/* 缓存保鲜提醒、上下文预警与四段拆解、本轮汇总、异常告警胶囊 */
-.chip[data-card="cache"][data-ttl="warn"],
-.chip[data-card="cache"][data-ttl="warn"] svg {
+/* 本轮缓存命中、上下文预警与四段拆解、本轮汇总、异常告警胶囊 */
+.chip[data-card="cache"][data-cache-status="warm"] strong {
   color: var(--pulse-warning);
 }
 
-.chip[data-card="cache"][data-ttl="cold"],
-.chip[data-card="cache"][data-ttl="cold"] svg {
+.chip[data-card="cache"][data-cache-status="cold"] strong,
+.chip[data-card="cache"][data-cache-status="cold"] svg {
   color: var(--pulse-danger);
 }
 
@@ -1307,17 +1306,17 @@ select {
   margin-bottom: 6px;
 }
 
-.cache-ttl-section {
+.turn-cache-section {
   margin: 0 0 10px;
   padding-bottom: 9px;
   border-bottom: 1px solid var(--pulse-separator);
 }
 
-.cache-ttl-section[hidden] {
+.turn-cache-section[hidden] {
   display: none;
 }
 
-.cache-ttl-head {
+.turn-cache-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1327,47 +1326,58 @@ select {
   margin-bottom: 6px;
 }
 
-.cache-ttl-head strong {
+.turn-cache-head strong {
   font-weight: 550;
   font-variant-numeric: tabular-nums;
   color: var(--pulse-foreground);
 }
 
-.cache-ttl-section[data-ttl="active"] .cache-ttl-head strong,
-.cache-ttl-section[data-ttl="fresh"] .cache-ttl-head strong {
+.turn-cache-section[data-cache-status="hot"] .turn-cache-head strong {
   color: var(--pulse-success);
 }
 
-.cache-ttl-section[data-ttl="warn"] .cache-ttl-head strong {
+.turn-cache-section[data-cache-status="warm"] .turn-cache-head strong {
   color: var(--pulse-warning);
 }
 
-.cache-ttl-section[data-ttl="cold"] .cache-ttl-head strong {
+.turn-cache-section[data-cache-status="cold"] .turn-cache-head strong {
   color: var(--pulse-danger);
 }
 
-.ttl-track {
+.turn-cache-track {
   height: 3px;
   border-radius: 99px;
   background: var(--pulse-track);
   overflow: hidden;
 }
 
-.ttl-track i {
+.turn-cache-track i {
   display: block;
   height: 100%;
   width: 0;
   border-radius: inherit;
   background: var(--pulse-success);
-  transition: width 350ms linear, background-color 200ms ease;
+  transition: width 260ms cubic-bezier(.22, 1, .36, 1), background-color 200ms ease;
 }
 
-.cache-ttl-section[data-ttl="warn"] .ttl-track i {
+.turn-cache-section[data-cache-status="warm"] .turn-cache-track i {
   background: var(--pulse-warning);
 }
 
-.cache-ttl-section[data-ttl="cold"] .ttl-track i {
+.turn-cache-section[data-cache-status="cold"] .turn-cache-track i {
   background: var(--pulse-danger);
+}
+
+.turn-cache-meta {
+  margin-top: 5px;
+  font-size: calc(10px * var(--pulse-inline-font-scale, 1));
+  color: var(--pulse-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.turn-cache-meta:empty {
+  display: none;
 }
 
 .ctx-breakdown {

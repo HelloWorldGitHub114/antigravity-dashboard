@@ -51,15 +51,13 @@
     return out;
   }
   var MONITOR_PREFERENCE_KEYS = [
-    "cacheWarnMinutes",
-    "cacheColdMinutes",
+    "cacheChipScope",
     "firstTokenWaitSeconds",
     "contextWarnPct",
     "contextDangerPct"
   ];
   var DEFAULT_MONITOR_PREFS = Object.freeze({
-    cacheWarnMinutes: 3,
-    cacheColdMinutes: 4,
+    cacheChipScope: "session",
     firstTokenWaitSeconds: 30,
     contextWarnPct: 75,
     contextDangerPct: 90
@@ -68,13 +66,12 @@
     if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
     return Math.min(max, Math.max(min, Math.round(value)));
   }
+  function resolveCacheChipScope(value) {
+    return value === "turn" ? "turn" : "session";
+  }
   function resolveMonitorPrefs(raw) {
     const src = raw && typeof raw === "object" && !("error" in raw) ? raw : {};
-    const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
-    let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
-    if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
-      cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
-    }
+    const cacheChipScope = resolveCacheChipScope(src.cacheChipScope);
     const firstTokenWaitSeconds = clampInt(
       src.firstTokenWaitSeconds,
       0,
@@ -87,8 +84,7 @@
       contextDangerPct = Math.min(99, contextWarnPct + 5);
     }
     return {
-      cacheWarnMinutes,
-      cacheColdMinutes,
+      cacheChipScope,
       firstTokenWaitSeconds,
       contextWarnPct,
       contextDangerPct
@@ -574,12 +570,12 @@
     forecastBasisWeekly: "{remaining} quota left \xB7 {time} of the week left \xB7 warms up for 12h (under 25% used) and smooths day 1 against a 24h day",
     quotaWindowUsage: "Window tokens",
     quotaWindowBasis: "Local tokens recorded for this account in the current quota window.",
-    cacheTtlLabel: "Cache freshness",
-    cacheTtlActive: "Active now",
-    cacheTtlFresh: "Fresh \xB7 {time}",
-    cacheTtlWarn: "Expiring soon \xB7 {time}",
-    cacheTtlCold: "Likely expired \xB7 {time}",
-    cacheTtlHint: "Estimated locally from idle time since the last model reply; server cache TTL may vary.",
+    turnCacheLabel: "Latest turn cache",
+    turnCacheChip: "Turn cache",
+    turnCacheHot: "Hot",
+    turnCacheWarm: "Partial",
+    turnCacheCold: "Cold miss",
+    turnCacheRange: "1st {first} \u2192 last {last}",
     contextBreakdownTitle: "Context composition",
     contextSegBaseline: "Baseline",
     contextSegRead: "Read",
@@ -624,9 +620,10 @@
     alertErrorCanceledDesc: "The request was canceled before completion.",
     alertErrorUnknown: "Request failed",
     alertErrorUnknownDesc: "The latest model request reported an error.",
-    settingsMonitorTitle: "Alert thresholds",
-    settingsCacheWarn: "Cache warn (min)",
-    settingsCacheCold: "Cache expire (min)",
+    settingsMonitorTitle: "Monitor & display",
+    settingsCacheScope: "Cache metric scope",
+    settingsCacheScopeSession: "Session",
+    settingsCacheScopeTurn: "Latest turn",
     settingsWaitAlert: "First-token wait (sec)",
     settingsMonitorReset: "Reset",
     settingsMonitorSaved: "Saved monitor settings"
@@ -869,12 +866,12 @@
     forecastBasisWeekly: "\u5269\u4F59\u989D\u5EA6 {remaining} \xB7 \u5269\u4F59\u65F6\u95F4 {time} \xB7 \u524D 12h\uFF08\u7528\u91CF\u4F4E\u4E8E 25%\uFF09\u9884\u70ED\uFF0C\u9996\u65E5\u6309\u5B8C\u6574\u65E5\u6298\u7B97\uFF0C\u6EE1 24h \u540E\u6309\u8DE8\u5929\u5747\u503C\u63A8\u7B97",
     quotaWindowUsage: "\u5468\u671F\u7528\u91CF",
     quotaWindowBasis: "\u5F53\u524D\u8D26\u53F7\u8BE5\u989D\u5EA6\u5468\u671F\u5185\u672C\u673A\u5B9E\u6D4B\u6D41\u7ECF Token\u3002",
-    cacheTtlLabel: "\u7F13\u5B58\u4FDD\u9C9C",
-    cacheTtlActive: "\u751F\u6210\u4E2D",
-    cacheTtlFresh: "\u4FDD\u9C9C\u4E2D \xB7 {time}",
-    cacheTtlWarn: "\u5373\u5C06\u8FC7\u671F \xB7 {time}",
-    cacheTtlCold: "\u53EF\u80FD\u5DF2\u8FC7\u671F \xB7 {time}",
-    cacheTtlHint: "\u6309\u8DDD\u4E0A\u6B21\u56DE\u590D\u7684\u9759\u7F6E\u65F6\u957F\u672C\u5730\u4F30\u7B97\uFF0C\u670D\u52A1\u7AEF\u5B9E\u9645\u7F13\u5B58\u7559\u5B58\u4EE5\u5B9E\u6D4B\u4E3A\u51C6\u3002",
+    turnCacheLabel: "\u672C\u8F6E\u7F13\u5B58\u547D\u4E2D",
+    turnCacheChip: "\u672C\u8F6E\u7F13\u5B58",
+    turnCacheHot: "\u70ED\u547D\u4E2D",
+    turnCacheWarm: "\u90E8\u5206\u547D\u4E2D",
+    turnCacheCold: "\u672A\u547D\u4E2D",
+    turnCacheRange: "\u9996\u51FB {first} \u2192 \u672B\u6B21 {last}",
     contextBreakdownTitle: "\u4E0A\u4E0B\u6587\u6784\u6210",
     contextSegBaseline: "\u9996\u8F6E",
     contextSegRead: "\u8BFB\u53D6",
@@ -919,9 +916,10 @@
     alertErrorCanceledDesc: "\u8BE5\u6B21\u6A21\u578B\u8BF7\u6C42\u5728\u5B8C\u6210\u524D\u88AB\u53D6\u6D88\u3002",
     alertErrorUnknown: "\u8BF7\u6C42\u5931\u8D25",
     alertErrorUnknownDesc: "\u6700\u8FD1\u4E00\u6B21\u6A21\u578B\u8BF7\u6C42\u8FD4\u56DE\u4E86\u9519\u8BEF\u3002",
-    settingsMonitorTitle: "\u63D0\u9192\u9608\u503C",
-    settingsCacheWarn: "\u7F13\u5B58\u53D8\u9EC4\uFF08\u5206\u949F\uFF09",
-    settingsCacheCold: "\u7F13\u5B58\u8FC7\u671F\uFF08\u5206\u949F\uFF09",
+    settingsMonitorTitle: "\u76D1\u63A7\u4E0E\u663E\u793A",
+    settingsCacheScope: "\u7F13\u5B58\u6307\u6807\u53E3\u5F84",
+    settingsCacheScopeSession: "\u4F1A\u8BDD\u7D2F\u8BA1",
+    settingsCacheScopeTurn: "\u672C\u8F6E\u547D\u4E2D",
     settingsWaitAlert: "\u9996\u5B57\u7B49\u5F85\uFF08\u79D2\uFF09",
     settingsMonitorReset: "\u6062\u590D\u9ED8\u8BA4",
     settingsMonitorSaved: "\u63D0\u9192\u9608\u503C\u5DF2\u4FDD\u5B58"
@@ -8464,22 +8462,34 @@ ${FONT_POPOVER_CSS}`;
   }
 
   // src/shared/request-alerts.ts
-  function resolveCacheTtl(lastResponseAtMs, nowMs, isGenerating, prefs = DEFAULT_MONITOR_PREFS) {
-    const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 6e4 : 0;
-    const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 6e4 : 0;
-    if (warnMs <= 0 || coldMs <= 0) {
-      return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+  function resolveTurnCacheStatus(turn) {
+    if (!turn || turn.cacheMeasuredRequests <= 0 || turn.cacheHitRate === null || !Number.isFinite(turn.cacheHitRate)) {
+      return {
+        status: "idle",
+        hitRate: null,
+        firstHitRate: null,
+        lastHitRate: null,
+        measuredRequests: turn?.cacheMeasuredRequests ?? 0,
+        cachedTokens: turn?.cachedTokens ?? 0,
+        inputTokens: turn?.inputTokens ?? 0,
+        coldStartRecovered: false
+      };
     }
-    if (isGenerating) {
-      return { state: "active", elapsedMs: 0, progress: 0, warnMs, coldMs };
-    }
-    if (typeof lastResponseAtMs !== "number" || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
-      return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
-    }
-    const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
-    const progress = Math.min(1, elapsedMs / coldMs);
-    const state = elapsedMs >= coldMs ? "cold" : elapsedMs >= warnMs ? "warn" : "fresh";
-    return { state, elapsedMs, progress, warnMs, coldMs };
+    const hitRate = Math.min(1, Math.max(0, turn.cacheHitRate));
+    const firstHitRate = typeof turn.firstRequestCacheHitRate === "number" && Number.isFinite(turn.firstRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.firstRequestCacheHitRate)) : null;
+    const lastHitRate = typeof turn.lastRequestCacheHitRate === "number" && Number.isFinite(turn.lastRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.lastRequestCacheHitRate)) : null;
+    const status = hitRate >= 0.7 ? "hot" : hitRate >= 0.2 ? "warm" : "cold";
+    const coldStartRecovered = turn.cacheMeasuredRequests >= 2 && firstHitRate !== null && firstHitRate < 0.2 && hitRate >= 0.2;
+    return {
+      status,
+      hitRate,
+      firstHitRate,
+      lastHitRate,
+      measuredRequests: turn.cacheMeasuredRequests,
+      cachedTokens: turn.cachedTokens,
+      inputTokens: turn.inputTokens,
+      coldStartRecovered
+    };
   }
   function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
     if (typeof usedFraction !== "number" || !Number.isFinite(usedFraction) || usedFraction < 0) {
@@ -8515,18 +8525,6 @@ ${FONT_POPOVER_CSS}`;
       isWaitingNow: currentWaitSec !== null
     };
   }
-  function formatCompactElapsedMs(elapsedMs) {
-    const totalSec = Math.max(0, Math.floor(elapsedMs / 1e3));
-    if (totalSec < 60) return `${totalSec}s`;
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    if (mins >= 60) {
-      const hours = Math.floor(mins / 60);
-      const remMins = mins % 60;
-      return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-    }
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  }
 
   // src/ui/shared/monitor-ui.ts
   function errorKindCopy(kind, t) {
@@ -8551,13 +8549,31 @@ ${FONT_POPOVER_CSS}`;
         return { label: t("alertErrorUnknown"), desc: t("alertErrorUnknownDesc") };
     }
   }
-  function formatCacheTtlText(ttl, t) {
-    if (ttl.state === "active") return t("cacheTtlActive");
-    if (ttl.state === "idle") return "\u2014";
-    const time = formatCompactElapsedMs(ttl.elapsedMs);
-    if (ttl.state === "cold") return t("cacheTtlCold", { time });
-    if (ttl.state === "warn") return t("cacheTtlWarn", { time });
-    return t("cacheTtlFresh", { time });
+  function formatTurnCacheDisplay(summary, t) {
+    if (summary.status === "idle" || summary.hitRate === null) {
+      return { visible: false, status: "idle", headline: "\u2014", meta: "", barPct: 0 };
+    }
+    const rateText = percent(summary.hitRate);
+    const statusLabel = summary.status === "hot" ? t("turnCacheHot") : summary.status === "warm" ? t("turnCacheWarm") : t("turnCacheCold");
+    const headline = `${rateText} \xB7 ${statusLabel}`;
+    const tokPart = `${compact(summary.cachedTokens)} / ${compact(summary.inputTokens)} tok`;
+    const parts = [];
+    if (summary.measuredRequests >= 2 && summary.firstHitRate !== null && summary.lastHitRate !== null) {
+      parts.push(
+        t("turnCacheRange", {
+          first: percent(summary.firstHitRate),
+          last: percent(summary.lastHitRate)
+        })
+      );
+    }
+    parts.push(tokPart);
+    return {
+      visible: true,
+      status: summary.status,
+      headline,
+      meta: parts.join(" \xB7 "),
+      barPct: Math.round(summary.hitRate * 100)
+    };
   }
   function formatTurnStateLabel(state, t) {
     switch (state) {
@@ -9149,8 +9165,36 @@ ${FONT_POPOVER_CSS}`;
     } else {
       setAttr(ctxTrack, "aria-valuenow", null);
     }
-    setText($("strip-cache"), percent(cache?.hitRate));
+    const turn = speed?.turnMetrics ?? null;
+    const turnCacheSummary = resolveTurnCacheStatus(turn);
+    const turnCacheView = formatTurnCacheDisplay(turnCacheSummary, t);
+    const useTurnScope = monitorPrefs.cacheChipScope === "turn";
+    const cacheTabLabel = $("panel-cache-tab-label");
+    if (cacheTabLabel) {
+      const labelKey = useTurnScope ? "turnCacheChip" : "panelCache";
+      if (cacheTabLabel.getAttribute("data-i18n") !== labelKey) {
+        setAttr(cacheTabLabel, "data-i18n", labelKey);
+      }
+      setText(cacheTabLabel, t(labelKey));
+    }
+    const cacheTab = $("cache-tab");
+    if (cacheTab) {
+      if (useTurnScope && turnCacheSummary.status !== "idle") {
+        cacheTab.dataset.cacheStatus = turnCacheSummary.status;
+      } else {
+        delete cacheTab.dataset.cacheStatus;
+      }
+    }
+    setText($("strip-cache"), percent(useTurnScope ? turnCacheSummary.hitRate : cache?.hitRate));
     setText($("cache-rate"), percent(cache?.hitRate));
+    const turnCacheBox = $("panel-turn-cache");
+    if (turnCacheBox) {
+      setHidden(turnCacheBox, !turnCacheView.visible);
+      turnCacheBox.dataset.cacheStatus = turnCacheView.status;
+      setText($("panel-turn-cache-text"), turnCacheView.headline);
+      setText($("panel-turn-cache-meta"), turnCacheView.meta);
+      setStyle($("panel-turn-cache-fill"), "width", `${turnCacheView.barPct}%`);
+    }
     const tokens = speed?.tokens || cache;
     const hasTotal = Boolean(
       tokens?.measuredRequests && typeof tokens.totalTokens === "number" && Number.isSafeInteger(tokens.totalTokens) && tokens.totalTokens >= 0
@@ -9184,7 +9228,6 @@ ${FONT_POPOVER_CSS}`;
       setHidden($("panel-task-tokens-row"), true);
       setHidden($("panel-subagent-tokens-row"), true);
     }
-    const turn = speed?.turnMetrics ?? null;
     setHidden($("panel-turn-section"), !turn);
     if (turn) {
       setText($("panel-turn-state"), formatTurnStateLabel(turn.state, t));
@@ -9204,25 +9247,6 @@ ${FONT_POPOVER_CSS}`;
     if (turn) {
       const liveSec = turn.durationSeconds !== null ? turn.durationSeconds : (turn.state === "running" || turn.state === "queued") && turn.startedAtMs ? Math.max(0, (nowMs - turn.startedAtMs) / 1e3) : null;
       setText($("panel-turn-duration"), language.elapsed(liveSec));
-    }
-    const ttl = resolveCacheTtl(
-      speed?.lastResponseAtMs,
-      nowMs,
-      speed?.isGenerating === true,
-      prefs
-    );
-    const cacheTab = $("cache-tab");
-    if (cacheTab) cacheTab.dataset.ttl = ttl.state;
-    const ttlBox = $("panel-cache-ttl");
-    if (ttlBox) {
-      setHidden(ttlBox, !speed || ttl.state === "idle");
-      ttlBox.dataset.ttl = ttl.state;
-      setText($("panel-cache-ttl-text"), formatCacheTtlText(ttl, t));
-      setStyle(
-        $("panel-cache-ttl-fill"),
-        "width",
-        ttl.state === "active" ? "100%" : `${Math.round(ttl.progress * 100)}%`
-      );
     }
     const err = speed?.requestError ?? null;
     const waitAlert = summarizeActiveWaitAlert(speed?.turnQueue, nowMs, prefs.firstTokenWaitSeconds);
@@ -9545,20 +9569,33 @@ ${FONT_POPOVER_CSS}`;
       row.append(labelEl, inputEl);
       return { row, labelEl, inputEl };
     };
-    const cacheWarnField = makeNumberField("monitor-cache-warn", 0, 998);
-    const cacheColdField = makeNumberField("monitor-cache-cold", 0, 999);
+    const cacheScopeRow = doc.createElement("div");
+    cacheScopeRow.className = "settings-monitor-field";
+    const cacheScopeLabel = doc.createElement("span");
+    const cacheScopeGroup = doc.createElement("div");
+    cacheScopeGroup.className = "lang-seg";
+    cacheScopeGroup.setAttribute("role", "group");
+    const btnScopeSession = doc.createElement("button");
+    btnScopeSession.id = "monitor-cache-scope-session";
+    btnScopeSession.type = "button";
+    btnScopeSession.className = "lang-pill";
+    const btnScopeTurn = doc.createElement("button");
+    btnScopeTurn.id = "monitor-cache-scope-turn";
+    btnScopeTurn.type = "button";
+    btnScopeTurn.className = "lang-pill";
+    cacheScopeGroup.append(btnScopeSession, btnScopeTurn);
+    cacheScopeRow.append(cacheScopeLabel, cacheScopeGroup);
     const waitSecField = makeNumberField("monitor-wait-sec", 0, 999);
     const syncMonitorInputs = () => {
-      cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
-      cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
+      setAttr(btnScopeSession, "aria-pressed", String(monitorState.cacheChipScope === "session"));
+      setAttr(btnScopeTurn, "aria-pressed", String(monitorState.cacheChipScope === "turn"));
       waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
     };
     const commitMonitorChange = (patch) => {
       monitorState = resolveMonitorPrefs({ ...monitorState, ...patch });
       syncMonitorInputs();
       void onMonitorPrefsChange?.({
-        cacheWarnMinutes: monitorState.cacheWarnMinutes,
-        cacheColdMinutes: monitorState.cacheColdMinutes,
+        cacheChipScope: monitorState.cacheChipScope,
         firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds
       });
     };
@@ -9566,11 +9603,11 @@ ${FONT_POPOVER_CSS}`;
       const n = Number.parseInt(input.value, 10);
       return Number.isFinite(n) ? n : fallback;
     };
-    cacheWarnField.inputEl.addEventListener("change", () => {
-      commitMonitorChange({ cacheWarnMinutes: readIntInput(cacheWarnField.inputEl, monitorState.cacheWarnMinutes) });
+    btnScopeSession.addEventListener("click", () => {
+      if (monitorState.cacheChipScope !== "session") commitMonitorChange({ cacheChipScope: "session" });
     });
-    cacheColdField.inputEl.addEventListener("change", () => {
-      commitMonitorChange({ cacheColdMinutes: readIntInput(cacheColdField.inputEl, monitorState.cacheColdMinutes) });
+    btnScopeTurn.addEventListener("click", () => {
+      if (monitorState.cacheChipScope !== "turn") commitMonitorChange({ cacheChipScope: "turn" });
     });
     waitSecField.inputEl.addEventListener("change", () => {
       commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
@@ -9578,7 +9615,7 @@ ${FONT_POPOVER_CSS}`;
     monitorResetBtn.addEventListener("click", () => {
       commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
     });
-    monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
+    monitorGrid.append(cacheScopeRow, waitSecField.row);
     monitorSection.append(monitorHead, monitorGrid);
     popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
     mountRoot.append(popover);
@@ -9715,8 +9752,10 @@ ${FONT_POPOVER_CSS}`;
       fontControls.localize();
       setText(monitorTitle, t("settingsMonitorTitle"));
       setText(monitorResetBtn, t("settingsMonitorReset"));
-      setText(cacheWarnField.labelEl, t("settingsCacheWarn"));
-      setText(cacheColdField.labelEl, t("settingsCacheCold"));
+      setText(cacheScopeLabel, t("settingsCacheScope"));
+      setAttr(cacheScopeGroup, "aria-label", t("settingsCacheScope"));
+      setText(btnScopeSession, t("settingsCacheScopeSession"));
+      setText(btnScopeTurn, t("settingsCacheScopeTurn"));
       setText(waitSecField.labelEl, t("settingsWaitAlert"));
       syncMonitorInputs();
     };
@@ -9735,7 +9774,7 @@ ${FONT_POPOVER_CSS}`;
         }
       }
       const nextMonitor = resolveMonitorPrefs(prefs);
-      if (nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes || nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes || nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds) {
+      if (nextMonitor.cacheChipScope !== monitorState.cacheChipScope || nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds) {
         monitorState = nextMonitor;
         syncMonitorInputs();
       }

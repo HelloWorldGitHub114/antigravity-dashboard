@@ -87,15 +87,13 @@ function validatePricingOverridesInput(input) {
   }
 }
 var MONITOR_PREFERENCE_KEYS = [
-  "cacheWarnMinutes",
-  "cacheColdMinutes",
+  "cacheChipScope",
   "firstTokenWaitSeconds",
   "contextWarnPct",
   "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
-  cacheWarnMinutes: 3,
-  cacheColdMinutes: 4,
+  cacheChipScope: "session",
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90
@@ -104,13 +102,12 @@ function clampInt(value, min, max, fallback) {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
 }
+function resolveCacheChipScope(value) {
+  return value === "turn" ? "turn" : "session";
+}
 function resolveMonitorPrefs(raw) {
   const src = raw && typeof raw === "object" && !("error" in raw) ? raw : {};
-  const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
-  let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
-  if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
-    cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
-  }
+  const cacheChipScope = resolveCacheChipScope(src.cacheChipScope);
   const firstTokenWaitSeconds = clampInt(
     src.firstTokenWaitSeconds,
     0,
@@ -123,8 +120,7 @@ function resolveMonitorPrefs(raw) {
     contextDangerPct = Math.min(99, contextWarnPct + 5);
   }
   return {
-    cacheWarnMinutes,
-    cacheColdMinutes,
+    cacheChipScope,
     firstTokenWaitSeconds,
     contextWarnPct,
     contextDangerPct
@@ -134,11 +130,8 @@ function extractMonitorPrefOverrides(raw) {
   if (!raw || typeof raw !== "object") return {};
   const out = {};
   const resolved = resolveMonitorPrefs(raw);
-  if (Object.hasOwn(raw, "cacheWarnMinutes") && resolved.cacheWarnMinutes !== DEFAULT_MONITOR_PREFS.cacheWarnMinutes) {
-    out.cacheWarnMinutes = resolved.cacheWarnMinutes;
-  }
-  if (Object.hasOwn(raw, "cacheColdMinutes") && resolved.cacheColdMinutes !== DEFAULT_MONITOR_PREFS.cacheColdMinutes) {
-    out.cacheColdMinutes = resolved.cacheColdMinutes;
+  if (Object.hasOwn(raw, "cacheChipScope") && resolved.cacheChipScope !== DEFAULT_MONITOR_PREFS.cacheChipScope) {
+    out.cacheChipScope = resolved.cacheChipScope;
   }
   if (Object.hasOwn(raw, "firstTokenWaitSeconds") && resolved.firstTokenWaitSeconds !== DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
     out.firstTokenWaitSeconds = resolved.firstTokenWaitSeconds;
@@ -152,6 +145,11 @@ function extractMonitorPrefOverrides(raw) {
   return out;
 }
 function validateMonitorPrefsInput(input) {
+  if (Object.hasOwn(input, "cacheChipScope")) {
+    if (input.cacheChipScope !== "session" && input.cacheChipScope !== "turn") {
+      throw new Error("Invalid monitor threshold preference");
+    }
+  }
   const checkIntRange = (key, min, max) => {
     if (!Object.hasOwn(input, key)) return;
     const raw = input[key];
@@ -159,8 +157,6 @@ function validateMonitorPrefsInput(input) {
       throw new Error("Invalid monitor threshold preference");
     }
   };
-  checkIntRange("cacheWarnMinutes", 0, 998);
-  checkIntRange("cacheColdMinutes", 0, 999);
   checkIntRange("firstTokenWaitSeconds", 0, 999);
   checkIntRange("contextWarnPct", 50, 95);
   checkIntRange("contextDangerPct", 60, 99);

@@ -130,9 +130,10 @@ export function validatePricingOverridesInput(input: Record<string, unknown>): v
   }
 }
 
+export type CacheChipScope = 'session' | 'turn';
+
 export const MONITOR_PREFERENCE_KEYS = [
-  'cacheWarnMinutes',
-  'cacheColdMinutes',
+  'cacheChipScope',
   'firstTokenWaitSeconds',
   'contextWarnPct',
   'contextDangerPct',
@@ -144,16 +145,14 @@ export type MonitorPreferenceKey = (typeof MONITOR_PREFERENCE_KEYS)[number];
  * Resolved monitoring and alert threshold preferences with safe defaults.
  */
 export interface ResolvedMonitorPrefs {
-  cacheWarnMinutes: number;
-  cacheColdMinutes: number;
+  cacheChipScope: CacheChipScope;
   firstTokenWaitSeconds: number;
   contextWarnPct: number;
   contextDangerPct: number;
 }
 
 export const DEFAULT_MONITOR_PREFS: Readonly<ResolvedMonitorPrefs> = Object.freeze({
-  cacheWarnMinutes: 3,
-  cacheColdMinutes: 4,
+  cacheChipScope: 'session',
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90,
@@ -164,6 +163,10 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function resolveCacheChipScope(value: unknown): CacheChipScope {
+  return value === 'turn' ? 'turn' : 'session';
+}
+
 /**
  * Resolve monitor and alert thresholds from partial or persisted preferences.
  */
@@ -172,11 +175,7 @@ export function resolveMonitorPrefs(
 ): ResolvedMonitorPrefs {
   const src =
     raw && typeof raw === 'object' && !('error' in raw) ? (raw as Record<string, unknown>) : {};
-  const cacheWarnMinutes = clampInt(src.cacheWarnMinutes, 0, 998, DEFAULT_MONITOR_PREFS.cacheWarnMinutes);
-  let cacheColdMinutes = clampInt(src.cacheColdMinutes, 0, 999, DEFAULT_MONITOR_PREFS.cacheColdMinutes);
-  if (cacheWarnMinutes > 0 && cacheColdMinutes <= cacheWarnMinutes) {
-    cacheColdMinutes = Math.min(999, cacheWarnMinutes + 1);
-  }
+  const cacheChipScope = resolveCacheChipScope(src.cacheChipScope);
   const firstTokenWaitSeconds = clampInt(
     src.firstTokenWaitSeconds,
     0,
@@ -189,8 +188,7 @@ export function resolveMonitorPrefs(
     contextDangerPct = Math.min(99, contextWarnPct + 5);
   }
   return {
-    cacheWarnMinutes,
-    cacheColdMinutes,
+    cacheChipScope,
     firstTokenWaitSeconds,
     contextWarnPct,
     contextDangerPct,
@@ -206,11 +204,8 @@ export function extractMonitorPrefOverrides(
   if (!raw || typeof raw !== 'object') return {};
   const out: Partial<ResolvedMonitorPrefs> = {};
   const resolved = resolveMonitorPrefs(raw);
-  if (Object.hasOwn(raw, 'cacheWarnMinutes') && resolved.cacheWarnMinutes !== DEFAULT_MONITOR_PREFS.cacheWarnMinutes) {
-    out.cacheWarnMinutes = resolved.cacheWarnMinutes;
-  }
-  if (Object.hasOwn(raw, 'cacheColdMinutes') && resolved.cacheColdMinutes !== DEFAULT_MONITOR_PREFS.cacheColdMinutes) {
-    out.cacheColdMinutes = resolved.cacheColdMinutes;
+  if (Object.hasOwn(raw, 'cacheChipScope') && resolved.cacheChipScope !== DEFAULT_MONITOR_PREFS.cacheChipScope) {
+    out.cacheChipScope = resolved.cacheChipScope;
   }
   if (
     Object.hasOwn(raw, 'firstTokenWaitSeconds') &&
@@ -231,6 +226,11 @@ export function extractMonitorPrefOverrides(
  * Validate monitor threshold keys on an incoming preference update payload.
  */
 export function validateMonitorPrefsInput(input: Record<string, unknown>): void {
+  if (Object.hasOwn(input, 'cacheChipScope')) {
+    if (input.cacheChipScope !== 'session' && input.cacheChipScope !== 'turn') {
+      throw new Error('Invalid monitor threshold preference');
+    }
+  }
   const checkIntRange = (key: string, min: number, max: number): void => {
     if (!Object.hasOwn(input, key)) return;
     const raw = input[key];
@@ -238,8 +238,6 @@ export function validateMonitorPrefsInput(input: Record<string, unknown>): void 
       throw new Error('Invalid monitor threshold preference');
     }
   };
-  checkIntRange('cacheWarnMinutes', 0, 998);
-  checkIntRange('cacheColdMinutes', 0, 999);
   checkIntRange('firstTokenWaitSeconds', 0, 999);
   checkIntRange('contextWarnPct', 50, 95);
   checkIntRange('contextDangerPct', 60, 99);
@@ -271,8 +269,7 @@ export interface PreferencesState {
   sidebarFontScale?: number;
   inlineFontScale?: number;
   modelPricingOverrides?: ModelPricingOverrides;
-  cacheWarnMinutes?: number;
-  cacheColdMinutes?: number;
+  cacheChipScope?: CacheChipScope;
   firstTokenWaitSeconds?: number;
   contextWarnPct?: number;
   contextDangerPct?: number;
@@ -292,8 +289,7 @@ export interface PreferencesUpdateInput {
   sidebarFontScale?: number;
   inlineFontScale?: number;
   modelPricingOverrides?: ModelPricingOverrides;
-  cacheWarnMinutes?: number;
-  cacheColdMinutes?: number;
+  cacheChipScope?: CacheChipScope;
   firstTokenWaitSeconds?: number;
   contextWarnPct?: number;
   contextDangerPct?: number;

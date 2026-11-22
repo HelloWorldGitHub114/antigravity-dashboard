@@ -4,15 +4,15 @@ import { createEl, setAttr, setHidden, setStyle, setText } from '../../shared/do
 import { compact, count, percent, rate } from '../../shared/format.ts';
 import { groupQuotaPace, quotaForecast, shortEta, type QuotaWindowKey } from '../../shared/quota-forecast.ts';
 import {
-  resolveCacheTtl,
   resolveContextLoad,
+  resolveTurnCacheStatus,
   summarizeActiveWaitAlert,
 } from '../../shared/request-alerts.ts';
 import { formatQuotaGroupLabel, selectPreferredQuotaGroup, SVG_NS } from '../shared/model-donut.ts';
 import {
   buildContextBreakdownSegments,
   errorKindCopy,
-  formatCacheTtlText,
+  formatTurnCacheDisplay,
   formatTurnStateLabel,
   resolveAlertBadge,
 } from '../shared/monitor-ui.ts';
@@ -751,8 +751,37 @@ function renderContextAndCacheCards(
     setAttr(ctxTrack, 'aria-valuenow', null);
   }
 
-  setText($('strip-cache'), percent(cache?.hitRate));
+  const turn = speed?.turnMetrics ?? null;
+  const turnCacheSummary = resolveTurnCacheStatus(turn);
+  const turnCacheView = formatTurnCacheDisplay(turnCacheSummary, t);
+  const useTurnScope = monitorPrefs.cacheChipScope === 'turn';
+  const cacheTabLabel = $('panel-cache-tab-label');
+  if (cacheTabLabel) {
+    const labelKey = useTurnScope ? 'turnCacheChip' : 'panelCache';
+    if (cacheTabLabel.getAttribute('data-i18n') !== labelKey) {
+      setAttr(cacheTabLabel, 'data-i18n', labelKey);
+    }
+    setText(cacheTabLabel, t(labelKey));
+  }
+  const cacheTab = $('cache-tab');
+  if (cacheTab) {
+    if (useTurnScope && turnCacheSummary.status !== 'idle') {
+      cacheTab.dataset.cacheStatus = turnCacheSummary.status;
+    } else {
+      delete cacheTab.dataset.cacheStatus;
+    }
+  }
+  setText($('strip-cache'), percent(useTurnScope ? turnCacheSummary.hitRate : cache?.hitRate));
   setText($('cache-rate'), percent(cache?.hitRate));
+
+  const turnCacheBox = $('panel-turn-cache');
+  if (turnCacheBox) {
+    setHidden(turnCacheBox, !turnCacheView.visible);
+    turnCacheBox.dataset.cacheStatus = turnCacheView.status;
+    setText($('panel-turn-cache-text'), turnCacheView.headline);
+    setText($('panel-turn-cache-meta'), turnCacheView.meta);
+    setStyle($('panel-turn-cache-fill'), 'width', `${turnCacheView.barPct}%`);
+  }
   const tokens: Partial<TokenSummary> | undefined = speed?.tokens || (cache as unknown as Partial<TokenSummary>);
   const hasTotal = Boolean(
     tokens?.measuredRequests && typeof tokens.totalTokens === 'number' && Number.isSafeInteger(tokens.totalTokens) && tokens.totalTokens >= 0,
@@ -792,7 +821,6 @@ function renderContextAndCacheCards(
   }
 
   // 本轮统计（最新一条用户消息维度）
-  const turn = speed?.turnMetrics ?? null;
   setHidden($('panel-turn-section'), !turn);
   if (turn) {
     setText($('panel-turn-state'), formatTurnStateLabel(turn.state, t));
@@ -804,7 +832,7 @@ function renderContextAndCacheCards(
 }
 
 /**
- * 每秒刷新侧栏中的实时时钟指标：本轮耗时、缓存保鲜进度与异常/等待横幅。
+ * 每秒刷新侧栏中的实时时钟指标：本轮耗时与异常/等待横幅。
  */
 export function updatePanelMonitorLive(ctx: PanelDomContext, nowMs = Date.now()): void {
   const { $, state, language } = ctx;
@@ -823,26 +851,6 @@ export function updatePanelMonitorLive(ctx: PanelDomContext, nowMs = Date.now())
           ? Math.max(0, (nowMs - turn.startedAtMs) / 1000)
           : null;
     setText($('panel-turn-duration'), language.elapsed(liveSec));
-  }
-
-  const ttl = resolveCacheTtl(
-    speed?.lastResponseAtMs,
-    nowMs,
-    speed?.isGenerating === true,
-    prefs,
-  );
-  const cacheTab = $('cache-tab');
-  if (cacheTab) cacheTab.dataset.ttl = ttl.state;
-  const ttlBox = $('panel-cache-ttl');
-  if (ttlBox) {
-    setHidden(ttlBox, !speed || ttl.state === 'idle');
-    ttlBox.dataset.ttl = ttl.state;
-    setText($('panel-cache-ttl-text'), formatCacheTtlText(ttl, t));
-    setStyle(
-      $('panel-cache-ttl-fill'),
-      'width',
-      ttl.state === 'active' ? '100%' : `${Math.round(ttl.progress * 100)}%`,
-    );
   }
 
   const err = speed?.requestError ?? null;

@@ -567,15 +567,13 @@ function sanitizePricingOverrides(raw) {
   return out;
 }
 var MONITOR_PREFERENCE_KEYS = [
-  "cacheWarnMinutes",
-  "cacheColdMinutes",
+  "cacheChipScope",
   "firstTokenWaitSeconds",
   "contextWarnPct",
   "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
-  cacheWarnMinutes: 3,
-  cacheColdMinutes: 4,
+  cacheChipScope: "session",
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90
@@ -641,22 +639,34 @@ function classifyRequestError(value = "") {
   }
   return make("unknown");
 }
-function resolveCacheTtl(lastResponseAtMs, nowMs, isGenerating, prefs = DEFAULT_MONITOR_PREFS) {
-  const warnMs = prefs.cacheWarnMinutes > 0 ? prefs.cacheWarnMinutes * 6e4 : 0;
-  const coldMs = prefs.cacheColdMinutes > 0 ? prefs.cacheColdMinutes * 6e4 : 0;
-  if (warnMs <= 0 || coldMs <= 0) {
-    return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
+function resolveTurnCacheStatus(turn) {
+  if (!turn || turn.cacheMeasuredRequests <= 0 || turn.cacheHitRate === null || !Number.isFinite(turn.cacheHitRate)) {
+    return {
+      status: "idle",
+      hitRate: null,
+      firstHitRate: null,
+      lastHitRate: null,
+      measuredRequests: turn?.cacheMeasuredRequests ?? 0,
+      cachedTokens: turn?.cachedTokens ?? 0,
+      inputTokens: turn?.inputTokens ?? 0,
+      coldStartRecovered: false
+    };
   }
-  if (isGenerating) {
-    return { state: "active", elapsedMs: 0, progress: 0, warnMs, coldMs };
-  }
-  if (typeof lastResponseAtMs !== "number" || !Number.isFinite(lastResponseAtMs) || lastResponseAtMs <= 0) {
-    return { state: "idle", elapsedMs: 0, progress: 0, warnMs, coldMs };
-  }
-  const elapsedMs = Math.max(0, nowMs - lastResponseAtMs);
-  const progress = Math.min(1, elapsedMs / coldMs);
-  const state = elapsedMs >= coldMs ? "cold" : elapsedMs >= warnMs ? "warn" : "fresh";
-  return { state, elapsedMs, progress, warnMs, coldMs };
+  const hitRate = Math.min(1, Math.max(0, turn.cacheHitRate));
+  const firstHitRate = typeof turn.firstRequestCacheHitRate === "number" && Number.isFinite(turn.firstRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.firstRequestCacheHitRate)) : null;
+  const lastHitRate = typeof turn.lastRequestCacheHitRate === "number" && Number.isFinite(turn.lastRequestCacheHitRate) ? Math.min(1, Math.max(0, turn.lastRequestCacheHitRate)) : null;
+  const status = hitRate >= 0.7 ? "hot" : hitRate >= 0.2 ? "warm" : "cold";
+  const coldStartRecovered = turn.cacheMeasuredRequests >= 2 && firstHitRate !== null && firstHitRate < 0.2 && hitRate >= 0.2;
+  return {
+    status,
+    hitRate,
+    firstHitRate,
+    lastHitRate,
+    measuredRequests: turn.cacheMeasuredRequests,
+    cachedTokens: turn.cachedTokens,
+    inputTokens: turn.inputTokens,
+    coldStartRecovered
+  };
 }
 function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
   if (typeof usedFraction !== "number" || !Number.isFinite(usedFraction) || usedFraction < 0) {
@@ -691,18 +701,6 @@ function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_M
     maxWaitSec,
     isWaitingNow: currentWaitSec !== null
   };
-}
-function formatCompactElapsedMs(elapsedMs) {
-  const totalSec = Math.max(0, Math.floor(elapsedMs / 1e3));
-  if (totalSec < 60) return `${totalSec}s`;
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  if (mins >= 60) {
-    const hours = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  }
-  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
 // src/telemetry/metrics/turn-diagnostics.ts
@@ -898,7 +896,12 @@ function computeTurnAndAlerts(steps, generators, resp, isRunning, diag) {
   const effectiveUserIdx = userStepIndex ?? latestUserStepIndex;
   let turnRequests = 0;
   let turnInputTokens = 0;
+  let turnCacheInputTokens = 0;
   let turnCachedTokens = 0;
+  let turnCacheWriteTokens = 0;
+  let turnCacheMeasuredRequests = 0;
+  let firstRequestCacheHitRate = null;
+  let lastRequestCacheHitRate = null;
   let turnThinkingTokens = 0;
   let turnOutputTokens = 0;
   let turnTotalOutputTokens = 0;
@@ -927,7 +930,18 @@ function computeTurnAndAlerts(steps, generators, resp, isRunning, diag) {
         const thinking = tokenCount(usage.thinkingOutputTokens) ?? 0;
         const reply = tokenCount(usage.responseOutputTokens);
         turnInputTokens += uncached + cached + cacheWrite;
-        turnCachedTokens += cached;
+        const cacheSample = requestCacheMetrics(usage);
+        if (cacheSample) {
+          turnCacheInputTokens += cacheSample.inputTokens;
+          turnCachedTokens += cacheSample.cachedTokens;
+          turnCacheWriteTokens += cacheSample.cacheWriteTokens;
+          if (cacheSample.inputTokens > 0) {
+            turnCacheMeasuredRequests += 1;
+            const reqRate = cacheSample.cachedTokens / cacheSample.inputTokens;
+            if (firstRequestCacheHitRate === null) firstRequestCacheHitRate = reqRate;
+            lastRequestCacheHitRate = reqRate;
+          }
+        }
         turnThinkingTokens += thinking;
         turnOutputTokens += reply !== null ? reply : Math.max(0, totalOut - thinking);
         turnTotalOutputTokens += totalOut || thinking + (reply ?? 0);
@@ -1006,8 +1020,13 @@ function computeTurnAndAlerts(steps, generators, resp, isRunning, diag) {
       endedAtMs,
       durationSeconds: startedAtMs !== null && endedAtMs !== null ? (endedAtMs - startedAtMs) / 1e3 : null,
       requests: turnRequests,
-      inputTokens: turnInputTokens,
+      inputTokens: turnCacheInputTokens > 0 ? turnCacheInputTokens : turnInputTokens,
       cachedTokens: turnCachedTokens,
+      cacheWriteTokens: turnCacheWriteTokens,
+      cacheMeasuredRequests: turnCacheMeasuredRequests,
+      cacheHitRate: turnCacheInputTokens > 0 ? turnCachedTokens / turnCacheInputTokens : null,
+      firstRequestCacheHitRate,
+      lastRequestCacheHitRate,
       thinkingTokens: turnThinkingTokens,
       outputTokens: turnOutputTokens,
       totalOutputTokens: turnTotalOutputTokens
@@ -1884,7 +1903,6 @@ export {
   computeTurnAndAlerts,
   extractPlanModel,
   finalizeQuotaWindows,
-  formatCompactElapsedMs,
   formatRateSummary,
   formatUsd,
   groupQuotaPace,
@@ -1896,11 +1914,11 @@ export {
   quotaRemaining,
   requestCacheMetrics,
   resolveBuiltinRatesForDate,
-  resolveCacheTtl,
   resolveChatModelName,
   resolveContextLoad,
   resolveModelPricing,
   resolvePricingKey,
+  resolveTurnCacheStatus,
   safeModelUsage,
   seconds,
   shortEta,

@@ -338,13 +338,28 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     return { row, labelEl, inputEl };
   };
 
-  const cacheWarnField = makeNumberField('monitor-cache-warn', 0, 998);
-  const cacheColdField = makeNumberField('monitor-cache-cold', 0, 999);
+  const cacheScopeRow = doc.createElement('div');
+  cacheScopeRow.className = 'settings-monitor-field';
+  const cacheScopeLabel = doc.createElement('span');
+  const cacheScopeGroup = doc.createElement('div');
+  cacheScopeGroup.className = 'lang-seg';
+  cacheScopeGroup.setAttribute('role', 'group');
+  const btnScopeSession = doc.createElement('button');
+  btnScopeSession.id = 'monitor-cache-scope-session';
+  btnScopeSession.type = 'button';
+  btnScopeSession.className = 'lang-pill';
+  const btnScopeTurn = doc.createElement('button');
+  btnScopeTurn.id = 'monitor-cache-scope-turn';
+  btnScopeTurn.type = 'button';
+  btnScopeTurn.className = 'lang-pill';
+  cacheScopeGroup.append(btnScopeSession, btnScopeTurn);
+  cacheScopeRow.append(cacheScopeLabel, cacheScopeGroup);
+
   const waitSecField = makeNumberField('monitor-wait-sec', 0, 999);
 
   const syncMonitorInputs = (): void => {
-    cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
-    cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
+    setAttr(btnScopeSession, 'aria-pressed', String(monitorState.cacheChipScope === 'session'));
+    setAttr(btnScopeTurn, 'aria-pressed', String(monitorState.cacheChipScope === 'turn'));
     waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
   };
 
@@ -352,8 +367,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     monitorState = resolveMonitorPrefs({ ...monitorState, ...patch });
     syncMonitorInputs();
     void onMonitorPrefsChange?.({
-      cacheWarnMinutes: monitorState.cacheWarnMinutes,
-      cacheColdMinutes: monitorState.cacheColdMinutes,
+      cacheChipScope: monitorState.cacheChipScope,
       firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds,
     });
   };
@@ -363,11 +377,11 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     return Number.isFinite(n) ? n : fallback;
   };
 
-  cacheWarnField.inputEl.addEventListener('change', () => {
-    commitMonitorChange({ cacheWarnMinutes: readIntInput(cacheWarnField.inputEl, monitorState.cacheWarnMinutes) });
+  btnScopeSession.addEventListener('click', () => {
+    if (monitorState.cacheChipScope !== 'session') commitMonitorChange({ cacheChipScope: 'session' });
   });
-  cacheColdField.inputEl.addEventListener('change', () => {
-    commitMonitorChange({ cacheColdMinutes: readIntInput(cacheColdField.inputEl, monitorState.cacheColdMinutes) });
+  btnScopeTurn.addEventListener('click', () => {
+    if (monitorState.cacheChipScope !== 'turn') commitMonitorChange({ cacheChipScope: 'turn' });
   });
   waitSecField.inputEl.addEventListener('change', () => {
     commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
@@ -376,7 +390,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
   });
 
-  monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
+  monitorGrid.append(cacheScopeRow, waitSecField.row);
   monitorSection.append(monitorHead, monitorGrid);
 
   popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
@@ -537,8 +551,10 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     fontControls.localize();
     setText(monitorTitle, t('settingsMonitorTitle'));
     setText(monitorResetBtn, t('settingsMonitorReset'));
-    setText(cacheWarnField.labelEl, t('settingsCacheWarn'));
-    setText(cacheColdField.labelEl, t('settingsCacheCold'));
+    setText(cacheScopeLabel, t('settingsCacheScope'));
+    setAttr(cacheScopeGroup, 'aria-label', t('settingsCacheScope'));
+    setText(btnScopeSession, t('settingsCacheScopeSession'));
+    setText(btnScopeTurn, t('settingsCacheScopeTurn'));
     setText(waitSecField.labelEl, t('settingsWaitAlert'));
     syncMonitorInputs();
   };
@@ -564,8 +580,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     }
     const nextMonitor = resolveMonitorPrefs(prefs);
     if (
-      nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes ||
-      nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes ||
+      nextMonitor.cacheChipScope !== monitorState.cacheChipScope ||
       nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds
     ) {
       monitorState = nextMonitor;
