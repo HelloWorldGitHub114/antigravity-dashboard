@@ -93,7 +93,7 @@ export function buildWidgetShellMarkup(
       <div class="quota-details">${quotaSections}</div>
     </section><section class="card alert-card" id="alert-card" role="region" data-i18n-aria="alertCardTitle" aria-label="Request alerts" hidden>
       <div class="heading"><span>${svg('alert')}<span data-i18n="alertCardTitle">${t('alertCardTitle')}</span></span></div>
-      <div class="alert-block" id="alert-error-block" hidden><div class="alert-row"><span class="alert-kind-badge is-error" id="alert-error-badge">—</span><span class="alert-retry" id="alert-error-retry" hidden></span></div><p class="alert-desc" id="alert-error-desc"></p><pre class="alert-diag" id="alert-error-diag" hidden></pre></div>
+      <div class="alert-block" id="alert-error-block" hidden><div class="alert-row"><span class="alert-kind-badge is-error" id="alert-error-badge">—</span><span class="alert-retry" id="alert-error-retry" hidden></span></div><p class="alert-desc" id="alert-error-desc"></p><div class="alert-diag" id="alert-error-diag" hidden></div></div>
       <div class="alert-block" id="alert-wait-block" hidden><div class="alert-row"><span class="alert-kind-badge is-wait" data-i18n="alertWaitLabel">${t('alertWaitLabel')}</span></div><p class="alert-desc" id="alert-wait-summary"></p><p class="footnote" data-i18n="alertWaitHint">${t('alertWaitHint')}</p></div>
     </section>`;
 }

@@ -232,3 +232,22 @@ test('PreferencesStore validates and persists monitor thresholds without polluti
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('inline widget shell markup only uses Trusted-Types allowed tags', async () => {
+  const { readFileSync } = await import('node:fs');
+  const cardsSrc = readFileSync(new URL('../../../src/ui/inline-widget/cards.ts', import.meta.url), 'utf8');
+  const domSrc = readFileSync(new URL('../../../src/shared/dom.ts', import.meta.url), 'utf8');
+  const allowMatch = domSrc.match(/ALLOWED_MARKUP_TAGS\s*=\s*new Set\(\s*'([^']+)'/);
+  assert.ok(allowMatch, 'ALLOWED_MARKUP_TAGS definition found');
+  const allowed = new Set(allowMatch[1].split(/\s+/));
+  const markupStart = cardsSrc.indexOf('return `<style>');
+  const tailMatch = cardsSrc.slice(markupStart).match(/`;\r?\n\}/);
+  assert.ok(markupStart > 0 && tailMatch && typeof tailMatch.index === 'number');
+  const template = cardsSrc
+    .slice(markupStart, markupStart + tailMatch.index)
+    .replace(/\$\{[^}]+\}/g, '');
+  for (const m of template.matchAll(/<\/?([a-z][\w-]*)(?:\s[^<>]*?)?\s*\/?\s*>/gi)) {
+    const tag = m[1].toLowerCase();
+    assert.ok(allowed.has(tag), `Disallowed tag <${tag}> in inline widget shell markup`);
+  }
+});
