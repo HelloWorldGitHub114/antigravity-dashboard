@@ -6,7 +6,6 @@ import { groupQuotaPace, quotaForecast, shortEta, type QuotaWindowKey } from '..
 import {
   resolveCacheTtl,
   resolveContextLoad,
-  resolveSpeedPulse,
   summarizeActiveWaitAlert,
 } from '../../shared/request-alerts.ts';
 import { formatQuotaGroupLabel, selectPreferredQuotaGroup, SVG_NS } from '../shared/model-donut.ts';
@@ -813,7 +812,7 @@ function renderContextAndCacheCards(
 }
 
 /**
- * 每秒刷新侧栏中的实时时钟指标：速度呼吸灯、本轮耗时、缓存保鲜进度与异常/等待横幅。
+ * 每秒刷新侧栏中的实时时钟指标：本轮耗时、缓存保鲜进度与异常/等待横幅。
  */
 export function updatePanelMonitorLive(ctx: PanelDomContext, nowMs = Date.now()): void {
   const { $, state, language } = ctx;
@@ -822,20 +821,6 @@ export function updatePanelMonitorLive(ctx: PanelDomContext, nowMs = Date.now())
   const speed = snapshot.speed;
   const t = language.t;
   const prefs = resolveMonitorPrefs(snapshot.preferences);
-
-  const pulse = resolveSpeedPulse(
-    speed?.latestTps ?? speed?.tps,
-    speed?.isGenerating === true,
-    speed?.lastResponseAtMs,
-    nowMs,
-    prefs.speedPulseEnabled,
-  );
-  const pulseEl = $('panel-speed-pulse');
-  if (pulseEl) {
-    setHidden(pulseEl, !pulse.visible || !speed);
-    pulseEl.dataset.level = pulse.level;
-    pulseEl.classList.toggle('is-blinking', pulse.blinking);
-  }
 
   const turn = speed?.turnMetrics ?? null;
   if (turn) {

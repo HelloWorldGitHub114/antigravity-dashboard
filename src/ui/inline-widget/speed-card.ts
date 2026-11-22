@@ -5,7 +5,6 @@ import { compact, count, percent, rate } from '../../shared/format.ts';
 import {
   resolveCacheTtl,
   resolveContextLoad,
-  resolveSpeedPulse,
   summarizeActiveWaitAlert,
 } from '../../shared/request-alerts.ts';
 import {
@@ -265,7 +264,7 @@ export function renderSpeedContextCacheCards(params: {
 
 /**
  * 每秒实时刷新依赖本地时钟的底栏监控项：
- * 速度呼吸灯（15 秒余晖）、Prompt Cache 保鲜进度条、本轮实时耗时与异常/首字等待告警胶囊。
+ * Prompt Cache 保鲜进度条、本轮实时耗时与异常/首字等待告警胶囊。
  */
 export function tickInlineMonitorLive(
   root: ShadowRoot,
@@ -279,22 +278,7 @@ export function tickInlineMonitorLive(
   const speed = data.speed;
   const prefs = resolveMonitorPrefs(data.preferences);
 
-  // 1. 生成速度呼吸灯
-  const pulse = resolveSpeedPulse(
-    speed?.latestTps ?? speed?.tps,
-    speed?.isGenerating === true,
-    speed?.lastResponseAtMs,
-    nowMs,
-    prefs.speedPulseEnabled,
-  );
-  const pulseEl = $('speed-pulse') as HTMLElement | null;
-  if (pulseEl) {
-    toggleHidden(pulseEl, !pulse.visible || !speed);
-    pulseEl.dataset.level = pulse.level;
-    pulseEl.classList.toggle('is-blinking', pulse.blinking);
-  }
-
-  // 2. 本轮实时耗时（运行中跳秒，结束后固定）
+  // 1. 本轮实时耗时（运行中跳秒，结束后固定）
   const turn = speed?.turnMetrics ?? null;
   if (turn) {
     const liveSec =

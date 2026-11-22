@@ -71,7 +71,7 @@ export function buildWidgetShellMarkup(
 
   return `<style>${themeShadowCss}\n${inlineCss}</style><div class="bar" data-i18n-aria="strip" aria-label="Dashboard statistics">
       <span class="dot" id="dot" title="Connecting"></span>
-      <button class="chip" data-card="speed" data-i18n-aria="session" hidden aria-controls="speed-card" aria-expanded="false">${svg('speed')}<span class="speed-pulse" id="speed-pulse" aria-hidden="true" hidden></span><span class="rounds dim" id="rounds"></span><strong id="tps">—</strong><span>tok/s</span></button>
+      <button class="chip" data-card="speed" data-i18n-aria="session" hidden aria-controls="speed-card" aria-expanded="false">${svg('speed')}<span class="rounds dim" id="rounds"></span><strong id="tps">—</strong><span>tok/s</span></button>
       <button class="chip" data-card="cache" data-i18n-aria="cacheTitle" hidden aria-controls="cache-card" aria-expanded="false">${svg('cache')}<span class="cache-total" id="cache-total">— tok</span><span class="dim">·</span><span data-i18n="cache">Cache hit</span><strong id="cache-rate">—</strong></button>
       <button class="chip" data-card="context" data-i18n-aria="context" hidden aria-controls="context-card" aria-expanded="false"><span class="context-ring" id="context-ring" aria-hidden="true"></span><span class="context-label" data-i18n="contextShort">Ctx</span><strong id="context-percent">—</strong></button>
       <button class="chip alert-chip" data-card="alert" data-i18n-aria="alertChipTitle" hidden aria-controls="alert-card" aria-expanded="false">${svg('alert')}<strong id="alert-chip-text">—</strong></button>

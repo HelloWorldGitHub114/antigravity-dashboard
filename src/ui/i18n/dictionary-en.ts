@@ -295,11 +295,10 @@ export const EN_DICTIONARY = {
   alertErrorCanceledDesc: 'The request was canceled before completion.',
   alertErrorUnknown: 'Request failed',
   alertErrorUnknownDesc: 'The latest model request reported an error.',
-  settingsMonitorTitle: 'Alerts & indicators',
+  settingsMonitorTitle: 'Alert thresholds',
   settingsCacheWarn: 'Cache warn (min)',
   settingsCacheCold: 'Cache expire (min)',
   settingsWaitAlert: 'First-token wait (sec)',
-  settingsSpeedPulse: 'Speed pulse dot',
   settingsMonitorReset: 'Reset',
   settingsMonitorSaved: 'Saved monitor settings',
 } as const;

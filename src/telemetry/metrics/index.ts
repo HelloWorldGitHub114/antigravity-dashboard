@@ -40,7 +40,6 @@ export {
   classifyRequestError,
   resolveCacheTtl,
   resolveContextLoad,
-  resolveSpeedPulse,
   summarizeActiveWaitAlert,
   formatCompactElapsedMs,
 } from '../../shared/request-alerts.ts';

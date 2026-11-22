@@ -136,7 +136,6 @@ export const MONITOR_PREFERENCE_KEYS = [
   'firstTokenWaitSeconds',
   'contextWarnPct',
   'contextDangerPct',
-  'speedPulseEnabled',
 ] as const;
 
 export type MonitorPreferenceKey = (typeof MONITOR_PREFERENCE_KEYS)[number];
@@ -150,7 +149,6 @@ export interface ResolvedMonitorPrefs {
   firstTokenWaitSeconds: number;
   contextWarnPct: number;
   contextDangerPct: number;
-  speedPulseEnabled: boolean;
 }
 
 export const DEFAULT_MONITOR_PREFS: Readonly<ResolvedMonitorPrefs> = Object.freeze({
@@ -159,7 +157,6 @@ export const DEFAULT_MONITOR_PREFS: Readonly<ResolvedMonitorPrefs> = Object.free
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
   contextDangerPct: 90,
-  speedPulseEnabled: true,
 });
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -191,17 +188,12 @@ export function resolveMonitorPrefs(
   if (contextDangerPct <= contextWarnPct) {
     contextDangerPct = Math.min(99, contextWarnPct + 5);
   }
-  const speedPulseEnabled =
-    typeof src.speedPulseEnabled === 'boolean'
-      ? src.speedPulseEnabled
-      : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
   return {
     cacheWarnMinutes,
     cacheColdMinutes,
     firstTokenWaitSeconds,
     contextWarnPct,
     contextDangerPct,
-    speedPulseEnabled,
   };
 }
 
@@ -232,12 +224,6 @@ export function extractMonitorPrefOverrides(
   if (Object.hasOwn(raw, 'contextDangerPct') && resolved.contextDangerPct !== DEFAULT_MONITOR_PREFS.contextDangerPct) {
     out.contextDangerPct = resolved.contextDangerPct;
   }
-  if (
-    Object.hasOwn(raw, 'speedPulseEnabled') &&
-    resolved.speedPulseEnabled !== DEFAULT_MONITOR_PREFS.speedPulseEnabled
-  ) {
-    out.speedPulseEnabled = resolved.speedPulseEnabled;
-  }
   return out;
 }
 
@@ -257,9 +243,6 @@ export function validateMonitorPrefsInput(input: Record<string, unknown>): void 
   checkIntRange('firstTokenWaitSeconds', 0, 999);
   checkIntRange('contextWarnPct', 50, 95);
   checkIntRange('contextDangerPct', 60, 99);
-  if (Object.hasOwn(input, 'speedPulseEnabled') && typeof input.speedPulseEnabled !== 'boolean') {
-    throw new Error('Invalid speed pulse preference');
-  }
 }
 
 export const PREFERENCE_KEYS = [
@@ -293,7 +276,6 @@ export interface PreferencesState {
   firstTokenWaitSeconds?: number;
   contextWarnPct?: number;
   contextDangerPct?: number;
-  speedPulseEnabled?: boolean;
   revision: number;
 }
 
@@ -315,7 +297,6 @@ export interface PreferencesUpdateInput {
   firstTokenWaitSeconds?: number;
   contextWarnPct?: number;
   contextDangerPct?: number;
-  speedPulseEnabled?: boolean;
 }
 
 /**

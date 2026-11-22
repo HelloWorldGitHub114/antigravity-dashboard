@@ -55,16 +55,14 @@
     "cacheColdMinutes",
     "firstTokenWaitSeconds",
     "contextWarnPct",
-    "contextDangerPct",
-    "speedPulseEnabled"
+    "contextDangerPct"
   ];
   var DEFAULT_MONITOR_PREFS = Object.freeze({
     cacheWarnMinutes: 3,
     cacheColdMinutes: 4,
     firstTokenWaitSeconds: 30,
     contextWarnPct: 75,
-    contextDangerPct: 90,
-    speedPulseEnabled: true
+    contextDangerPct: 90
   });
   function clampInt(value, min, max, fallback) {
     if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
@@ -88,14 +86,12 @@
     if (contextDangerPct <= contextWarnPct) {
       contextDangerPct = Math.min(99, contextWarnPct + 5);
     }
-    const speedPulseEnabled = typeof src.speedPulseEnabled === "boolean" ? src.speedPulseEnabled : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
     return {
       cacheWarnMinutes,
       cacheColdMinutes,
       firstTokenWaitSeconds,
       contextWarnPct,
-      contextDangerPct,
-      speedPulseEnabled
+      contextDangerPct
     };
   }
   var PREFERENCE_KEYS = [
@@ -629,11 +625,10 @@
     alertErrorCanceledDesc: "The request was canceled before completion.",
     alertErrorUnknown: "Request failed",
     alertErrorUnknownDesc: "The latest model request reported an error.",
-    settingsMonitorTitle: "Alerts & indicators",
+    settingsMonitorTitle: "Alert thresholds",
     settingsCacheWarn: "Cache warn (min)",
     settingsCacheCold: "Cache expire (min)",
     settingsWaitAlert: "First-token wait (sec)",
-    settingsSpeedPulse: "Speed pulse dot",
     settingsMonitorReset: "Reset",
     settingsMonitorSaved: "Saved monitor settings"
   };
@@ -926,11 +921,10 @@
     alertErrorCanceledDesc: "\u8BE5\u6B21\u6A21\u578B\u8BF7\u6C42\u5728\u5B8C\u6210\u524D\u88AB\u53D6\u6D88\u3002",
     alertErrorUnknown: "\u8BF7\u6C42\u5931\u8D25",
     alertErrorUnknownDesc: "\u6700\u8FD1\u4E00\u6B21\u6A21\u578B\u8BF7\u6C42\u8FD4\u56DE\u4E86\u9519\u8BEF\u3002",
-    settingsMonitorTitle: "\u63D0\u9192\u4E0E\u52A8\u6548\u9608\u503C",
+    settingsMonitorTitle: "\u63D0\u9192\u9608\u503C",
     settingsCacheWarn: "\u7F13\u5B58\u53D8\u9EC4\uFF08\u5206\u949F\uFF09",
     settingsCacheCold: "\u7F13\u5B58\u8FC7\u671F\uFF08\u5206\u949F\uFF09",
     settingsWaitAlert: "\u9996\u5B57\u7B49\u5F85\uFF08\u79D2\uFF09",
-    settingsSpeedPulse: "\u751F\u6210\u901F\u5EA6\u547C\u5438\u706F",
     settingsMonitorReset: "\u6062\u590D\u9ED8\u8BA4",
     settingsMonitorSaved: "\u63D0\u9192\u9608\u503C\u5DF2\u4FDD\u5B58"
   };
@@ -8102,23 +8096,6 @@ ${FONT_POPOVER_CSS}`;
     if (pct >= prefs.contextWarnPct) return "warn";
     return "normal";
   }
-  var SPEED_PULSE_HOLD_MS = 15e3;
-  function resolveSpeedPulse(tps, isGenerating, lastResponseAtMs, nowMs, enabled = true) {
-    if (!enabled) return { visible: false, level: "idle", blinking: false };
-    const levelFromTps = (val) => {
-      if (typeof val !== "number" || !Number.isFinite(val) || val <= 0) return "pending";
-      if (val < 10) return "slow";
-      if (val < 25) return "medium";
-      return "fast";
-    };
-    if (isGenerating) {
-      return { visible: true, level: levelFromTps(tps), blinking: true };
-    }
-    if (typeof lastResponseAtMs === "number" && Number.isFinite(lastResponseAtMs) && lastResponseAtMs > 0 && nowMs - lastResponseAtMs >= 0 && nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS && typeof tps === "number" && Number.isFinite(tps) && tps > 0) {
-      return { visible: true, level: levelFromTps(tps), blinking: false };
-    }
-    return { visible: true, level: "idle", blinking: false };
-  }
   function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
     if (!turnQueue || thresholdSeconds <= 0) {
       return { active: false, count: 0, currentWaitSec: null, maxWaitSec: 0, isWaitingNow: false };
@@ -8832,19 +8809,6 @@ ${FONT_POPOVER_CSS}`;
     const speed = snapshot.speed;
     const t = language.t;
     const prefs = resolveMonitorPrefs(snapshot.preferences);
-    const pulse = resolveSpeedPulse(
-      speed?.latestTps ?? speed?.tps,
-      speed?.isGenerating === true,
-      speed?.lastResponseAtMs,
-      nowMs,
-      prefs.speedPulseEnabled
-    );
-    const pulseEl = $("panel-speed-pulse");
-    if (pulseEl) {
-      setHidden(pulseEl, !pulse.visible || !speed);
-      pulseEl.dataset.level = pulse.level;
-      pulseEl.classList.toggle("is-blinking", pulse.blinking);
-    }
     const turn = speed?.turnMetrics ?? null;
     if (turn) {
       const liveSec = turn.durationSeconds !== null ? turn.durationSeconds : (turn.state === "running" || turn.state === "queued") && turn.startedAtMs ? Math.max(0, (nowMs - turn.startedAtMs) / 1e3) : null;
@@ -9193,24 +9157,10 @@ ${FONT_POPOVER_CSS}`;
     const cacheWarnField = makeNumberField("monitor-cache-warn", 0, 998);
     const cacheColdField = makeNumberField("monitor-cache-cold", 0, 999);
     const waitSecField = makeNumberField("monitor-wait-sec", 0, 999);
-    const pulseRow = doc.createElement("div");
-    pulseRow.className = "settings-row settings-monitor-toggle-row";
-    const pulseLabel = doc.createElement("span");
-    pulseLabel.className = "settings-monitor-label";
-    const pulseToggle = doc.createElement("button");
-    pulseToggle.id = "monitor-speed-pulse-toggle";
-    pulseToggle.type = "button";
-    pulseToggle.className = "settings-switch";
-    pulseToggle.setAttribute("role", "switch");
-    const pulseThumb = doc.createElement("span");
-    pulseThumb.className = "settings-switch-thumb";
-    pulseToggle.append(pulseThumb);
-    pulseRow.append(pulseLabel, pulseToggle);
     const syncMonitorInputs = () => {
       cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
       cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
       waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
-      setAttr(pulseToggle, "aria-checked", String(monitorState.speedPulseEnabled));
     };
     const commitMonitorChange = (patch) => {
       monitorState = resolveMonitorPrefs({ ...monitorState, ...patch });
@@ -9218,8 +9168,7 @@ ${FONT_POPOVER_CSS}`;
       void onMonitorPrefsChange?.({
         cacheWarnMinutes: monitorState.cacheWarnMinutes,
         cacheColdMinutes: monitorState.cacheColdMinutes,
-        firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds,
-        speedPulseEnabled: monitorState.speedPulseEnabled
+        firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds
       });
     };
     const readIntInput = (input, fallback) => {
@@ -9235,14 +9184,11 @@ ${FONT_POPOVER_CSS}`;
     waitSecField.inputEl.addEventListener("change", () => {
       commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
     });
-    pulseToggle.addEventListener("click", () => {
-      commitMonitorChange({ speedPulseEnabled: !monitorState.speedPulseEnabled });
-    });
     monitorResetBtn.addEventListener("click", () => {
       commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
     });
     monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
-    monitorSection.append(monitorHead, monitorGrid, pulseRow);
+    monitorSection.append(monitorHead, monitorGrid);
     popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
     mountRoot.append(popover);
     const isOpen = () => popover.matches(":popover-open") || popover.dataset.open === "true";
@@ -9381,8 +9327,6 @@ ${FONT_POPOVER_CSS}`;
       setText(cacheWarnField.labelEl, t("settingsCacheWarn"));
       setText(cacheColdField.labelEl, t("settingsCacheCold"));
       setText(waitSecField.labelEl, t("settingsWaitAlert"));
-      setText(pulseLabel, t("settingsSpeedPulse"));
-      setAttr(pulseToggle, "aria-label", t("settingsSpeedPulse"));
       syncMonitorInputs();
     };
     const syncPreferences = (prefs) => {
@@ -9400,7 +9344,7 @@ ${FONT_POPOVER_CSS}`;
         }
       }
       const nextMonitor = resolveMonitorPrefs(prefs);
-      if (nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes || nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes || nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds || nextMonitor.speedPulseEnabled !== monitorState.speedPulseEnabled) {
+      if (nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes || nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes || nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds) {
         monitorState = nextMonitor;
         syncMonitorInputs();
       }

@@ -366,11 +366,10 @@ module.exports = function createDashboardI18n(...args) {
       alertErrorCanceledDesc: "The request was canceled before completion.",
       alertErrorUnknown: "Request failed",
       alertErrorUnknownDesc: "The latest model request reported an error.",
-      settingsMonitorTitle: "Alerts & indicators",
+      settingsMonitorTitle: "Alert thresholds",
       settingsCacheWarn: "Cache warn (min)",
       settingsCacheCold: "Cache expire (min)",
       settingsWaitAlert: "First-token wait (sec)",
-      settingsSpeedPulse: "Speed pulse dot",
       settingsMonitorReset: "Reset",
       settingsMonitorSaved: "Saved monitor settings"
     };
@@ -663,11 +662,10 @@ module.exports = function createDashboardI18n(...args) {
       alertErrorCanceledDesc: "\u8BE5\u6B21\u6A21\u578B\u8BF7\u6C42\u5728\u5B8C\u6210\u524D\u88AB\u53D6\u6D88\u3002",
       alertErrorUnknown: "\u8BF7\u6C42\u5931\u8D25",
       alertErrorUnknownDesc: "\u6700\u8FD1\u4E00\u6B21\u6A21\u578B\u8BF7\u6C42\u8FD4\u56DE\u4E86\u9519\u8BEF\u3002",
-      settingsMonitorTitle: "\u63D0\u9192\u4E0E\u52A8\u6548\u9608\u503C",
+      settingsMonitorTitle: "\u63D0\u9192\u9608\u503C",
       settingsCacheWarn: "\u7F13\u5B58\u53D8\u9EC4\uFF08\u5206\u949F\uFF09",
       settingsCacheCold: "\u7F13\u5B58\u8FC7\u671F\uFF08\u5206\u949F\uFF09",
       settingsWaitAlert: "\u9996\u5B57\u7B49\u5F85\uFF08\u79D2\uFF09",
-      settingsSpeedPulse: "\u751F\u6210\u901F\u5EA6\u547C\u5438\u706F",
       settingsMonitorReset: "\u6062\u590D\u9ED8\u8BA4",
       settingsMonitorSaved: "\u63D0\u9192\u9608\u503C\u5DF2\u4FDD\u5B58"
     };

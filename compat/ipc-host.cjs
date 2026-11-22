@@ -84,16 +84,14 @@ module.exports = function installAgPulseIpc(...args) {
       "cacheColdMinutes",
       "firstTokenWaitSeconds",
       "contextWarnPct",
-      "contextDangerPct",
-      "speedPulseEnabled"
+      "contextDangerPct"
     ];
     var DEFAULT_MONITOR_PREFS = Object.freeze({
       cacheWarnMinutes: 3,
       cacheColdMinutes: 4,
       firstTokenWaitSeconds: 30,
       contextWarnPct: 75,
-      contextDangerPct: 90,
-      speedPulseEnabled: true
+      contextDangerPct: 90
     });
     function validateMonitorPrefsInput(input) {
       const checkIntRange = (key, min, max) => {
@@ -108,9 +106,6 @@ module.exports = function installAgPulseIpc(...args) {
       checkIntRange("firstTokenWaitSeconds", 0, 999);
       checkIntRange("contextWarnPct", 50, 95);
       checkIntRange("contextDangerPct", 60, 99);
-      if (Object.hasOwn(input, "speedPulseEnabled") && typeof input.speedPulseEnabled !== "boolean") {
-        throw new Error("Invalid speed pulse preference");
-      }
     }
     var PREFERENCE_KEYS = [
       "language",

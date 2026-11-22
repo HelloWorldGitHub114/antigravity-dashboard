@@ -80,16 +80,14 @@ module.exports = function createUsageDashboard(...args) {
       "cacheColdMinutes",
       "firstTokenWaitSeconds",
       "contextWarnPct",
-      "contextDangerPct",
-      "speedPulseEnabled"
+      "contextDangerPct"
     ];
     var DEFAULT_MONITOR_PREFS = Object.freeze({
       cacheWarnMinutes: 3,
       cacheColdMinutes: 4,
       firstTokenWaitSeconds: 30,
       contextWarnPct: 75,
-      contextDangerPct: 90,
-      speedPulseEnabled: true
+      contextDangerPct: 90
     });
     var PREFERENCE_KEYS = [
       "language",

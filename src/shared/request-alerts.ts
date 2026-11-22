@@ -16,14 +16,6 @@ export interface CacheTtlSummary {
 
 export type ContextLoadLevel = 'normal' | 'warn' | 'danger';
 
-export type SpeedPulseLevel = 'idle' | 'pending' | 'slow' | 'medium' | 'fast';
-
-export interface SpeedPulseSummary {
-  visible: boolean;
-  level: SpeedPulseLevel;
-  blinking: boolean;
-}
-
 export interface ActiveWaitAlertSummary {
   active: boolean;
   count: number;
@@ -144,44 +136,6 @@ export function resolveContextLoad(
   if (pct >= prefs.contextDangerPct) return 'danger';
   if (pct >= prefs.contextWarnPct) return 'warn';
   return 'normal';
-}
-
-const SPEED_PULSE_HOLD_MS = 15_000;
-
-/**
- * 判定底栏生成速度呼吸灯状态：
- * 生成中按速度分档闪烁（<10 红 / 10–25 黄 / >=25 绿），结束后保留颜色 15 秒再变灰。
- */
-export function resolveSpeedPulse(
-  tps: number | null | undefined,
-  isGenerating: boolean,
-  lastResponseAtMs: number | null | undefined,
-  nowMs: number,
-  enabled = true,
-): SpeedPulseSummary {
-  if (!enabled) return { visible: false, level: 'idle', blinking: false };
-  const levelFromTps = (val: number | null | undefined): SpeedPulseLevel => {
-    if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0) return 'pending';
-    if (val < 10) return 'slow';
-    if (val < 25) return 'medium';
-    return 'fast';
-  };
-  if (isGenerating) {
-    return { visible: true, level: levelFromTps(tps), blinking: true };
-  }
-  if (
-    typeof lastResponseAtMs === 'number' &&
-    Number.isFinite(lastResponseAtMs) &&
-    lastResponseAtMs > 0 &&
-    nowMs - lastResponseAtMs >= 0 &&
-    nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS &&
-    typeof tps === 'number' &&
-    Number.isFinite(tps) &&
-    tps > 0
-  ) {
-    return { visible: true, level: levelFromTps(tps), blinking: false };
-  }
-  return { visible: true, level: 'idle', blinking: false };
 }
 
 /**

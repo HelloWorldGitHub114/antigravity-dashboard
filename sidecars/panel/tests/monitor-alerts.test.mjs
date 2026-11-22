@@ -7,7 +7,6 @@ import {
   formatCompactElapsedMs,
   resolveCacheTtl,
   resolveContextLoad,
-  resolveSpeedPulse,
   summarizeActiveWaitAlert,
   trajectoryMetrics,
 } from '../metrics.mjs';
@@ -51,26 +50,6 @@ test('resolveContextLoad applies configurable warn and danger thresholds', () =>
   assert.equal(resolveContextLoad(0.899), 'warn');
   assert.equal(resolveContextLoad(0.9), 'danger');
   assert.equal(resolveContextLoad(0.65, { contextWarnPct: 60, contextDangerPct: 80 }), 'warn');
-});
-
-test('resolveSpeedPulse blinks while generating and holds color 15s after completion', () => {
-  const doneAt = 1_700_000_000_000;
-  assert.deepEqual(resolveSpeedPulse(8, true, doneAt, doneAt + 1000, true), {
-    visible: true,
-    level: 'slow',
-    blinking: true,
-  });
-  assert.deepEqual(resolveSpeedPulse(18, false, doneAt, doneAt + 10_000, true), {
-    visible: true,
-    level: 'medium',
-    blinking: false,
-  });
-  assert.deepEqual(resolveSpeedPulse(40, false, doneAt, doneAt + 20_000, true), {
-    visible: true,
-    level: 'idle',
-    blinking: false,
-  });
-  assert.equal(resolveSpeedPulse(40, true, doneAt, doneAt, false).visible, false);
 });
 
 test('computeContextBreakdown splits active compaction epoch into 4 parts without exceeding total', () => {
@@ -216,16 +195,14 @@ test('PreferencesStore validates and persists monitor thresholds without polluti
       cacheWarnMinutes: 5,
       cacheColdMinutes: 8,
       firstTokenWaitSeconds: 45,
-      speedPulseEnabled: false,
     });
     assert.equal(updated.cacheWarnMinutes, 5);
     assert.equal(updated.cacheColdMinutes, 8);
     assert.equal(updated.firstTokenWaitSeconds, 45);
-    assert.equal(updated.speedPulseEnabled, false);
 
     const reloaded = await store.get();
     assert.equal(reloaded.cacheWarnMinutes, 5);
-    assert.equal(reloaded.speedPulseEnabled, false);
+    assert.equal(reloaded.firstTokenWaitSeconds, 45);
 
     await assert.rejects(() => store.set({ cacheWarnMinutes: -1 }), /Invalid monitor threshold preference/);
   } finally {

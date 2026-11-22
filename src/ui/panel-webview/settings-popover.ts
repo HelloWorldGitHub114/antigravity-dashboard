@@ -342,25 +342,10 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   const cacheColdField = makeNumberField('monitor-cache-cold', 0, 999);
   const waitSecField = makeNumberField('monitor-wait-sec', 0, 999);
 
-  const pulseRow = doc.createElement('div');
-  pulseRow.className = 'settings-row settings-monitor-toggle-row';
-  const pulseLabel = doc.createElement('span');
-  pulseLabel.className = 'settings-monitor-label';
-  const pulseToggle = doc.createElement('button');
-  pulseToggle.id = 'monitor-speed-pulse-toggle';
-  pulseToggle.type = 'button';
-  pulseToggle.className = 'settings-switch';
-  pulseToggle.setAttribute('role', 'switch');
-  const pulseThumb = doc.createElement('span');
-  pulseThumb.className = 'settings-switch-thumb';
-  pulseToggle.append(pulseThumb);
-  pulseRow.append(pulseLabel, pulseToggle);
-
   const syncMonitorInputs = (): void => {
     cacheWarnField.inputEl.value = String(monitorState.cacheWarnMinutes);
     cacheColdField.inputEl.value = String(monitorState.cacheColdMinutes);
     waitSecField.inputEl.value = String(monitorState.firstTokenWaitSeconds);
-    setAttr(pulseToggle, 'aria-checked', String(monitorState.speedPulseEnabled));
   };
 
   const commitMonitorChange = (patch: Partial<ResolvedMonitorPrefs>): void => {
@@ -370,7 +355,6 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
       cacheWarnMinutes: monitorState.cacheWarnMinutes,
       cacheColdMinutes: monitorState.cacheColdMinutes,
       firstTokenWaitSeconds: monitorState.firstTokenWaitSeconds,
-      speedPulseEnabled: monitorState.speedPulseEnabled,
     });
   };
 
@@ -388,15 +372,12 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
   waitSecField.inputEl.addEventListener('change', () => {
     commitMonitorChange({ firstTokenWaitSeconds: readIntInput(waitSecField.inputEl, monitorState.firstTokenWaitSeconds) });
   });
-  pulseToggle.addEventListener('click', () => {
-    commitMonitorChange({ speedPulseEnabled: !monitorState.speedPulseEnabled });
-  });
   monitorResetBtn.addEventListener('click', () => {
     commitMonitorChange({ ...DEFAULT_MONITOR_PREFS });
   });
 
   monitorGrid.append(cacheWarnField.row, cacheColdField.row, waitSecField.row);
-  monitorSection.append(monitorHead, monitorGrid, pulseRow);
+  monitorSection.append(monitorHead, monitorGrid);
 
   popover.append(debugSection, div1, accountSection, divAccount, langSection, div2, fontSection, div3, monitorSection);
   mountRoot.append(popover);
@@ -559,8 +540,6 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     setText(cacheWarnField.labelEl, t('settingsCacheWarn'));
     setText(cacheColdField.labelEl, t('settingsCacheCold'));
     setText(waitSecField.labelEl, t('settingsWaitAlert'));
-    setText(pulseLabel, t('settingsSpeedPulse'));
-    setAttr(pulseToggle, 'aria-label', t('settingsSpeedPulse'));
     syncMonitorInputs();
   };
 
@@ -587,8 +566,7 @@ export function createSettingsPopover(options: SettingsPopoverOptions): Settings
     if (
       nextMonitor.cacheWarnMinutes !== monitorState.cacheWarnMinutes ||
       nextMonitor.cacheColdMinutes !== monitorState.cacheColdMinutes ||
-      nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds ||
-      nextMonitor.speedPulseEnabled !== monitorState.speedPulseEnabled
+      nextMonitor.firstTokenWaitSeconds !== monitorState.firstTokenWaitSeconds
     ) {
       monitorState = nextMonitor;
       syncMonitorInputs();

@@ -91,16 +91,14 @@ var MONITOR_PREFERENCE_KEYS = [
   "cacheColdMinutes",
   "firstTokenWaitSeconds",
   "contextWarnPct",
-  "contextDangerPct",
-  "speedPulseEnabled"
+  "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
   cacheWarnMinutes: 3,
   cacheColdMinutes: 4,
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
-  contextDangerPct: 90,
-  speedPulseEnabled: true
+  contextDangerPct: 90
 });
 function clampInt(value, min, max, fallback) {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
@@ -124,14 +122,12 @@ function resolveMonitorPrefs(raw) {
   if (contextDangerPct <= contextWarnPct) {
     contextDangerPct = Math.min(99, contextWarnPct + 5);
   }
-  const speedPulseEnabled = typeof src.speedPulseEnabled === "boolean" ? src.speedPulseEnabled : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
   return {
     cacheWarnMinutes,
     cacheColdMinutes,
     firstTokenWaitSeconds,
     contextWarnPct,
-    contextDangerPct,
-    speedPulseEnabled
+    contextDangerPct
   };
 }
 function extractMonitorPrefOverrides(raw) {
@@ -153,9 +149,6 @@ function extractMonitorPrefOverrides(raw) {
   if (Object.hasOwn(raw, "contextDangerPct") && resolved.contextDangerPct !== DEFAULT_MONITOR_PREFS.contextDangerPct) {
     out.contextDangerPct = resolved.contextDangerPct;
   }
-  if (Object.hasOwn(raw, "speedPulseEnabled") && resolved.speedPulseEnabled !== DEFAULT_MONITOR_PREFS.speedPulseEnabled) {
-    out.speedPulseEnabled = resolved.speedPulseEnabled;
-  }
   return out;
 }
 function validateMonitorPrefsInput(input) {
@@ -171,9 +164,6 @@ function validateMonitorPrefsInput(input) {
   checkIntRange("firstTokenWaitSeconds", 0, 999);
   checkIntRange("contextWarnPct", 50, 95);
   checkIntRange("contextDangerPct", 60, 99);
-  if (Object.hasOwn(input, "speedPulseEnabled") && typeof input.speedPulseEnabled !== "boolean") {
-    throw new Error("Invalid speed pulse preference");
-  }
 }
 var PREFERENCE_KEYS = [
   "language",

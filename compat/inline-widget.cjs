@@ -45,16 +45,14 @@ module.exports = function installAgPulseInlineWidget(...args) {
       "cacheColdMinutes",
       "firstTokenWaitSeconds",
       "contextWarnPct",
-      "contextDangerPct",
-      "speedPulseEnabled"
+      "contextDangerPct"
     ];
     var DEFAULT_MONITOR_PREFS = Object.freeze({
       cacheWarnMinutes: 3,
       cacheColdMinutes: 4,
       firstTokenWaitSeconds: 30,
       contextWarnPct: 75,
-      contextDangerPct: 90,
-      speedPulseEnabled: true
+      contextDangerPct: 90
     });
     function clampInt(value, min, max, fallback) {
       if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
@@ -78,14 +76,12 @@ module.exports = function installAgPulseInlineWidget(...args) {
       if (contextDangerPct <= contextWarnPct) {
         contextDangerPct = Math.min(99, contextWarnPct + 5);
       }
-      const speedPulseEnabled = typeof src.speedPulseEnabled === "boolean" ? src.speedPulseEnabled : DEFAULT_MONITOR_PREFS.speedPulseEnabled;
       return {
         cacheWarnMinutes,
         cacheColdMinutes,
         firstTokenWaitSeconds,
         contextWarnPct,
-        contextDangerPct,
-        speedPulseEnabled
+        contextDangerPct
       };
     }
     var PREFERENCE_KEYS = [
@@ -257,7 +253,7 @@ module.exports = function installAgPulseInlineWidget(...args) {
       return `<style>${themeShadowCss}
   ${inlineCss}</style><div class="bar" data-i18n-aria="strip" aria-label="Dashboard statistics">
         <span class="dot" id="dot" title="Connecting"></span>
-        <button class="chip" data-card="speed" data-i18n-aria="session" hidden aria-controls="speed-card" aria-expanded="false">${svg("speed")}<span class="speed-pulse" id="speed-pulse" aria-hidden="true" hidden></span><span class="rounds dim" id="rounds"></span><strong id="tps">\u2014</strong><span>tok/s</span></button>
+        <button class="chip" data-card="speed" data-i18n-aria="session" hidden aria-controls="speed-card" aria-expanded="false">${svg("speed")}<span class="rounds dim" id="rounds"></span><strong id="tps">\u2014</strong><span>tok/s</span></button>
         <button class="chip" data-card="cache" data-i18n-aria="cacheTitle" hidden aria-controls="cache-card" aria-expanded="false">${svg("cache")}<span class="cache-total" id="cache-total">\u2014 tok</span><span class="dim">\xB7</span><span data-i18n="cache">Cache hit</span><strong id="cache-rate">\u2014</strong></button>
         <button class="chip" data-card="context" data-i18n-aria="context" hidden aria-controls="context-card" aria-expanded="false"><span class="context-ring" id="context-ring" aria-hidden="true"></span><span class="context-label" data-i18n="contextShort">Ctx</span><strong id="context-percent">\u2014</strong></button>
         <button class="chip alert-chip" data-card="alert" data-i18n-aria="alertChipTitle" hidden aria-controls="alert-card" aria-expanded="false">${svg("alert")}<strong id="alert-chip-text">\u2014</strong></button>
@@ -3175,57 +3171,9 @@ module.exports = function installAgPulseInlineWidget(...args) {
     #open-usage:active {
       transform: none;
     }
-
-    .speed-pulse.is-blinking {
-      animation: none;
-    }
   }
 
-  /* \u901F\u5EA6\u547C\u5438\u706F\u3001\u7F13\u5B58\u4FDD\u9C9C\u63D0\u9192\u3001\u4E0A\u4E0B\u6587\u9884\u8B66\u4E0E\u56DB\u6BB5\u62C6\u89E3\u3001\u672C\u8F6E\u6C47\u603B\u3001\u5F02\u5E38\u544A\u8B66\u80F6\u56CA */
-  @keyframes pulse-speed-blink {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: .32; transform: scale(.82); }
-  }
-
-  .speed-pulse {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex: none;
-    background: var(--pulse-dot);
-    transition: background-color 220ms ease, opacity 220ms ease;
-  }
-
-  .speed-pulse[hidden] {
-    display: none;
-  }
-
-  .speed-pulse[data-level="fast"] {
-    background: var(--pulse-success);
-  }
-
-  .speed-pulse[data-level="medium"] {
-    background: var(--pulse-warning);
-  }
-
-  .speed-pulse[data-level="slow"] {
-    background: var(--pulse-danger);
-  }
-
-  .speed-pulse[data-level="pending"] {
-    background: var(--pulse-accent);
-  }
-
-  .speed-pulse[data-level="idle"] {
-    background: var(--pulse-dot);
-    opacity: .55;
-  }
-
-  .speed-pulse.is-blinking {
-    animation: pulse-speed-blink 1.1s ease-in-out infinite;
-  }
-
+  /* \u7F13\u5B58\u4FDD\u9C9C\u63D0\u9192\u3001\u4E0A\u4E0B\u6587\u9884\u8B66\u4E0E\u56DB\u6BB5\u62C6\u89E3\u3001\u672C\u8F6E\u6C47\u603B\u3001\u5F02\u5E38\u544A\u8B66\u80F6\u56CA */
   .chip[data-card="cache"][data-ttl="warn"],
   .chip[data-card="cache"][data-ttl="warn"] svg {
     color: var(--pulse-warning);
@@ -4044,23 +3992,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
       if (pct >= prefs.contextWarnPct) return "warn";
       return "normal";
     }
-    var SPEED_PULSE_HOLD_MS = 15e3;
-    function resolveSpeedPulse(tps, isGenerating, lastResponseAtMs, nowMs, enabled = true) {
-      if (!enabled) return { visible: false, level: "idle", blinking: false };
-      const levelFromTps = (val) => {
-        if (typeof val !== "number" || !Number.isFinite(val) || val <= 0) return "pending";
-        if (val < 10) return "slow";
-        if (val < 25) return "medium";
-        return "fast";
-      };
-      if (isGenerating) {
-        return { visible: true, level: levelFromTps(tps), blinking: true };
-      }
-      if (typeof lastResponseAtMs === "number" && Number.isFinite(lastResponseAtMs) && lastResponseAtMs > 0 && nowMs - lastResponseAtMs >= 0 && nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS && typeof tps === "number" && Number.isFinite(tps) && tps > 0) {
-        return { visible: true, level: levelFromTps(tps), blinking: false };
-      }
-      return { visible: true, level: "idle", blinking: false };
-    }
     function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
       if (!turnQueue || thresholdSeconds <= 0) {
         return { active: false, count: 0, currentWaitSec: null, maxWaitSec: 0, isWaitingNow: false };
@@ -4367,19 +4298,6 @@ module.exports = function installAgPulseInlineWidget(...args) {
       const t = language.t;
       const speed = data.speed;
       const prefs = resolveMonitorPrefs(data.preferences);
-      const pulse = resolveSpeedPulse(
-        speed?.latestTps ?? speed?.tps,
-        speed?.isGenerating === true,
-        speed?.lastResponseAtMs,
-        nowMs,
-        prefs.speedPulseEnabled
-      );
-      const pulseEl = $("speed-pulse");
-      if (pulseEl) {
-        toggleHidden(pulseEl, !pulse.visible || !speed);
-        pulseEl.dataset.level = pulse.level;
-        pulseEl.classList.toggle("is-blinking", pulse.blinking);
-      }
       const turn = speed?.turnMetrics ?? null;
       if (turn) {
         const liveSec = turn.durationSeconds !== null ? turn.durationSeconds : (turn.state === "running" || turn.state === "queued") && turn.startedAtMs ? Math.max(0, (nowMs - turn.startedAtMs) / 1e3) : null;

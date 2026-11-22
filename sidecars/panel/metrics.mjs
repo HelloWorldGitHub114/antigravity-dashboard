@@ -571,16 +571,14 @@ var MONITOR_PREFERENCE_KEYS = [
   "cacheColdMinutes",
   "firstTokenWaitSeconds",
   "contextWarnPct",
-  "contextDangerPct",
-  "speedPulseEnabled"
+  "contextDangerPct"
 ];
 var DEFAULT_MONITOR_PREFS = Object.freeze({
   cacheWarnMinutes: 3,
   cacheColdMinutes: 4,
   firstTokenWaitSeconds: 30,
   contextWarnPct: 75,
-  contextDangerPct: 90,
-  speedPulseEnabled: true
+  contextDangerPct: 90
 });
 var PREFERENCE_KEYS = [
   "language",
@@ -668,23 +666,6 @@ function resolveContextLoad(usedFraction, prefs = DEFAULT_MONITOR_PREFS) {
   if (pct >= prefs.contextDangerPct) return "danger";
   if (pct >= prefs.contextWarnPct) return "warn";
   return "normal";
-}
-var SPEED_PULSE_HOLD_MS = 15e3;
-function resolveSpeedPulse(tps, isGenerating, lastResponseAtMs, nowMs, enabled = true) {
-  if (!enabled) return { visible: false, level: "idle", blinking: false };
-  const levelFromTps = (val) => {
-    if (typeof val !== "number" || !Number.isFinite(val) || val <= 0) return "pending";
-    if (val < 10) return "slow";
-    if (val < 25) return "medium";
-    return "fast";
-  };
-  if (isGenerating) {
-    return { visible: true, level: levelFromTps(tps), blinking: true };
-  }
-  if (typeof lastResponseAtMs === "number" && Number.isFinite(lastResponseAtMs) && lastResponseAtMs > 0 && nowMs - lastResponseAtMs >= 0 && nowMs - lastResponseAtMs <= SPEED_PULSE_HOLD_MS && typeof tps === "number" && Number.isFinite(tps) && tps > 0) {
-    return { visible: true, level: levelFromTps(tps), blinking: false };
-  }
-  return { visible: true, level: "idle", blinking: false };
 }
 function summarizeActiveWaitAlert(turnQueue, nowMs, thresholdSeconds = DEFAULT_MONITOR_PREFS.firstTokenWaitSeconds) {
   if (!turnQueue || thresholdSeconds <= 0) {
@@ -1922,7 +1903,6 @@ export {
   resolveContextLoad,
   resolveModelPricing,
   resolvePricingKey,
-  resolveSpeedPulse,
   safeModelUsage,
   seconds,
   shortEta,

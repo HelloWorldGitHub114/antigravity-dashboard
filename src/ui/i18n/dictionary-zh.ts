@@ -290,11 +290,10 @@ export const ZH_DICTIONARY: I18nDictionary = {
   alertErrorCanceledDesc: '该次模型请求在完成前被取消。',
   alertErrorUnknown: '请求失败',
   alertErrorUnknownDesc: '最近一次模型请求返回了错误。',
-  settingsMonitorTitle: '提醒与动效阈值',
+  settingsMonitorTitle: '提醒阈值',
   settingsCacheWarn: '缓存变黄（分钟）',
   settingsCacheCold: '缓存过期（分钟）',
   settingsWaitAlert: '首字等待（秒）',
-  settingsSpeedPulse: '生成速度呼吸灯',
   settingsMonitorReset: '恢复默认',
   settingsMonitorSaved: '提醒阈值已保存',
 };
