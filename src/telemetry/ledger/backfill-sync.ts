@@ -3,6 +3,7 @@ import {
   extractSqliteUsageRecords,
   isNativeAccelAvailable,
   readSqliteConversationMeta,
+  readSqliteTrajectory,
 } from '../../platform/native-bridge.ts';
 import {
   conversationId,
@@ -140,7 +141,11 @@ export async function syncOneCandidate(params: {
       freshEnough = typeof meta?.stepCount === 'number' && meta.stepCount >= expectedSteps;
     }
     if (freshEnough) {
-      const sqliteRows = extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
+      // 优先走轨迹读取再由 usageRecords 提取，保证历史回填同样携带首字时间、耗时与质检后 TPS
+      const sqliteTraj = readSqliteTrajectory(dbPath, c.id, { modelTimelineEnabled: false });
+      const sqliteRows = sqliteTraj
+        ? usageRecords(sqliteTraj, c.id)
+        : extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
       if (sqliteRows !== null && (sqliteRows.length > 0 || expectedSteps === 0)) {
         rows = sqliteRows;
       }
@@ -165,7 +170,10 @@ export async function syncOneCandidate(params: {
     } catch (rpcError) {
       if (!current()) return { cancelled: true };
       if (dbPath && isNativeAccelAvailable()) {
-        const rescueRows = extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
+        const rescueTraj = readSqliteTrajectory(dbPath, c.id, { modelTimelineEnabled: false });
+        const rescueRows = rescueTraj
+          ? usageRecords(rescueTraj, c.id)
+          : extractSqliteUsageRecords<UsageRecord>(dbPath, c.id);
         if (rescueRows && rescueRows.length > 0) {
           rows = rescueRows;
         } else {
@@ -204,8 +212,13 @@ export function candidateMark(listed: ListedConversationSummary | undefined): st
   return JSON.stringify([listed?.stepCount, listed?.modifiedAt, listed?.status, listed?.lastUserInputStepIndex]);
 }
 
+// 当账本记录新增持久字段（如耗时与 TPS）时递增版本，触发已归档本地会话平滑补齐
+const BACKFILL_RECORD_VERSION = 'v2-timing';
+
 export function candidateSignature(listedSignature: string | undefined, mark: string): string {
-  return listedSignature ? sha256(listedSignature + mark) : sha256(mark);
+  return listedSignature
+    ? sha256(`${BACKFILL_RECORD_VERSION}:${listedSignature}${mark}`)
+    : sha256(`${BACKFILL_RECORD_VERSION}:${mark}`);
 }
 
 export async function ingestConversationUsage(params: {

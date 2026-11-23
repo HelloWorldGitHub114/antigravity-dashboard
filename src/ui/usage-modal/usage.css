@@ -282,21 +282,32 @@
 .logs-table tbody.is-loading { opacity: .52; transition: opacity 120ms ease; }
 .logs-table tr.log-row { transition: background-color 110ms ease; }
 .logs-table tr.log-row:hover { background: color-mix(in srgb, var(--pulse-hover) 62%, transparent); }
-.logs-table td { padding: 10px 12px; vertical-align: middle; }
-.logs-table th.log-col-model, .logs-table td.log-col-model { text-align: left; }
+.logs-table td { padding: 10px 10px; vertical-align: middle; }
+.logs-table th.log-col-model, .logs-table td.log-col-model,
+.logs-table th.log-col-latency, .logs-table td.log-col-latency { text-align: left; }
 .logs-table th.log-col-cache, .logs-table td.log-col-cache { text-align: center; }
 
 .log-time-main { display: flex; align-items: center; gap: 6px; }
 .log-time-text { font-weight: 500; color: var(--pulse-foreground); letter-spacing: -.1px; }
-.log-time-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; max-width: 260px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
+.log-time-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; max-width: 220px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
 .log-conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.log-project-tag, .log-account-tag { flex: none; padding: 0 5px; border-radius: 4px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); color: var(--pulse-label); max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-project-tag, .log-account-tag { flex: none; padding: 0 5px; border-radius: 4px; border: 1px solid var(--pulse-border); background: color-mix(in srgb, var(--pulse-control) 75%, transparent); color: var(--pulse-label); max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-badge { flex: none; padding: 0 5px; border-radius: 4px; font-size: calc(9.5px * var(--pulse-usage-font-scale, 1)); font-weight: 500; }
 .log-badge.is-remote { color: var(--pulse-accent); background: color-mix(in srgb, var(--pulse-accent) 14%, transparent); }
 .log-badge.is-partial { color: var(--pulse-warning); background: color-mix(in srgb, var(--pulse-warning) 15%, transparent); }
 
-.log-model-cell { display: inline-flex; align-items: center; gap: 7px; max-width: 210px; }
+.log-model-cell { display: inline-flex; align-items: center; gap: 7px; max-width: 185px; }
 .log-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pulse-foreground); }
+
+.log-lat-pills { display: inline-flex; align-items: center; gap: 4px; }
+.log-lat-pill { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); font-weight: 600; border: 1px solid transparent; }
+.log-lat-pill.is-fast { color: var(--pulse-success); background: color-mix(in srgb, var(--pulse-success) 15%, transparent); border-color: color-mix(in srgb, var(--pulse-success) 30%, transparent); }
+.log-lat-pill.is-normal { color: var(--pulse-warning); background: color-mix(in srgb, var(--pulse-warning) 14%, transparent); border-color: color-mix(in srgb, var(--pulse-warning) 30%, transparent); }
+.log-lat-pill.is-slow { color: var(--pulse-danger, #e5484d); background: color-mix(in srgb, var(--pulse-danger, #e5484d) 14%, transparent); border-color: color-mix(in srgb, var(--pulse-danger, #e5484d) 30%, transparent); }
+.log-lat-pill.is-none { color: var(--pulse-muted); background: color-mix(in srgb, var(--pulse-hover) 70%, transparent); }
+.log-lat-sub { margin-top: 3px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
+.log-tps-val { color: var(--pulse-label); font-weight: 500; }
+.log-stream-only, .log-lat-empty { color: var(--pulse-muted); }
 
 .log-cache-pill { display: inline-block; min-width: 54px; padding: 2px 8px; border-radius: 999px; text-align: center; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); font-weight: 600; border: 1px solid transparent; }
 .log-cache-pill.is-hot { color: var(--pulse-success); background: color-mix(in srgb, var(--pulse-success) 15%, transparent); border-color: color-mix(in srgb, var(--pulse-success) 32%, transparent); }

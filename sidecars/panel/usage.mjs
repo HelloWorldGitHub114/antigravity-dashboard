@@ -274,7 +274,13 @@ function extractRequestIdentity(generator, options) {
 }
 
 // src/telemetry/ledger/extractor.ts
-import { requestCacheMetrics, tokenCount } from "./metrics.mjs";
+import {
+  buildChatRateSample,
+  requestCacheMetrics,
+  seconds,
+  tokenCount
+} from "./metrics.mjs";
+import { classifyRates } from "./rate-quality.mjs";
 
 // src/telemetry/ledger/helpers.ts
 import { createHash as createHash2 } from "node:crypto";
@@ -295,7 +301,9 @@ function validRow(r) {
   if (!r || typeof r !== "object") return false;
   const row = r;
   const validAt = row.at === null || typeof row.at === "number" && Number.isSafeInteger(row.at) && row.at >= 0;
-  return typeof row.id === "string" && HASH_RE.test(row.id) && typeof row.model === "string" && row.model.length <= 120 && validAt && RECORD_KEYS.every(
+  const validOptMs = (v) => v === void 0 || v === null || typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+  const validOptRate = (v) => v === void 0 || v === null || typeof v === "number" && Number.isFinite(v) && v >= 0;
+  return typeof row.id === "string" && HASH_RE.test(row.id) && typeof row.model === "string" && row.model.length <= 120 && validAt && validOptMs(row.ttftMs) && validOptMs(row.streamMs) && validOptRate(row.tps) && RECORD_KEYS.every(
     (k) => row[k] === null || typeof row[k] === "number" && Number.isSafeInteger(row[k]) && row[k] >= 0
   );
 }
@@ -329,12 +337,20 @@ function isErrno(error, ...codes) {
 }
 
 // src/telemetry/ledger/extractor.ts
+function toSafeMs(sec) {
+  if (sec === null || !Number.isFinite(sec) || sec < 0) return null;
+  const ms = Math.round(sec * 1e3);
+  return Number.isSafeInteger(ms) && ms >= 0 ? ms : null;
+}
+function hasTiming(r) {
+  return r.ttftMs != null || r.streamMs != null || r.tps != null;
+}
 function usageRecords(raw, conversationId2) {
   const container = raw && typeof raw === "object" ? raw : {};
   const trajectory = container.trajectory || {};
   const steps = Array.isArray(trajectory.steps) ? trajectory.steps : [];
   const generators = Array.isArray(trajectory.generatorMetadata) ? trajectory.generatorMetadata : [];
-  const rows = /* @__PURE__ */ new Map();
+  const pending = [];
   for (const [index, g] of generators.entries()) {
     const chat = g?.chatModel;
     const rawUsage = chat?.usage;
@@ -352,6 +368,19 @@ function usageRecords(raw, conversationId2) {
       steps,
       fallback: "conversation"
     });
+    const visible = tokenCount(u.responseOutputTokens);
+    const thinking = tokenCount(u.thinkingOutputTokens);
+    const rawVisible = visible ?? (output !== null && thinking !== null ? Math.max(0, output - thinking) : output);
+    const duration = seconds(chat.streamingDuration);
+    const ttft = seconds(chat.timeToFirstToken);
+    const sample = buildChatRateSample(g, chat, u, steps, {
+      output,
+      visible,
+      thinking,
+      rawVisible,
+      duration,
+      ttft
+    });
     const row = {
       id: identity.hash,
       at: identity.at,
@@ -363,8 +392,33 @@ function usageRecords(raw, conversationId2) {
       partial: uncached === null || read === null || write === null || output === null || !cache && uncached > 0,
       timeBasis: identity.timeBasis
     };
+    pending.push({
+      row,
+      sample,
+      ttftMs: toSafeMs(ttft),
+      streamMs: toSafeMs(duration)
+    });
+  }
+  classifyRates(pending.map((p) => p.sample));
+  const rows = /* @__PURE__ */ new Map();
+  for (const { row, sample, ttftMs, streamMs } of pending) {
+    const tps = sample.status === "ok" && sample.tps !== null && Number.isFinite(sample.tps) && sample.tps > 0 ? Math.round(sample.tps * 10) / 10 : null;
+    if (ttftMs !== null) row.ttftMs = ttftMs;
+    if (streamMs !== null) row.streamMs = streamMs;
+    if (tps !== null) row.tps = tps;
     const old = rows.get(row.id);
-    if (!old || recordSum(row) > recordSum(old)) {
+    if (!old) {
+      rows.set(row.id, row);
+      continue;
+    }
+    const nextSum = recordSum(row);
+    const oldSum = recordSum(old);
+    if (nextSum > oldSum || nextSum === oldSum && hasTiming(row) && !hasTiming(old)) {
+      if (row.ttftMs === void 0 && old.ttftMs !== void 0) row.ttftMs = old.ttftMs;
+      if (row.streamMs === void 0 && old.streamMs !== void 0) row.streamMs = old.streamMs;
+      if (row.tps === void 0 && old.tps !== void 0) row.tps = old.tps;
+      rows.set(row.id, row);
+    } else if (nextSum === oldSum && !hasTiming(old) && hasTiming(row)) {
       rows.set(row.id, row);
     }
   }
@@ -687,11 +741,20 @@ var LedgerStorage = class {
       const merged = new Map((previous?.records || []).map((r) => [r.id, r]));
       for (const row of rows) {
         const old = merged.get(row.id);
+        const ttftMs = row.ttftMs ?? old?.ttftMs;
+        const streamMs = row.streamMs ?? old?.streamMs;
+        const tps = row.tps ?? old?.tps;
         const record = {
           ...row,
           at: row.at ?? old?.at ?? null,
           timeBasis: row.at === null && old?.at !== null && old?.at !== void 0 ? old.timeBasis : row.timeBasis
         };
+        if (ttftMs != null) record.ttftMs = ttftMs;
+        else delete record.ttftMs;
+        if (streamMs != null) record.streamMs = streamMs;
+        else delete record.streamMs;
+        if (tps != null) record.tps = tps;
+        else delete record.tps;
         for (const key of RECORD_KEYS) record[key] = row[key] ?? old?.[key] ?? null;
         merged.set(row.id, record);
       }
@@ -817,6 +880,28 @@ function extractSqliteUsageRecords(dbPath, conversationId2) {
   } catch {
     return null;
   }
+}
+function readSqliteTrajectory(dbPath, conversationId2, options) {
+  if (!dbPath || !conversationId2) return null;
+  const addon = getAddon();
+  if (!addon) return null;
+  let parsed;
+  try {
+    const json = addon.readSqliteTrajectoryJson(
+      dbPath,
+      conversationId2,
+      options?.modelTimelineEnabled === true,
+      options?.maxOutputBytes
+    );
+    if (typeof json !== "string" || !json) return null;
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.__budgetExceeded === true) {
+    throw new Error("\u4F1A\u8BDD\u7EDF\u8BA1\u6570\u636E\u8D85\u8FC7\u5185\u5B58\u9884\u7B97");
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
 }
 function readSqliteConversationMeta(dbPath, conversationId2) {
   if (!dbPath || !conversationId2) return null;
@@ -2752,9 +2837,16 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
         }
       }
       const sum = recordSum(r);
+      const ttftMs = typeof r.ttftMs === "number" && Number.isFinite(r.ttftMs) && r.ttftMs >= 0 ? r.ttftMs : null;
+      const streamMs = typeof r.streamMs === "number" && Number.isFinite(r.streamMs) && r.streamMs >= 0 ? r.streamMs : null;
+      const tps = typeof r.tps === "number" && Number.isFinite(r.tps) && r.tps > 0 ? r.tps : null;
+      const hasTiming2 = ttftMs !== null || streamMs !== null || tps !== null;
       const prev = dedup.get(r.id);
-      if (prev && (sum < prev.sum || sum === prev.sum && r.at <= prev.item.at)) {
-        continue;
+      if (prev) {
+        const prevHasTiming = prev.item.ttftMs !== null || prev.item.streamMs !== null || prev.item.tps !== null;
+        if (sum < prev.sum || sum === prev.sum && prevHasTiming && !hasTiming2 || sum === prev.sum && prevHasTiming === hasTiming2 && r.at <= prev.item.at) {
+          continue;
+        }
       }
       const uncached = r.uncached || 0;
       const cacheRead = r.cacheRead || 0;
@@ -2764,6 +2856,10 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
       const total = inputTokens + output;
       const cacheHitRate = inputTokens > 0 ? cacheRead / inputTokens : null;
       const effectiveOwner = resolvedOwner || (isDuplicate ? pickPrimary(scopesForRecord) || s : s);
+      const mergedTtftMs = ttftMs ?? prev?.item.ttftMs ?? null;
+      const mergedStreamMs = streamMs ?? prev?.item.streamMs ?? null;
+      const mergedTps = tps ?? prev?.item.tps ?? null;
+      const durationMs = mergedTtftMs !== null || mergedStreamMs !== null ? (mergedTtftMs ?? 0) + (mergedStreamMs ?? 0) : null;
       dedup.set(r.id, {
         sum,
         item: {
@@ -2780,6 +2876,10 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
           output,
           total,
           cacheHitRate,
+          ttftMs: mergedTtftMs,
+          streamMs: mergedStreamMs,
+          durationMs,
+          tps: mergedTps,
           source: isRemote ? "remote" : "local",
           fileHash,
           ...manualProjectName ? { manualProjectName } : {},
@@ -2819,6 +2919,11 @@ function emptySummary() {
     hotCount: 0,
     warmCount: 0,
     missCount: 0,
+    avgDurationMs: null,
+    avgTtftMs: null,
+    avgTps: null,
+    timedRequests: 0,
+    tpsSamples: 0,
     costBuckets: []
   };
 }
@@ -2872,6 +2977,12 @@ async function queryUsageRequestLogs(options) {
   const matched = [];
   const summary = emptySummary();
   const costBucketMap = /* @__PURE__ */ new Map();
+  let totalDurationMs = 0;
+  let totalTtftMs = 0;
+  let ttftCount = 0;
+  let weightedTpsTokens = 0;
+  let weightedTpsSec = 0;
+  let unweightedTpsSum = 0;
   for (const r of indexed) {
     if (from && r.date < from) continue;
     if (to && r.date > to) continue;
@@ -2890,6 +3001,23 @@ async function queryUsageRequestLogs(options) {
       if (r.cacheHitRate >= HOT_CACHE_THRESHOLD) summary.hotCount += 1;
       else if (r.cacheHitRate >= WARM_CACHE_THRESHOLD) summary.warmCount += 1;
       else summary.missCount += 1;
+    }
+    if (r.durationMs !== null) {
+      totalDurationMs += r.durationMs;
+      summary.timedRequests += 1;
+    }
+    if (r.ttftMs !== null) {
+      totalTtftMs += r.ttftMs;
+      ttftCount += 1;
+    }
+    if (r.tps !== null) {
+      summary.tpsSamples += 1;
+      unweightedTpsSum += r.tps;
+      if (r.streamMs !== null && r.streamMs > 0) {
+        const sec = r.streamMs / 1e3;
+        weightedTpsTokens += r.tps * sec;
+        weightedTpsSec += sec;
+      }
     }
     const bucketKey = `${r.date}\0${r.model}`;
     let bucket = costBucketMap.get(bucketKey);
@@ -2912,6 +3040,13 @@ async function queryUsageRequestLogs(options) {
     bucket.total += r.total;
   }
   summary.cacheHitRate = summary.inputTokens > 0 ? summary.cachedTokens / summary.inputTokens : null;
+  summary.avgDurationMs = summary.timedRequests > 0 ? Math.round(totalDurationMs / summary.timedRequests) : null;
+  summary.avgTtftMs = ttftCount > 0 ? Math.round(totalTtftMs / ttftCount) : null;
+  if (weightedTpsSec > 0) {
+    summary.avgTps = Math.round(weightedTpsTokens / weightedTpsSec * 10) / 10;
+  } else if (summary.tpsSamples > 0) {
+    summary.avgTps = Math.round(unweightedTpsSum / summary.tpsSamples * 10) / 10;
+  }
   summary.costBuckets = [...costBucketMap.values()];
   const models = [...modelCounts.entries()].sort((a, b) => b[1] !== a[1] ? b[1] - a[1] : a[0].localeCompare(b[0])).map(([model, requests]) => ({ model, requests }));
   const totalCount = matched.length;
@@ -2941,6 +3076,10 @@ async function queryUsageRequestLogs(options) {
       output: r.output,
       total: r.total,
       cacheHitRate: r.cacheHitRate,
+      ttftMs: r.ttftMs,
+      streamMs: r.streamMs,
+      durationMs: r.durationMs,
+      tps: r.tps,
       source: r.source,
       ...conversationTitle ? { conversationTitle } : {},
       ...projectName ? { projectName } : {},
@@ -4470,7 +4609,8 @@ async function syncOneCandidate(params) {
       freshEnough = typeof meta?.stepCount === "number" && meta.stepCount >= expectedSteps;
     }
     if (freshEnough) {
-      const sqliteRows = extractSqliteUsageRecords(dbPath, c.id);
+      const sqliteTraj = readSqliteTrajectory(dbPath, c.id, { modelTimelineEnabled: false });
+      const sqliteRows = sqliteTraj ? usageRecords(sqliteTraj, c.id) : extractSqliteUsageRecords(dbPath, c.id);
       if (sqliteRows !== null && (sqliteRows.length > 0 || expectedSteps === 0)) {
         rows = sqliteRows;
       }
@@ -4494,7 +4634,8 @@ async function syncOneCandidate(params) {
     } catch (rpcError) {
       if (!current()) return { cancelled: true };
       if (dbPath && isNativeAccelAvailable()) {
-        const rescueRows = extractSqliteUsageRecords(dbPath, c.id);
+        const rescueTraj = readSqliteTrajectory(dbPath, c.id, { modelTimelineEnabled: false });
+        const rescueRows = rescueTraj ? usageRecords(rescueTraj, c.id) : extractSqliteUsageRecords(dbPath, c.id);
         if (rescueRows && rescueRows.length > 0) {
           rows = rescueRows;
         } else {
@@ -4529,8 +4670,9 @@ function buildRetryEntry(signature, failures, nowMs) {
 function candidateMark(listed) {
   return JSON.stringify([listed?.stepCount, listed?.modifiedAt, listed?.status, listed?.lastUserInputStepIndex]);
 }
+var BACKFILL_RECORD_VERSION = "v2-timing";
 function candidateSignature(listedSignature, mark) {
-  return listedSignature ? sha256(listedSignature + mark) : sha256(mark);
+  return listedSignature ? sha256(`${BACKFILL_RECORD_VERSION}:${listedSignature}${mark}`) : sha256(`${BACKFILL_RECORD_VERSION}:${mark}`);
 }
 async function ingestConversationUsage(params) {
   const { scope, id, raw, ledger, now } = params;

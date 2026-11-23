@@ -14,12 +14,19 @@ export function validRow(r: unknown): r is UsageRecord {
   if (!r || typeof r !== 'object') return false;
   const row = r as Record<string, unknown>;
   const validAt = row.at === null || (typeof row.at === 'number' && Number.isSafeInteger(row.at) && row.at >= 0);
+  const validOptMs = (v: unknown): boolean =>
+    v === undefined || v === null || (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0);
+  const validOptRate = (v: unknown): boolean =>
+    v === undefined || v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
   return (
     typeof row.id === 'string' &&
     HASH_RE.test(row.id) &&
     typeof row.model === 'string' &&
     row.model.length <= 120 &&
     validAt &&
+    validOptMs(row.ttftMs) &&
+    validOptMs(row.streamMs) &&
+    validOptRate(row.tps) &&
     RECORD_KEYS.every(
       (k) => row[k] === null || (typeof row[k] === 'number' && Number.isSafeInteger(row[k]) && (row[k] as number) >= 0),
     )

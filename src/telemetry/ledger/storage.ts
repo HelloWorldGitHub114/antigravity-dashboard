@@ -269,11 +269,20 @@ export class LedgerStorage {
       const merged = new Map<string, UsageRecord>((previous?.records || []).map((r) => [r.id, r]));
       for (const row of rows) {
         const old = merged.get(row.id);
+        const ttftMs = row.ttftMs ?? old?.ttftMs;
+        const streamMs = row.streamMs ?? old?.streamMs;
+        const tps = row.tps ?? old?.tps;
         const record: UsageRecord = {
           ...row,
           at: row.at ?? old?.at ?? null,
           timeBasis: row.at === null && old?.at !== null && old?.at !== undefined ? old.timeBasis : row.timeBasis,
         };
+        if (ttftMs != null) record.ttftMs = ttftMs;
+        else delete record.ttftMs;
+        if (streamMs != null) record.streamMs = streamMs;
+        else delete record.streamMs;
+        if (tps != null) record.tps = tps;
+        else delete record.tps;
         for (const key of RECORD_KEYS) record[key] = row[key] ?? old?.[key] ?? null;
         merged.set(row.id, record);
       }

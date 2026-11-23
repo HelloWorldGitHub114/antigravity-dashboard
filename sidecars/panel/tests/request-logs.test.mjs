@@ -4,9 +4,12 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { UsageLedger, queryUsageRequestLogs } from '../usage.mjs';
+import { UsageLedger, queryUsageRequestLogs, usageRecords } from '../usage.mjs';
 import {
   classifyCacheHitTone,
+  classifyLatencyTone,
+  formatDurationMs,
+  formatTpsValue,
   resolveLogsDateRange,
   summarizeRequestLogCost,
 } from '../../../src/ui/usage-modal/request-logs-helpers.ts';
@@ -325,4 +328,153 @@ test('request log frontend helpers resolve date ranges, tones, and custom USD pr
   });
   // (1_000_000 * 10 + 1_000_000 * 1 + 200_000 * 20) / 1M = 10 + 1 + 4 = $15.00
   assert.ok(Math.abs(customCost.costUsd - 15.0) < 1e-9);
+
+  // 耗时与速度格式化校验
+  assert.equal(formatDurationMs(null), '—');
+  assert.equal(formatDurationMs(450), '0.5s');
+  assert.equal(formatDurationMs(6100), '6.1s');
+  assert.equal(formatDurationMs(61000), '1m 1s');
+  assert.equal(formatDurationMs(120000), '2m');
+  assert.equal(formatTpsValue(null), '—');
+  assert.equal(formatTpsValue(45.36), '45.4 t/s');
+  assert.equal(formatTpsValue(128.4), '128 t/s');
+  assert.equal(classifyLatencyTone(4200, 'ttft'), 'fast');
+  assert.equal(classifyLatencyTone(12000, 'ttft'), 'normal');
+  assert.equal(classifyLatencyTone(45000, 'ttft'), 'slow');
+  assert.equal(classifyLatencyTone(15000, 'total'), 'fast');
+  assert.equal(classifyLatencyTone(40000, 'total'), 'normal');
+  assert.equal(classifyLatencyTone(75000, 'total'), 'slow');
+});
+
+test('usageRecords extracts TTFT, duration, and quality-checked TPS, and upgrades existing records on ingest', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ag-request-logs-timing-'));
+  try {
+    const scope = hash('acct-timing');
+    const ledger = new UsageLedger(dir, { timeZone: 'Asia/Shanghai' });
+    const convId = '44444444-4444-4444-8444-444444444444';
+
+    const raw = {
+      trajectory: {
+        steps: [
+          { type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', plannerResponse: { response: 'hello world' } },
+          {
+            type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+            plannerResponse: { response: '', toolCalls: [{ name: 'run_command' }] },
+          },
+          { type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', plannerResponse: { response: 'done' } },
+        ],
+        generatorMetadata: [
+          // 正常请求 1：TTFT 10s，流式 4s，responseOutput 200 -> TPS 50.0
+          {
+            stepIndices: [0],
+            chatModel: {
+              modelDisplayName: 'Gemini 4 Neon (XHigh)',
+              timeToFirstToken: '10.0s',
+              streamingDuration: '4.0s',
+              chatStartMetadata: { createdAt: '2026-11-23T10:00:00+08:00' },
+              usage: {
+                apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+                responseId: 'r-normal-1',
+                inputTokens: 1000,
+                cacheReadTokens: 9000,
+                outputTokens: 350,
+                responseOutputTokens: 200,
+                thinkingOutputTokens: 150,
+              },
+            },
+          },
+          // 缓冲工具调用短窗：TTFT 60s，流式 0.2s，toolOnly -> 应保留耗时，但 TPS 过滤掉避免出现虚高 500 t/s
+          {
+            stepIndices: [1],
+            chatModel: {
+              modelDisplayName: 'Gemini 4 Neon (XHigh)',
+              timeToFirstToken: '60.0s',
+              streamingDuration: '0.2s',
+              chatStartMetadata: { createdAt: '2026-11-23T10:02:00+08:00' },
+              usage: {
+                apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+                responseId: 'r-tool-burst',
+                inputTokens: 500,
+                cacheReadTokens: 9500,
+                outputTokens: 150,
+                responseOutputTokens: 100,
+                thinkingOutputTokens: 50,
+              },
+            },
+          },
+          // 正常请求 2：TTFT 5s，流式 6s，responseOutput 180 -> TPS 30.0
+          {
+            stepIndices: [2],
+            chatModel: {
+              modelDisplayName: 'Gemini 4 Neon (XHigh)',
+              timeToFirstToken: '5.0s',
+              streamingDuration: '6.0s',
+              chatStartMetadata: { createdAt: '2026-11-23T10:05:00+08:00' },
+              usage: {
+                apiProvider: 'API_PROVIDER_GOOGLE_GEMINI',
+                responseId: 'r-normal-2',
+                inputTokens: 2000,
+                cacheReadTokens: 8000,
+                outputTokens: 180,
+                responseOutputTokens: 180,
+                thinkingOutputTokens: 0,
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    const extracted = usageRecords(raw, convId);
+    assert.equal(extracted.length, 3);
+    const byAt = [...extracted].sort((a, b) => a.at - b.at);
+    assert.equal(byAt[0].ttftMs, 10000);
+    assert.equal(byAt[0].streamMs, 4000);
+    assert.equal(byAt[0].tps, 50);
+
+    // 缓冲工具短窗：保留 ttftMs 与 streamMs，但 tps 不写入
+    assert.equal(byAt[1].ttftMs, 60000);
+    assert.equal(byAt[1].streamMs, 200);
+    assert.equal(byAt[1].tps, undefined);
+
+    assert.equal(byAt[2].ttftMs, 5000);
+    assert.equal(byAt[2].streamMs, 6000);
+    assert.equal(byAt[2].tps, 30);
+
+    // 先写入无耗时旧版记录，再用含耗时新版覆盖，验证无损升级
+    const legacyRows = extracted.map(({ ttftMs: _a, streamMs: _b, tps: _c, ...rest }) => rest);
+    await ledger.ingestRows(scope, convId, legacyRows);
+    await ledger.ingestRows(scope, convId, extracted);
+
+    const logSnap = await queryUsageRequestLogs({
+      ledger,
+      activeScope: scope,
+      now: Date.parse('2026-11-23T11:00:00+08:00'),
+      input: { scope, from: '2026-11-23', to: '2026-11-23' },
+    });
+
+    assert.equal(logSnap.totalCount, 3);
+    // 倒序第 1 条是 r-normal-2（10:05）
+    assert.equal(logSnap.items[0].ttftMs, 5000);
+    assert.equal(logSnap.items[0].streamMs, 6000);
+    assert.equal(logSnap.items[0].durationMs, 11000);
+    assert.equal(logSnap.items[0].tps, 30);
+
+    // 倒序第 2 条是 r-tool-burst（10:02）
+    assert.equal(logSnap.items[1].ttftMs, 60000);
+    assert.equal(logSnap.items[1].streamMs, 200);
+    assert.equal(logSnap.items[1].durationMs, 60200);
+    assert.equal(logSnap.items[1].tps, null);
+
+    // 汇总均速按流式时长加权：(50*4 + 30*6) / (4+6) = 380 / 10 = 38.0 t/s
+    assert.equal(logSnap.summary.timedRequests, 3);
+    assert.equal(logSnap.summary.tpsSamples, 2);
+    assert.equal(logSnap.summary.avgTps, 38);
+    // 平均首字：(10000 + 60000 + 5000) / 3 = 25000ms
+    assert.equal(logSnap.summary.avgTtftMs, 25000);
+    // 平均总耗时：(14000 + 60200 + 11000) / 3 = 28400ms
+    assert.equal(logSnap.summary.avgDurationMs, 28400);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

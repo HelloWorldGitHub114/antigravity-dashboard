@@ -1894,6 +1894,7 @@ function listConfigurablePricingRows(knownModels, overrides, dateStr) {
 export {
   BUILTIN_MODEL_PRICING,
   DEFAULT_QUOTA_FORECAST_OPTIONS,
+  buildChatRateSample,
   buildModelUsage,
   buildQuotaWindowSpecs,
   calculateBucketCost,

@@ -5,7 +5,7 @@ export {
   requestCacheMetrics,
   type RequestCacheBreakdown,
 } from './primitives.ts';
-export { resolveChatModelName, extractPlanModel } from './chat.ts';
+export { buildChatRateSample, resolveChatModelName, extractPlanModel } from './chat.ts';
 export {
   buildModelUsage,
   safeModelUsage,

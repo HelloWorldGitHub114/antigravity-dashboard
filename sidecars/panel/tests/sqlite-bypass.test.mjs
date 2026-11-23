@@ -518,7 +518,13 @@ test('SQLite identity, proto3 zero-omission, metrics, timeline, and root self-ro
   const trajTrue = readSqliteTrajectory(dbPath, CID_ROOT, { modelTimelineEnabled: true });
   const trajFalse = readSqliteTrajectory(dbPath, CID_ROOT, { modelTimelineEnabled: false });
   const rows = extractSqliteUsageRecords(dbPath, CID_ROOT);
-  assert.deepEqual(rows, usageRecords(trajTrue, CID_ROOT));
+  const jsRows = usageRecords(trajTrue, CID_ROOT);
+  const stripTiming = (list) =>
+    list.map(({ ttftMs: _ttft, streamMs: _stream, tps: _tps, ...core }) => core);
+  assert.deepEqual(rows, stripTiming(jsRows));
+  assert.equal(jsRows[0].ttftMs, 1500);
+  assert.equal(jsRows[0].streamMs, 2000);
+  assert.equal(jsRows[0].tps, 15);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].timeBasis, 'request-start');
   assert.equal(rows[1].timeBasis, 'planner-created');

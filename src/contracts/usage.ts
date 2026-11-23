@@ -17,6 +17,9 @@ export interface UsageRecord {
   partial: boolean;
   timeBasis: UsageTimeBasis;
   isLegacy?: boolean;
+  ttftMs?: number | null;
+  streamMs?: number | null;
+  tps?: number | null;
 }
 
 /**
@@ -338,6 +341,10 @@ export interface UsageRequestLogItem {
   output: number;
   total: number;
   cacheHitRate: number | null;
+  ttftMs: number | null;
+  streamMs: number | null;
+  durationMs: number | null;
+  tps: number | null;
   source: 'local' | 'remote';
   conversationTitle?: string;
   projectName?: string;
@@ -357,6 +364,11 @@ export interface UsageRequestLogSummary {
   hotCount: number;
   warmCount: number;
   missCount: number;
+  avgDurationMs: number | null;
+  avgTtftMs: number | null;
+  avgTps: number | null;
+  timedRequests: number;
+  tpsSamples: number;
   costBuckets: UsageRequestLogCostBucket[];
 }
 

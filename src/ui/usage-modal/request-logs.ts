@@ -15,7 +15,10 @@ import { baseModelName, formatModelName, type UsagePalette } from './palette.ts'
 import { createPopoverListbox, type PickerOption } from './picker.ts';
 import {
   classifyCacheHitTone,
+  classifyLatencyTone,
+  formatDurationMs,
   formatHitPct,
+  formatTpsValue,
   resolveLogsDateRange,
   summarizeRequestLogCost,
 } from './request-logs-helpers.ts';
@@ -23,10 +26,14 @@ import type { UsageDashboardOptions, UsageDomContext, UsageLogsRange } from './t
 
 export {
   classifyCacheHitTone,
+  classifyLatencyTone,
+  formatDurationMs,
   formatHitPct,
+  formatTpsValue,
   resolveLogsDateRange,
   summarizeRequestLogCost,
   type CacheHitTone,
+  type LatencyTone,
 } from './request-logs-helpers.ts';
 
 export interface RequestLogsController {
@@ -360,7 +367,7 @@ export function createRequestLogsController(
         : undefined;
     const cacheTitle = `${w('范围加权缓存命中率', 'Weighted cache hit rate')} = ${full(summary.cachedTokens)} / ${full(summary.inputTokens)}${pageHitSuffix}`;
 
-    strip.replaceChildren(
+    const chips: HTMLElement[] = [
       makeChip(w('等效花费', 'Est. cost'), costText, 'is-cost', undefined, costTitle),
       makeChip(
         w('请求数', 'Requests'),
@@ -377,7 +384,25 @@ export function createRequestLogsController(
         cacheExtra,
         cacheTitle,
       ),
-    );
+    ];
+
+    if (summary.timedRequests > 0 || summary.tpsSamples > 0) {
+      const speedVal =
+        summary.avgTps !== null
+          ? formatTpsValue(summary.avgTps)
+          : formatDurationMs(summary.avgDurationMs);
+      const speedExtra =
+        summary.avgTtftMs !== null
+          ? w(`首字 ${formatDurationMs(summary.avgTtftMs)}`, `TTFT ${formatDurationMs(summary.avgTtftMs)}`)
+          : undefined;
+      const speedTitle = w(
+        `耗时样本 ${full(summary.timedRequests)} 条 · 平均总耗时 ${formatDurationMs(summary.avgDurationMs)} · 平均首 Token ${formatDurationMs(summary.avgTtftMs)} · 有效测速 ${full(summary.tpsSamples)} 条 (${formatTpsValue(summary.avgTps)})`,
+        `Timed ${full(summary.timedRequests)} · Avg total ${formatDurationMs(summary.avgDurationMs)} · Avg TTFT ${formatDurationMs(summary.avgTtftMs)} · Speed samples ${full(summary.tpsSamples)} (${formatTpsValue(summary.avgTps)})`,
+      );
+      chips.push(makeChip(w('均速 / 首字', 'Avg speed'), speedVal, '', speedExtra, speedTitle));
+    }
+
+    strip.replaceChildren(...chips);
   };
 
   const renderRow = (item: UsageRequestLogItem): HTMLTableRowElement => {
@@ -429,7 +454,53 @@ export function createRequestLogsController(
     tdModel.title = item.model;
     tdModel.append(modelWrap);
 
-    // 3. 缓存命中率徽章
+    // 3. 耗时（总耗时 / 首 Token 时间 / TPS）
+    const tdLatency = createDomNode('td', 'log-col-latency');
+    const hasLatency = item.durationMs !== null || item.ttftMs !== null || item.tps !== null;
+    if (!hasLatency) {
+      tdLatency.append(createDomNode('span', 'log-lat-empty', '—'));
+      tdLatency.title = w('该记录未包含耗时信息', 'Timing unavailable for this record');
+    } else {
+      const pills = createDomNode('div', 'log-lat-pills');
+      if (item.durationMs !== null) {
+        const totalTone = classifyLatencyTone(item.durationMs, 'total');
+        pills.append(
+          createDomNode('span', `log-lat-pill is-total is-${totalTone}`, formatDurationMs(item.durationMs)),
+        );
+      }
+      if (item.ttftMs !== null) {
+        const ttftTone = classifyLatencyTone(item.ttftMs, 'ttft');
+        pills.append(
+          createDomNode(
+            'span',
+            `log-lat-pill is-ttft is-${ttftTone}`,
+            w(`首 ${formatDurationMs(item.ttftMs)}`, `TTFT ${formatDurationMs(item.ttftMs)}`),
+          ),
+        );
+      }
+      tdLatency.append(pills);
+
+      const latSub = createDomNode('div', 'log-lat-sub');
+      if (item.tps !== null) {
+        latSub.append(createDomNode('span', 'log-tps-val', formatTpsValue(item.tps)));
+      } else if (item.streamMs !== null) {
+        latSub.append(
+          createDomNode(
+            'span',
+            'log-stream-only',
+            w(`流式 ${formatDurationMs(item.streamMs)}`, `Stream ${formatDurationMs(item.streamMs)}`),
+          ),
+        );
+      }
+      if (latSub.childNodes.length > 0) tdLatency.append(latSub);
+
+      tdLatency.title = w(
+        `总耗时 ${formatDurationMs(item.durationMs)} · 首 Token ${formatDurationMs(item.ttftMs)} · 流式输出 ${formatDurationMs(item.streamMs)} · 速度 ${item.tps !== null ? formatTpsValue(item.tps) : '未计入（窗口过短或无有效流式输出）'}`,
+        `Total ${formatDurationMs(item.durationMs)} · TTFT ${formatDurationMs(item.ttftMs)} · Stream ${formatDurationMs(item.streamMs)} · Speed ${item.tps !== null ? formatTpsValue(item.tps) : 'N/A (short/unreliable window)'}`,
+      );
+    }
+
+    // 4. 缓存命中率徽章
     const tdCache = createDomNode('td', 'log-col-cache');
     const tone = classifyCacheHitTone(item.cacheHitRate);
     const pill = createDomNode('span', `log-cache-pill is-${tone}`, formatHitPct(item.cacheHitRate));
@@ -443,7 +514,7 @@ export function createRequestLogsController(
     }
     tdCache.append(pill);
 
-    // 4. Token 明细（主行：输入 / 输出；副行：缓存读 ↓ · 缓存写 ↑ · 未缓存）
+    // 5. Token 明细（主行：输入 / 输出；副行：缓存读 ↓ · 缓存写 ↑ · 未缓存）
     const tdTokens = createDomNode('td', 'log-col-tokens');
     const tokMain = createDomNode('div', 'log-tok-main');
     tokMain.append(
@@ -480,7 +551,7 @@ export function createRequestLogsController(
       `Total ${full(item.total)} tokens (Uncached ${full(item.uncached)} · Read ${full(item.cacheRead)} · Write ${full(item.cacheWrite)} · Output ${full(item.output)})`,
     );
 
-    // 5. 单次请求等效 API 花费
+    // 6. 单次请求等效 API 花费
     const tdCost = createDomNode('td', 'log-col-cost');
     const usd = calculateBucketCost(item.model, item, item.date, state.pricingOverrides);
     const resolvedPrice = resolveModelPricing(item.model, item.date, state.pricingOverrides);
@@ -491,7 +562,7 @@ export function createRequestLogsController(
       : w('暂无公开单价（点击右上角 $ 可自定义）', 'Unpriced (click $ in header to configure)');
     tdCost.append(costBadge);
 
-    tr.append(tdTime, tdModel, tdCache, tdTokens, tdCost);
+    tr.append(tdTime, tdModel, tdLatency, tdCache, tdTokens, tdCost);
     return tr;
   };
 
@@ -543,6 +614,7 @@ export function createRequestLogsController(
       ...[
         [w('时间', 'Time'), 'log-col-time'],
         [w('模型', 'Model'), 'log-col-model'],
+        [w('耗时', 'Latency'), 'log-col-latency'],
         [w('缓存命中', 'Cache'), 'log-col-cache'],
         [w('Tokens（输入 / 输出）', 'Tokens (In / Out)'), 'log-col-tokens'],
         [w('等效花费', 'Est. cost'), 'log-col-cost'],
@@ -557,7 +629,7 @@ export function createRequestLogsController(
     if (state.logsLoading && !data) {
       const tr = createDomNode('tr');
       const td = createDomNode('td', 'logs-empty-cell', w('正在加载请求日志…', 'Loading request logs…'));
-      td.colSpan = 5;
+      td.colSpan = 6;
       tr.append(td);
       body.replaceChildren(tr);
       return;
@@ -566,7 +638,7 @@ export function createRequestLogsController(
     if (state.logsError) {
       const tr = createDomNode('tr');
       const td = createDomNode('td', 'logs-empty-cell');
-      td.colSpan = 5;
+      td.colSpan = 6;
       td.append(createDomNode('span', '', state.logsError));
       const retryBtn = createDomNode('button', 'logs-inline-action', w('重试', 'Retry'));
       retryBtn.type = 'button';
@@ -583,7 +655,7 @@ export function createRequestLogsController(
     if (!data || data.items.length === 0) {
       const tr = createDomNode('tr');
       const td = createDomNode('td', 'logs-empty-cell');
-      td.colSpan = 5;
+      td.colSpan = 6;
       const hasNarrowFilter = state.logsModel !== '' || state.logsCacheFilter !== 'all';
       td.append(
         createDomNode(

@@ -61,6 +61,10 @@ interface IndexedLogRecord {
   output: number;
   total: number;
   cacheHitRate: number | null;
+  ttftMs: number | null;
+  streamMs: number | null;
+  durationMs: number | null;
+  tps: number | null;
   source: 'local' | 'remote';
   fileHash: string;
   manualProjectName?: string;
@@ -471,9 +475,22 @@ async function loadIndexedRecords(
       }
 
       const sum = recordSum(r);
+      const ttftMs = typeof r.ttftMs === 'number' && Number.isFinite(r.ttftMs) && r.ttftMs >= 0 ? r.ttftMs : null;
+      const streamMs = typeof r.streamMs === 'number' && Number.isFinite(r.streamMs) && r.streamMs >= 0 ? r.streamMs : null;
+      const tps = typeof r.tps === 'number' && Number.isFinite(r.tps) && r.tps > 0 ? r.tps : null;
+      const hasTiming = ttftMs !== null || streamMs !== null || tps !== null;
+
       const prev = dedup.get(r.id);
-      if (prev && (sum < prev.sum || (sum === prev.sum && r.at <= prev.item.at))) {
-        continue;
+      if (prev) {
+        const prevHasTiming =
+          prev.item.ttftMs !== null || prev.item.streamMs !== null || prev.item.tps !== null;
+        if (
+          sum < prev.sum ||
+          (sum === prev.sum && prevHasTiming && !hasTiming) ||
+          (sum === prev.sum && prevHasTiming === hasTiming && r.at <= prev.item.at)
+        ) {
+          continue;
+        }
       }
 
       const uncached = r.uncached || 0;
@@ -484,6 +501,13 @@ async function loadIndexedRecords(
       const total = inputTokens + output;
       const cacheHitRate = inputTokens > 0 ? cacheRead / inputTokens : null;
       const effectiveOwner = resolvedOwner || (isDuplicate ? pickPrimary(scopesForRecord) || s : s);
+      const mergedTtftMs = ttftMs ?? prev?.item.ttftMs ?? null;
+      const mergedStreamMs = streamMs ?? prev?.item.streamMs ?? null;
+      const mergedTps = tps ?? prev?.item.tps ?? null;
+      const durationMs =
+        mergedTtftMs !== null || mergedStreamMs !== null
+          ? (mergedTtftMs ?? 0) + (mergedStreamMs ?? 0)
+          : null;
 
       dedup.set(r.id, {
         sum,
@@ -501,6 +525,10 @@ async function loadIndexedRecords(
           output,
           total,
           cacheHitRate,
+          ttftMs: mergedTtftMs,
+          streamMs: mergedStreamMs,
+          durationMs,
+          tps: mergedTps,
           source: isRemote ? 'remote' : 'local',
           fileHash,
           ...(manualProjectName ? { manualProjectName } : {}),
@@ -545,6 +573,11 @@ function emptySummary(): UsageRequestLogSummary {
     hotCount: 0,
     warmCount: 0,
     missCount: 0,
+    avgDurationMs: null,
+    avgTtftMs: null,
+    avgTps: null,
+    timedRequests: 0,
+    tpsSamples: 0,
     costBuckets: [],
   };
 }
@@ -622,6 +655,12 @@ export async function queryUsageRequestLogs(
   const matched: IndexedLogRecord[] = [];
   const summary = emptySummary();
   const costBucketMap = new Map<string, UsageRequestLogCostBucket>();
+  let totalDurationMs = 0;
+  let totalTtftMs = 0;
+  let ttftCount = 0;
+  let weightedTpsTokens = 0;
+  let weightedTpsSec = 0;
+  let unweightedTpsSum = 0;
 
   for (const r of indexed) {
     if (from && r.date < from) continue;
@@ -644,6 +683,23 @@ export async function queryUsageRequestLogs(
       if (r.cacheHitRate >= HOT_CACHE_THRESHOLD) summary.hotCount += 1;
       else if (r.cacheHitRate >= WARM_CACHE_THRESHOLD) summary.warmCount += 1;
       else summary.missCount += 1;
+    }
+    if (r.durationMs !== null) {
+      totalDurationMs += r.durationMs;
+      summary.timedRequests += 1;
+    }
+    if (r.ttftMs !== null) {
+      totalTtftMs += r.ttftMs;
+      ttftCount += 1;
+    }
+    if (r.tps !== null) {
+      summary.tpsSamples += 1;
+      unweightedTpsSum += r.tps;
+      if (r.streamMs !== null && r.streamMs > 0) {
+        const sec = r.streamMs / 1000;
+        weightedTpsTokens += r.tps * sec;
+        weightedTpsSec += sec;
+      }
     }
 
     const bucketKey = `${r.date}\0${r.model}`;
@@ -668,6 +724,13 @@ export async function queryUsageRequestLogs(
   }
 
   summary.cacheHitRate = summary.inputTokens > 0 ? summary.cachedTokens / summary.inputTokens : null;
+  summary.avgDurationMs = summary.timedRequests > 0 ? Math.round(totalDurationMs / summary.timedRequests) : null;
+  summary.avgTtftMs = ttftCount > 0 ? Math.round(totalTtftMs / ttftCount) : null;
+  if (weightedTpsSec > 0) {
+    summary.avgTps = Math.round((weightedTpsTokens / weightedTpsSec) * 10) / 10;
+  } else if (summary.tpsSamples > 0) {
+    summary.avgTps = Math.round((unweightedTpsSum / summary.tpsSamples) * 10) / 10;
+  }
   summary.costBuckets = [...costBucketMap.values()];
 
   const models: UsageRequestLogModelOption[] = [...modelCounts.entries()]
@@ -706,6 +769,10 @@ export async function queryUsageRequestLogs(
       output: r.output,
       total: r.total,
       cacheHitRate: r.cacheHitRate,
+      ttftMs: r.ttftMs,
+      streamMs: r.streamMs,
+      durationMs: r.durationMs,
+      tps: r.tps,
       source: r.source,
       ...(conversationTitle ? { conversationTitle } : {}),
       ...(projectName ? { projectName } : {}),
