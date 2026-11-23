@@ -2519,8 +2519,8 @@ var DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 var DEFAULT_PAGE_SIZE = 50;
 var MIN_PAGE_SIZE = 10;
 var MAX_PAGE_SIZE = 200;
-var HOT_CACHE_THRESHOLD = 0.7;
-var WARM_CACHE_THRESHOLD = 0.2;
+var HOT_CACHE_THRESHOLD = 0.9;
+var WARM_CACHE_THRESHOLD = 0.5;
 var SCOPE_CACHE_TTL_MS = 3e3;
 var MAX_CACHED_SCOPES = 2;
 var cacheByLedger = /* @__PURE__ */ new WeakMap();
@@ -2691,8 +2691,8 @@ function normalizeCacheFilter(raw) {
 function matchesCacheFilter(hitRate, filter) {
   if (filter === "all") return true;
   if (hitRate === null) return false;
-  if (filter === "hot") return hitRate >= HOT_CACHE_THRESHOLD;
-  if (filter === "warm") return hitRate >= WARM_CACHE_THRESHOLD && hitRate < HOT_CACHE_THRESHOLD;
+  if (filter === "hot") return hitRate > HOT_CACHE_THRESHOLD;
+  if (filter === "warm") return hitRate >= WARM_CACHE_THRESHOLD && hitRate <= HOT_CACHE_THRESHOLD;
   return hitRate < WARM_CACHE_THRESHOLD;
 }
 function normalizeDateBound(raw) {
@@ -2999,7 +2999,7 @@ async function queryUsageRequestLogs(options) {
     summary.uncachedTokens += r.uncached;
     summary.outputTokens += r.output;
     if (r.cacheHitRate !== null) {
-      if (r.cacheHitRate >= HOT_CACHE_THRESHOLD) summary.hotCount += 1;
+      if (r.cacheHitRate > HOT_CACHE_THRESHOLD) summary.hotCount += 1;
       else if (r.cacheHitRate >= WARM_CACHE_THRESHOLD) summary.warmCount += 1;
       else summary.missCount += 1;
     }

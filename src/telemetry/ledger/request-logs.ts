@@ -25,8 +25,8 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_PAGE_SIZE = 50;
 const MIN_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 200;
-const HOT_CACHE_THRESHOLD = 0.7;
-const WARM_CACHE_THRESHOLD = 0.2;
+const HOT_CACHE_THRESHOLD = 0.9;
+const WARM_CACHE_THRESHOLD = 0.5;
 const SCOPE_CACHE_TTL_MS = 3000;
 const MAX_CACHED_SCOPES = 2;
 
@@ -279,8 +279,8 @@ function normalizeCacheFilter(raw: unknown): UsageRequestCacheFilter {
 function matchesCacheFilter(hitRate: number | null, filter: UsageRequestCacheFilter): boolean {
   if (filter === 'all') return true;
   if (hitRate === null) return false;
-  if (filter === 'hot') return hitRate >= HOT_CACHE_THRESHOLD;
-  if (filter === 'warm') return hitRate >= WARM_CACHE_THRESHOLD && hitRate < HOT_CACHE_THRESHOLD;
+  if (filter === 'hot') return hitRate > HOT_CACHE_THRESHOLD;
+  if (filter === 'warm') return hitRate >= WARM_CACHE_THRESHOLD && hitRate <= HOT_CACHE_THRESHOLD;
   return hitRate < WARM_CACHE_THRESHOLD;
 }
 
@@ -686,7 +686,7 @@ export async function queryUsageRequestLogs(
     summary.uncachedTokens += r.uncached;
     summary.outputTokens += r.output;
     if (r.cacheHitRate !== null) {
-      if (r.cacheHitRate >= HOT_CACHE_THRESHOLD) summary.hotCount += 1;
+      if (r.cacheHitRate > HOT_CACHE_THRESHOLD) summary.hotCount += 1;
       else if (r.cacheHitRate >= WARM_CACHE_THRESHOLD) summary.warmCount += 1;
       else summary.missCount += 1;
     }

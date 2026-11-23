@@ -61,8 +61,8 @@ export function summarizeRequestLogCost(
  */
 export function classifyCacheHitTone(hitRate: number | null | undefined): CacheHitTone {
   if (typeof hitRate !== 'number' || !Number.isFinite(hitRate)) return 'none';
-  if (hitRate >= 0.7) return 'hot';
-  if (hitRate >= 0.2) return 'warm';
+  if (hitRate > 0.9) return 'hot';
+  if (hitRate >= 0.5) return 'warm';
   return 'miss';
 }
 

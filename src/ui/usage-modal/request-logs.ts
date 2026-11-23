@@ -274,9 +274,9 @@ export function createRequestLogsController(
     cachePicker?.setOptions(
       [
         { value: 'all', label: w('全部缓存', 'All cache') },
-        { value: 'hot', label: w('热命中 ≥70%', 'Hot ≥70%') },
-        { value: 'warm', label: w('部分命中 20–70%', 'Partial 20–70%') },
-        { value: 'miss', label: w('低/未命中 <20%', 'Miss <20%') },
+        { value: 'hot', label: w('热命中 >90%', 'Hot >90%') },
+        { value: 'warm', label: w('部分命中 50–90%', 'Partial 50–90%') },
+        { value: 'miss', label: w('低/未命中 <50%', 'Miss <50%') },
       ],
       w('按缓存命中筛选', 'Filter by cache hit'),
     );

@@ -4088,8 +4088,8 @@ module.exports = function createUsageDashboard(...args) {
     }
     function classifyCacheHitTone(hitRate) {
       if (typeof hitRate !== "number" || !Number.isFinite(hitRate)) return "none";
-      if (hitRate >= 0.7) return "hot";
-      if (hitRate >= 0.2) return "warm";
+      if (hitRate > 0.9) return "hot";
+      if (hitRate >= 0.5) return "warm";
       return "miss";
     }
     function formatHitPct(hitRate) {
@@ -4329,9 +4329,9 @@ module.exports = function createUsageDashboard(...args) {
         cachePicker?.setOptions(
           [
             { value: "all", label: w("\u5168\u90E8\u7F13\u5B58", "All cache") },
-            { value: "hot", label: w("\u70ED\u547D\u4E2D \u226570%", "Hot \u226570%") },
-            { value: "warm", label: w("\u90E8\u5206\u547D\u4E2D 20\u201370%", "Partial 20\u201370%") },
-            { value: "miss", label: w("\u4F4E/\u672A\u547D\u4E2D <20%", "Miss <20%") }
+            { value: "hot", label: w("\u70ED\u547D\u4E2D >90%", "Hot >90%") },
+            { value: "warm", label: w("\u90E8\u5206\u547D\u4E2D 50\u201390%", "Partial 50\u201390%") },
+            { value: "miss", label: w("\u4F4E/\u672A\u547D\u4E2D <50%", "Miss <50%") }
           ],
           w("\u6309\u7F13\u5B58\u547D\u4E2D\u7B5B\u9009", "Filter by cache hit")
         );

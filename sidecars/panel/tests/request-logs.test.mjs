@@ -26,13 +26,13 @@ test('queryUsageRequestLogs filters, deduplicates, sorts newest-first, enriches 
     const dupId = hash('req-dup');
 
     await ledger.ingestRows(scope, convA, [
-      // 热命中：90%
+      // 热命中：95%
       {
         id: hash('req-hot'),
         at: Date.parse('2026-11-22T10:15:30+08:00'),
         model: 'gemini-4-neon',
-        uncached: 10000,
-        cacheRead: 90000,
+        uncached: 5000,
+        cacheRead: 95000,
         cacheWrite: 0,
         output: 2000,
         partial: false,
@@ -141,7 +141,7 @@ test('queryUsageRequestLogs filters, deduplicates, sorts newest-first, enriches 
     assert.equal(todayRes.items[1].cacheHitRate, 0.5);
 
     assert.equal(todayRes.items[2].timeText, '2026-11-22 10:15:30');
-    assert.equal(todayRes.items[2].cacheHitRate, 0.9);
+    assert.equal(todayRes.items[2].cacheHitRate, 0.95);
     assert.equal(todayRes.items[2].projectName, 'antigravity-dashboard');
 
     // 汇总与分类计数准确
@@ -150,8 +150,8 @@ test('queryUsageRequestLogs filters, deduplicates, sorts newest-first, enriches 
     assert.equal(todayRes.summary.warmCount, 1);
     assert.equal(todayRes.summary.missCount, 1);
     assert.equal(todayRes.summary.inputTokens, 280000);
-    assert.equal(todayRes.summary.cachedTokens, 140000);
-    assert.equal(todayRes.summary.cacheHitRate, 0.5);
+    assert.equal(todayRes.summary.cachedTokens, 145000);
+    assert.equal(todayRes.summary.cacheHitRate, 145000 / 280000);
 
     // 模型下拉列表反映当前日期范围全部模型（含请求数排序）
     assert.deepEqual(todayRes.models, [
@@ -159,7 +159,7 @@ test('queryUsageRequestLogs filters, deduplicates, sorts newest-first, enriches 
       { model: 'claude-opus-5.5', requests: 1 },
     ]);
 
-    // 缓存状态筛选：仅看未命中 (<20%)，但 models 下拉仍保留日期范围内全部模型
+    // 缓存状态筛选：仅看低/未命中 (<50%)，但 models 下拉仍保留日期范围内全部模型
     const missOnly = await queryUsageRequestLogs({
       ledger,
       store,
@@ -289,9 +289,10 @@ test('request log frontend helpers resolve date ranges, tones, and custom USD pr
   });
 
   assert.equal(classifyCacheHitTone(0.95), 'hot');
-  assert.equal(classifyCacheHitTone(0.7), 'hot');
-  assert.equal(classifyCacheHitTone(0.45), 'warm');
-  assert.equal(classifyCacheHitTone(0.199), 'miss');
+  assert.equal(classifyCacheHitTone(0.901), 'hot');
+  assert.equal(classifyCacheHitTone(0.9), 'warm');
+  assert.equal(classifyCacheHitTone(0.5), 'warm');
+  assert.equal(classifyCacheHitTone(0.499), 'miss');
   assert.equal(classifyCacheHitTone(0), 'miss');
   assert.equal(classifyCacheHitTone(null), 'none');
 
