@@ -454,22 +454,28 @@ test('usageRecords extracts TTFT, duration, and quality-checked TPS, and upgrade
     });
 
     assert.equal(logSnap.totalCount, 3);
-    // 倒序第 1 条是 r-normal-2（10:05）
+    // 倒序第 1 条是 r-normal-2（10:05）：output=180, duration=11s -> 综合 16.4 t/s，纯流式 30.0 t/s
     assert.equal(logSnap.items[0].ttftMs, 5000);
     assert.equal(logSnap.items[0].streamMs, 6000);
     assert.equal(logSnap.items[0].durationMs, 11000);
-    assert.equal(logSnap.items[0].tps, 30);
+    assert.equal(logSnap.items[0].tps, 16.4);
+    assert.equal(logSnap.items[0].streamTps, 30);
 
-    // 倒序第 2 条是 r-tool-burst（10:02）
+    // 倒序第 2 条是 r-tool-burst（10:02）：output=150, duration=60.2s -> 综合 2.5 t/s（稳定不爆炸），纯流式为 null
     assert.equal(logSnap.items[1].ttftMs, 60000);
     assert.equal(logSnap.items[1].streamMs, 200);
     assert.equal(logSnap.items[1].durationMs, 60200);
-    assert.equal(logSnap.items[1].tps, null);
+    assert.equal(logSnap.items[1].tps, 2.5);
+    assert.equal(logSnap.items[1].streamTps, null);
 
-    // 汇总均速按流式时长加权：(50*4 + 30*6) / (4+6) = 380 / 10 = 38.0 t/s
+    // 倒序第 3 条是 r-normal-1（10:00）：output=350, duration=14s -> 综合 25.0 t/s，纯流式 50.0 t/s
+    assert.equal(logSnap.items[2].tps, 25);
+    assert.equal(logSnap.items[2].streamTps, 50);
+
+    // 汇总均速按全量「总输出 / 总耗时」计算：(350 + 150 + 180) / (14 + 60.2 + 11) = 680 / 85.2 ≈ 8.0 t/s
     assert.equal(logSnap.summary.timedRequests, 3);
-    assert.equal(logSnap.summary.tpsSamples, 2);
-    assert.equal(logSnap.summary.avgTps, 38);
+    assert.equal(logSnap.summary.tpsSamples, 3);
+    assert.equal(logSnap.summary.avgTps, 8);
     // 平均首字：(10000 + 60000 + 5000) / 3 = 25000ms
     assert.equal(logSnap.summary.avgTtftMs, 25000);
     // 平均总耗时：(14000 + 60200 + 11000) / 3 = 28400ms

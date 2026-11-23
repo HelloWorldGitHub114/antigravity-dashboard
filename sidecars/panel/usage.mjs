@@ -2839,11 +2839,11 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
       const sum = recordSum(r);
       const ttftMs = typeof r.ttftMs === "number" && Number.isFinite(r.ttftMs) && r.ttftMs >= 0 ? r.ttftMs : null;
       const streamMs = typeof r.streamMs === "number" && Number.isFinite(r.streamMs) && r.streamMs >= 0 ? r.streamMs : null;
-      const tps = typeof r.tps === "number" && Number.isFinite(r.tps) && r.tps > 0 ? r.tps : null;
-      const hasTiming2 = ttftMs !== null || streamMs !== null || tps !== null;
+      const streamTps = typeof r.tps === "number" && Number.isFinite(r.tps) && r.tps > 0 ? r.tps : null;
+      const hasTiming2 = ttftMs !== null || streamMs !== null || streamTps !== null;
       const prev = dedup.get(r.id);
       if (prev) {
-        const prevHasTiming = prev.item.ttftMs !== null || prev.item.streamMs !== null || prev.item.tps !== null;
+        const prevHasTiming = prev.item.ttftMs !== null || prev.item.streamMs !== null || prev.item.streamTps !== null;
         if (sum < prev.sum || sum === prev.sum && prevHasTiming && !hasTiming2 || sum === prev.sum && prevHasTiming === hasTiming2 && r.at <= prev.item.at) {
           continue;
         }
@@ -2858,8 +2858,9 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
       const effectiveOwner = resolvedOwner || (isDuplicate ? pickPrimary(scopesForRecord) || s : s);
       const mergedTtftMs = ttftMs ?? prev?.item.ttftMs ?? null;
       const mergedStreamMs = streamMs ?? prev?.item.streamMs ?? null;
-      const mergedTps = tps ?? prev?.item.tps ?? null;
+      const mergedStreamTps = streamTps ?? prev?.item.streamTps ?? null;
       const durationMs = mergedTtftMs !== null || mergedStreamMs !== null ? (mergedTtftMs ?? 0) + (mergedStreamMs ?? 0) : null;
+      const overallTps = output > 0 && durationMs !== null && durationMs > 0 ? Math.round(output / (durationMs / 1e3) * 10) / 10 : null;
       dedup.set(r.id, {
         sum,
         item: {
@@ -2879,7 +2880,8 @@ async function loadIndexedRecords(ledger, resolvedScope, allScopes, meta, metaSt
           ttftMs: mergedTtftMs,
           streamMs: mergedStreamMs,
           durationMs,
-          tps: mergedTps,
+          tps: overallTps,
+          streamTps: mergedStreamTps,
           source: isRemote ? "remote" : "local",
           fileHash,
           ...manualProjectName ? { manualProjectName } : {},
@@ -2980,9 +2982,8 @@ async function queryUsageRequestLogs(options) {
   let totalDurationMs = 0;
   let totalTtftMs = 0;
   let ttftCount = 0;
-  let weightedTpsTokens = 0;
-  let weightedTpsSec = 0;
-  let unweightedTpsSum = 0;
+  let totalTpsOutput = 0;
+  let totalTpsDurationMs = 0;
   for (const r of indexed) {
     if (from && r.date < from) continue;
     if (to && r.date > to) continue;
@@ -3010,14 +3011,10 @@ async function queryUsageRequestLogs(options) {
       totalTtftMs += r.ttftMs;
       ttftCount += 1;
     }
-    if (r.tps !== null) {
+    if (r.tps !== null && r.durationMs !== null && r.durationMs > 0) {
       summary.tpsSamples += 1;
-      unweightedTpsSum += r.tps;
-      if (r.streamMs !== null && r.streamMs > 0) {
-        const sec = r.streamMs / 1e3;
-        weightedTpsTokens += r.tps * sec;
-        weightedTpsSec += sec;
-      }
+      totalTpsOutput += r.output;
+      totalTpsDurationMs += r.durationMs;
     }
     const bucketKey = `${r.date}\0${r.model}`;
     let bucket = costBucketMap.get(bucketKey);
@@ -3042,10 +3039,8 @@ async function queryUsageRequestLogs(options) {
   summary.cacheHitRate = summary.inputTokens > 0 ? summary.cachedTokens / summary.inputTokens : null;
   summary.avgDurationMs = summary.timedRequests > 0 ? Math.round(totalDurationMs / summary.timedRequests) : null;
   summary.avgTtftMs = ttftCount > 0 ? Math.round(totalTtftMs / ttftCount) : null;
-  if (weightedTpsSec > 0) {
-    summary.avgTps = Math.round(weightedTpsTokens / weightedTpsSec * 10) / 10;
-  } else if (summary.tpsSamples > 0) {
-    summary.avgTps = Math.round(unweightedTpsSum / summary.tpsSamples * 10) / 10;
+  if (totalTpsDurationMs > 0) {
+    summary.avgTps = Math.round(totalTpsOutput / (totalTpsDurationMs / 1e3) * 10) / 10;
   }
   summary.costBuckets = [...costBucketMap.values()];
   const models = [...modelCounts.entries()].sort((a, b) => b[1] !== a[1] ? b[1] - a[1] : a[0].localeCompare(b[0])).map(([model, requests]) => ({ model, requests }));
@@ -3080,6 +3075,7 @@ async function queryUsageRequestLogs(options) {
       streamMs: r.streamMs,
       durationMs: r.durationMs,
       tps: r.tps,
+      streamTps: r.streamTps,
       source: r.source,
       ...conversationTitle ? { conversationTitle } : {},
       ...projectName ? { projectName } : {},

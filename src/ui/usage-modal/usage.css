@@ -307,7 +307,7 @@
 .log-lat-pill.is-none { color: var(--pulse-muted); background: color-mix(in srgb, var(--pulse-hover) 70%, transparent); }
 .log-lat-sub { margin-top: 3px; font-size: calc(10px * var(--pulse-usage-font-scale, 1)); color: var(--pulse-muted); }
 .log-tps-val { color: var(--pulse-label); font-weight: 500; }
-.log-stream-only, .log-lat-empty { color: var(--pulse-muted); }
+.log-lat-empty { color: var(--pulse-muted); }
 
 .log-cache-pill { display: inline-block; min-width: 54px; padding: 2px 8px; border-radius: 999px; text-align: center; font-size: calc(10.5px * var(--pulse-usage-font-scale, 1)); font-weight: 600; border: 1px solid transparent; }
 .log-cache-pill.is-hot { color: var(--pulse-success); background: color-mix(in srgb, var(--pulse-success) 15%, transparent); border-color: color-mix(in srgb, var(--pulse-success) 32%, transparent); }

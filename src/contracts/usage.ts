@@ -345,6 +345,7 @@ export interface UsageRequestLogItem {
   streamMs: number | null;
   durationMs: number | null;
   tps: number | null;
+  streamTps: number | null;
   source: 'local' | 'remote';
   conversationTitle?: string;
   projectName?: string;
