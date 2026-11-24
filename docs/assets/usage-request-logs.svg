@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img">
+  <defs>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0%" stop-color="#2a2c2f"/>
+      <stop offset="100%" stop-color="#303235"/>
+    </linearGradient>
+    <radialGradient id="heroGlow" cx="0.18" cy="0.06" r="0.62">
+      <stop offset="0%" stop-color="#85a8ff" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#17191d" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="forecastStripe" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#85a8ff" fill-opacity="0.28"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#2a2c2f" stroke-width="2.5"/>
+    </pattern>
+    <pattern id="forecastStripeWarn" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#d7b079" fill-opacity="0.34"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#2a2c2f" stroke-width="2.5"/>
+    </pattern>
+  </defs>
+  <rect x="0.5" y="0.5" width="1199" height="659" rx="16" fill="#17191d" stroke="#2d323b"/>
+  <rect x="16" y="16" width="1168" height="628" rx="16" fill="#1c1d1f" stroke="#41454d"/>
+  <text x="44" y="44" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" letter-spacing="1.7">ANTIGRATIVE DASHBOARD</text>
+  <text x="44" y="72" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="22" font-weight="600" letter-spacing="-0.5">Token usage</text>
+  <circle cx="47" cy="87" r="2.8" fill="#8bb19b"/>
+  <text x="56" y="91" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Local Antigravity · Usage ledger</text>
+  <rect x="1126" y="40" width="30" height="30" rx="8" fill="none" stroke="#41454d"/>
+  <g transform="translate(1133 47) scale(1)"><path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="#adb2ba" stroke-width="1.5" stroke-linecap="round"/></g>
+  <rect x="1088" y="40" width="30" height="30" rx="8" fill="none" stroke="#41454d"/>
+  <text x="1103" y="59" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="700" text-anchor="middle">Aa</text>
+  <rect x="1050" y="40" width="30" height="30" rx="8" fill="#85a8ff" fill-opacity="0.12" stroke="#85a8ff" stroke-opacity="0.45"/>
+  <text x="1065" y="59.5" fill="#85a8ff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" text-anchor="middle">$</text>
+  <rect x="1012" y="40" width="30" height="30" rx="8" fill="none" stroke="#41454d"/>
+  <g transform="translate(1019 47) scale(1)"><path d="M13 7a5 5 0 1 0-1.3 4.4M13 3v4H9" fill="none" stroke="#adb2ba" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <rect x="974" y="40" width="30" height="30" rx="8" fill="none" stroke="#41454d"/>
+  <text x="989" y="59" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle">中</text>
+  <rect x="851" y="40" width="111" height="30" rx="8" fill="#25272b" stroke="#41454d"/>
+  <g transform="translate(861 48) scale(0.875)"><path d="M8 3v10M3 8h10" fill="none" stroke="#e1e3e7" stroke-width="1.5" stroke-linecap="round"/></g>
+  <text x="878" y="59" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="500">Remote Usage</text>
+  <text x="46" y="122" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13">Activity</text>
+  <text x="129" y="122" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13">Usage details</text>
+  <text x="245" y="122" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600">Request log</text>
+  <rect x="243" y="132" width="85" height="2" fill="#85a8ff"/>
+  <rect x="1030" y="103" width="126" height="24" rx="6" fill="#25272b" stroke="#41454d"/>
+  <text x="1093" y="119" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">dev@example.com ▾</text>
+  <line x1="44" y1="134" x2="1156" y2="134" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
+  <rect x="44" y="148" width="236" height="28" rx="8" fill="#292b2e"/>
+  <rect x="47" y="151" width="53" height="22" rx="5" fill="#383b3f"/>
+  <text x="73.5" y="166" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="500" text-anchor="middle">Today</text>
+  <text x="118.5" y="166" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">7d</text>
+  <text x="156.5" y="166" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">30d</text>
+  <text x="195.5" y="166" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">All</text>
+  <text x="246" y="166" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">Custom</text>
+  <rect x="1073" y="148" width="83" height="28" rx="7" fill="#25272b" stroke="#41454d"/>
+  <text x="1114.5" y="166" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">All cache ▾</text>
+  <rect x="975" y="148" width="90" height="28" rx="7" fill="#25272b" stroke="#41454d"/>
+  <text x="1020" y="166" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">All models ▾</text>
+  <rect x="44" y="190" width="123" height="30" rx="9" fill="#25272b" stroke="#41454d"/>
+  <text x="56" y="209" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Est. cost</text>
+  <text x="116" y="209" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" font-variant-numeric="tabular-nums">$58.40</text>
+  <rect x="176" y="190" width="100" height="30" rx="9" fill="#25272b" stroke="#41454d"/>
+  <text x="188" y="209" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Requests</text>
+  <text x="247" y="209" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" font-variant-numeric="tabular-nums">148</text>
+  <rect x="285" y="190" width="102" height="30" rx="9" fill="#25272b" stroke="#41454d"/>
+  <text x="297" y="209" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Tokens</text>
+  <text x="344" y="209" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" font-variant-numeric="tabular-nums">38.9M</text>
+  <rect x="396" y="190" width="219" height="30" rx="9" fill="#25272b" stroke="#41454d"/>
+  <text x="408" y="209" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Cache hit</text>
+  <text x="468" y="209" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" font-variant-numeric="tabular-nums">82.4%</text>
+  <rect x="509" y="196" width="93" height="18" rx="9" fill="#1c1d1f" fill-opacity="0.7" stroke="#ffffff" stroke-opacity="0.1"/>
+  <text x="555.5" y="208.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle" font-variant-numeric="tabular-nums">106 hot / 28 miss</text>
+  <rect x="624" y="190" width="192" height="30" rx="9" fill="#25272b" stroke="#41454d"/>
+  <text x="636" y="209" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">TTFT / Speed</text>
+  <text x="717" y="209" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" font-variant-numeric="tabular-nums">14.2s</text>
+  <rect x="752" y="196" width="50" height="18" rx="9" fill="#1c1d1f" fill-opacity="0.7" stroke="#ffffff" stroke-opacity="0.1"/>
+  <text x="777" y="208.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle" font-variant-numeric="tabular-nums">54.8 t/s</text>
+  <rect x="44" y="234" width="1112" height="346" rx="12" fill="#1c1d1f" stroke="#41454d"/>
+  <rect x="45" y="235" width="1110" height="34" rx="11" fill="#25272b"/>
+  <text x="60" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Time</text>
+  <text x="380" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Model</text>
+  <text x="554" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Latency</text>
+  <text x="750" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">Cache</text>
+  <text x="1058" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="end">Tokens (In / Out)</text>
+  <text x="1140" y="255" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="end">Est. cost</text>
+  <rect x="45" y="268" width="1110" height="52" fill="#292b2e" fill-opacity="0.42"/>
+  <text x="60" y="288" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:52:18</text>
+  <rect x="60" y="296" width="73" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="96.5" y="307.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">api-gateway</text>
+  <text x="139" y="307.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Auth middleware refactor</text>
+  <circle cx="384" cy="293" r="3.5" fill="#7ca2ff"/>
+  <text x="394" y="297" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Gemini 4 Neon (XHigh)</text>
+  <rect x="554" y="276" width="65" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="586.5" y="288.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 3.2s</text>
+  <rect x="624" y="276" width="68" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="658" y="288.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 18.4s</text>
+  <text x="554" y="309" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">64.2 t/s</text>
+  <rect x="718" y="283" width="64" height="22" rx="11" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="750" y="297.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">99.2%</text>
+  <text x="1058" y="289" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">312,480</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,180</tspan></text>
+  <text x="1058" y="307" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Read ↓ 309,980 · Uncached 2,500</text>
+  <rect x="1085" y="283" width="55" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1112.5" y="297.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.068</text>
+  <line x1="44" y1="320" x2="1156" y2="320" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <text x="60" y="340" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:49:05</text>
+  <rect x="60" y="348" width="73" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="96.5" y="359.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">api-gateway</text>
+  <text x="139" y="359.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Rate-limiter unit tests</text>
+  <rect x="264" y="348" width="94" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="311" y="359.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" text-anchor="middle">dev@example.com</text>
+  <circle cx="384" cy="345" r="3.5" fill="#7ca2ff"/>
+  <text x="394" y="349" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Gemini 4 Neon (XHigh)</text>
+  <rect x="554" y="328" width="65" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="586.5" y="340.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 4.6s</text>
+  <rect x="624" y="328" width="68" height="18" rx="5" fill="#d7b079" fill-opacity="0.15" stroke="#d7b079" stroke-opacity="0.34"/>
+  <text x="658" y="340.24" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 24.1s</text>
+  <text x="554" y="361" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">58.9 t/s</text>
+  <rect x="718" y="335" width="64" height="22" rx="11" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="750" y="349.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">96.8%</text>
+  <text x="1058" y="341" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">248,900</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,420</tspan></text>
+  <text x="1058" y="359" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Read ↓ 240,930 · Uncached 7,970</text>
+  <rect x="1085" y="335" width="55" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1112.5" y="349.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.078</text>
+  <line x1="44" y1="372" x2="1156" y2="372" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <text x="60" y="392" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:41:32</text>
+  <rect x="60" y="400" width="86" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="103" y="411.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">web-dashboard</text>
+  <text x="152" y="411.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Usage chart drilldown</text>
+  <rect x="268" y="400" width="94" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="315" y="411.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" text-anchor="middle">dev@example.com</text>
+  <circle cx="384" cy="397" r="3.5" fill="#e0a96d"/>
+  <text x="394" y="401" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Gemini 4 Argon</text>
+  <rect x="554" y="380" width="66" height="18" rx="5" fill="#d7b079" fill-opacity="0.15" stroke="#d7b079" stroke-opacity="0.34"/>
+  <text x="587" y="392.24" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 11.8s</text>
+  <rect x="625" y="380" width="68" height="18" rx="5" fill="#d7b079" fill-opacity="0.15" stroke="#d7b079" stroke-opacity="0.34"/>
+  <text x="659" y="392.24" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 31.5s</text>
+  <text x="554" y="413" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">41.5 t/s</text>
+  <rect x="718" y="387" width="64" height="22" rx="11" fill="#d7b079" fill-opacity="0.15" stroke="#d7b079" stroke-opacity="0.34"/>
+  <text x="750" y="401.96" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">74.5%</text>
+  <text x="1058" y="393" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">196,400</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,308</tspan></text>
+  <text x="1058" y="411" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Read ↓ 146,320 · Uncached 50,080</text>
+  <rect x="1087" y="387" width="53" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1113.5" y="401.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.188</text>
+  <line x1="44" y1="424" x2="1156" y2="424" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <text x="60" y="444" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:35:19</text>
+  <rect x="60" y="452" width="76" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="98" y="463.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">rust-indexer</text>
+  <text x="142" y="463.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Streaming frame parser</text>
+  <rect x="271" y="452" width="94" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="318" y="463.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" text-anchor="middle">dev@example.com</text>
+  <circle cx="384" cy="449" r="3.5" fill="#9b8cff"/>
+  <text x="394" y="453" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Claude Sonnet 4.6</text>
+  <rect x="554" y="432" width="65" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="586.5" y="444.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 4.2s</text>
+  <rect x="624" y="432" width="68" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="658" y="444.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 19.8s</text>
+  <text x="554" y="465" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">78.4 t/s</text>
+  <rect x="718" y="439" width="64" height="22" rx="11" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="750" y="453.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">98.9%</text>
+  <text x="1058" y="445" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">265,100</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,552</tspan></text>
+  <text x="1058" y="463" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Read ↓ 262,180 · Write ↑ 1,240 · Uncached 1,680</text>
+  <rect x="1085" y="439" width="55" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1112.5" y="453.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.094</text>
+  <line x1="44" y1="476" x2="1156" y2="476" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <text x="60" y="496" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:28:44</text>
+  <rect x="60" y="504" width="76" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="98" y="515.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">rust-indexer</text>
+  <text x="142" y="515.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Cross-target build triage</text>
+  <circle cx="384" cy="501" r="3.5" fill="#7ca2ff"/>
+  <text x="394" y="505" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Gemini 4 Neon (XHigh)</text>
+  <rect x="554" y="484" width="68" height="18" rx="5" fill="#e99b9b" fill-opacity="0.15" stroke="#e99b9b" stroke-opacity="0.34"/>
+  <text x="588" y="496.24" fill="#e99b9b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 31.4s</text>
+  <rect x="627" y="484" width="71" height="18" rx="5" fill="#e99b9b" fill-opacity="0.15" stroke="#e99b9b" stroke-opacity="0.34"/>
+  <text x="662.5" y="496.24" fill="#e99b9b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 62.8s</text>
+  <text x="554" y="517" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">24.6 t/s</text>
+  <rect x="718" y="491" width="64" height="22" rx="11" fill="#e99b9b" fill-opacity="0.15" stroke="#e99b9b" stroke-opacity="0.34"/>
+  <text x="750" y="505.96" fill="#e99b9b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">0.0%</text>
+  <text x="1058" y="497" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">320,800</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,545</tspan></text>
+  <text x="1058" y="515" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Uncached 320,800</text>
+  <rect x="1085" y="491" width="55" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1112.5" y="505.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.985</text>
+  <line x1="44" y1="528" x2="1156" y2="528" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <text x="60" y="548" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="500" font-variant-numeric="tabular-nums">2026-11-24 14:19:10</text>
+  <rect x="60" y="556" width="63" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="91.5" y="567.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="middle">cli-toolkit</text>
+  <text x="129" y="567.5" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">Terminal width layout</text>
+  <rect x="245" y="556" width="94" height="16" rx="4" fill="#25272b" stroke="#41454d"/>
+  <text x="292" y="567.5" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" text-anchor="middle">dev@example.com</text>
+  <circle cx="384" cy="553" r="3.5" fill="#68c2b3"/>
+  <text x="394" y="557" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5">Gemini 4 Flash</text>
+  <rect x="554" y="536" width="63" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="585.5" y="548.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">TTFT 2.1s</text>
+  <rect x="622" y="536" width="68" height="18" rx="5" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="656" y="548.24" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">Total 12.6s</text>
+  <text x="554" y="569" fill="#b8bdc5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="500" font-variant-numeric="tabular-nums">92.4 t/s</text>
+  <rect x="718" y="543" width="64" height="22" rx="11" fill="#8bb19b" fill-opacity="0.15" stroke="#8bb19b" stroke-opacity="0.34"/>
+  <text x="750" y="557.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">98.5%</text>
+  <text x="1058" y="549" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-variant-numeric="tabular-nums"><tspan font-weight="600" fill="#e1e3e7">184,200</tspan><tspan fill="#adb2ba" fill-opacity="0.7"> / </tspan><tspan fill="#b8bdc5">1,164</tspan></text>
+  <text x="1058" y="567" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end" font-variant-numeric="tabular-nums">Read ↓ 181,440 · Uncached 2,760</text>
+  <rect x="1085" y="543" width="55" height="22" rx="6" fill="#25272b" fill-opacity="0.9" stroke="#41454d" stroke-opacity="0.9"/>
+  <text x="1112.5" y="557.96" fill="#8bb19b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">$0.022</text>
+  <text x="44" y="612" fill="#adb2ba" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-variant-numeric="tabular-nums">Showing 1–6 of 148</text>
+  <rect x="1130" y="596" width="26" height="24" rx="6" fill="#25272b" stroke="#41454d"/>
+  <text x="1143" y="612" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">»</text>
+  <rect x="1072" y="596" width="52" height="24" rx="6" fill="#25272b" stroke="#41454d"/>
+  <text x="1098" y="612" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">Next</text>
+  <text x="1047" y="612" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" text-anchor="middle" font-variant-numeric="tabular-nums">1 / 25</text>
+  <rect x="964" y="596" width="52" height="24" rx="6" fill="#25272b" stroke="#41454d"/>
+  <text x="990" y="612" fill="#8b92a0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">Prev</text>
+  <rect x="932" y="596" width="26" height="24" rx="6" fill="#25272b" stroke="#41454d"/>
+  <text x="945" y="612" fill="#8b92a0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="middle">«</text>
+  <text x="44" y="632" fill="#8b92a0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10">1,842 requests recorded · since 2026-09-14</text>
+  <text x="1156" y="632" fill="#8b92a0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" text-anchor="end">Asia/Shanghai · Local usage</text>
+</svg>

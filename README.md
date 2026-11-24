@@ -1,174 +1,150 @@
 <div align="center">
 
-<img src="docs/assets/hero.png?v=0.8.0" width="100%" alt="Antigrative Dashboard: current speed, cache and context controls beside the input.">
+<img src="docs/assets/hero-enhanced.svg" width="100%" alt="Antigrative Dashboard Enhanced Fork: per-request logs, quota reset cycles, API USD cost, and inline telemetry.">
 
 # Antigrative Dashboard
 
-Token throughput, cache hits and context usage in the model selector row. Hover over context for five-hour and weekly quotas too.<br>
-Keep the summary visible. Hover for the details.
+Token throughput, latest-turn cache hits, 4-part context breakdown, linear quota forecasts, and per-request telemetry for Google Antigravity.<br>
+Keep essential metrics visible beside your input. Hover, open the sidebar, or inspect the usage ledger for full breakdowns.
 
-[![Version 0.12.5](https://img.shields.io/badge/version-0.12.5-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
+[![Base Version 0.12.5+enhanced](https://img.shields.io/badge/version-base--v0.12.5%2Benhanced-91adff?style=flat-square&labelColor=252936)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/host-Windows%20%7C%20Linux%20%7C%20macOS-83d8b9?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
-[![Antigravity 2.21.1 - 2.34.0](https://img.shields.io/badge/Antigravity-2.21.1%20--%202.34.0-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
+[![Antigravity 2.21.1 - 2.34.0+](https://img.shields.io/badge/Antigravity-2.21.1%20--%202.34.0%2B-c5a0ff?style=flat-square&labelColor=252936)](COMPATIBILITY.md)
 [![MIT](https://img.shields.io/badge/license-MIT-d4d9e6?style=flat-square&labelColor=252936)](LICENSE)
 
-[Preview](#preview) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-status-line) · [Install](#install) · [Enable or remove](#plug-and-unplug) · [Compatibility](#compatibility) · [FAQ](#faq) · [中文](README.zh-CN.md)
+[What's New](#whats-new-in-this-fork) · [Preview](#preview) · [IDE](#antigravity-ide) · [CLI](#antigravity-cli-status-line) · [Install](#install) · [Enable or remove](#plug-and-unplug) · [Credits](#acknowledgements--inspirations) · [中文](README.zh-CN.md)
 
 </div>
 
 > [!NOTE]
-> **Independent Continuation Fork:** This repository is an independent continuation fork based on `v0.8.7` of the MIT-licensed open-source project `antigrative-dashboard` (`Copyright (c) 2026 AG Pulse contributors`; the original upstream repository has been deleted by its author). Releases from **v0.8.8 onward** are independently developed and maintained by this repository (`ShZbz/antigravity-dashboard`), with no affiliation with or endorsement from the original authors.
+> **Enhanced Fork Lineage:** This repository (`HelloWorldGitHub114/antigravity-dashboard`) is an independently maintained enhancement fork built on `v0.12.5` of [`ShZbz/antigravity-dashboard`](https://github.com/ShZbz/antigravity-dashboard) (an MIT continuation fork of `antigrative-dashboard` by `AG Pulse contributors`), incorporating telemetry, quota forecasting, alerting, and request-level auditing capabilities inspired by [`ATtacK030130/antigrative-dashboard`](https://github.com/ATtacK030130/antigrative-dashboard), [`Lumidarin/agy-capsule`](https://github.com/Lumidarin/agy-capsule), and [`QuantumNous/new-api`](https://github.com/QuantumNous/new-api).
 
 > [!IMPORTANT]
-> **Rust Native Engine in `v0.12.0` (`pulse-accel`) & Fallback Guidance:** `v0.12.0` introduces an optional Rust N-API native engine (`pulse-accel`) that dramatically speeds up UI responsiveness, SQLite conversation backfills, ledger queries, transcript scanning, and SVG rendering while substantially reducing V8 heap memory usage. As this is a major new native engine, if you run into any unexpected glitches or regressions, please [open an issue](https://github.com/ShZbz/antigravity-dashboard/issues) promptly with reproduction details. You can immediately fall back to the pure TypeScript runtime by setting `PULSE_DISABLE_NATIVE_ACCEL=1` in the environment, or roll back to release **`v0.11.0`** if the issue prevents normal use.
+> **Rust Native Engine (`pulse-accel`) Fallback:** Inherits the optional Rust N-API acceleration engine (`pulse-accel`) for fast SQLite conversation backfills, ledger indexing, and low heap overhead. To fall back to the pure TypeScript runtime, set `PULSE_DISABLE_NATIVE_ACCEL=1`. If you encounter issues in this fork, please open an issue at [GitHub Issues](https://github.com/HelloWorldGitHub114/antigravity-dashboard/issues).
 
-**v0.12.5:** Full **Antigravity `2.34.0`** support — recover live cloud quotas and automatic account email detection via host-injected `ANTIGRAVITY_LS_ADDRESS` / `ANTIGRAVITY_CSRF_TOKEN` environment credentials (with strict loopback + PID/port ownership checks, Pro/Vertex isolation, and automatic fallback to local SQLite direct-read mode + manual recording-account switching & conversation ownership reassignment when credentials are absent or rejected); fix native `/swarm` subagent naming (`agent_name` + merged `subagentSpec` metadata instead of placeholder `"Unnamed session"`); map `MODEL_PLACEHOLDER_M532` to `Gemini 4 Neon (High)`; and refine sidebar motion, responsiveness, 5h depleted ring indicators, and live quota refresh cadence.
+## What's New in This Fork
 
-**v0.12.4:** Add full Antigravity `2.33.0` compatibility (`panelScope` / `auxPaneComponent` Redux sidebar dispatch + `?cascadeId=` resolution so the inline **Open sidebar** button works again; bounded sidecar `.widget` height so overflowing panels scroll cleanly with the mouse wheel), redesign the sidebar header gear settings popover (combining an opt-in OS shortcut debug-launch switch — off by default — with `简体中文`/`English` language switching and 3-row `Aa` font scaling), and add a dedicated sidebar **Usage stats** (`#open-usage-button`) entry with an embedded Token Usage modal fallback when the inline bottom bar is offline.
+Built directly on top of upstream `v0.12.5` while preserving full multi-account isolation, TypeScript + `esbuild` modularity, and Rust `pulse-accel` acceleration:
 
-**v0.12.3:** Refactor the sidebar panel (concentric header quota rings with interactive hover/click popover, two-column Speed/Cache chips and inline Context progress track, click-to-collapse card stage, anti-jump bottom pinning, and `@container sidebar` breakpoints), polish the Usage modal header/tabs/account-switcher layout, accelerate project statistics (`readLedgerProjectSummariesJson`, binary `project-ledger-v1.bin` + `project-meta-v1.json`, stat-validated DB/WAL caching, and table-driven `timezone.ts`), and fix multi-account isolation in project statistics (`viewScope` forwarding + `ownership-v1.json` deduplication). [Release notes](CHANGELOG.md).
+- **Per-Request Log Tab (`Request log`):** Filter historical requests across accounts by date (`Today`, `7d`, `30d`, `All`, `Custom`), model, or cache hit tier, with summary strip totals, per-request **TTFT (left) + Total duration (right) + overall TPS (`output / totalDuration`)** (plus quality-checked streaming TPS in hover tooltips), color-coded cache hit badges (`>90%` green, `50–90%` yellow, `<50%` red), input/cache-read/cache-write/uncached breakdowns, and per-request API USD cost.
+- **Quota Reset Cycle View (`Quota cycle`):** Inspect actual usage aligned to real live or recorded reset boundaries for both **Weekly** and **5-Hour** quota pools (`Gemini` / `Claude & GPT`), complete with previous/next cycle navigation, slice-level stacked bars, drilldown totals, and cycle USD cost.
+- **Linear Quota Depletion Forecast & Pace Badge:** Quota progress tracks project remaining burn trajectory with a diagonal-striped forecast tail, stabilized weekly depletion estimates, a pace badge (`Ample` / `Tight` / `May deplete early`), and observed active-window token consumption without synthetic capacity extrapolation.
+- **API-Equivalent USD Cost Tracking & Custom Pricing:** Built-in public API rate schedule (including scheduled promo-to-standard transitions) with customizable per-model rate overrides via the `$` pricing modal, surfaced across the inline Token card, Usage details KPIs, Quota cycle breakdown, and Request log.
+- **Actual Latest-Turn Cache Hit Rate:** Replaces the heuristic 5-minute TTL countdown with the measured latest-turn cache hit rate (`hot` / `warm` / `cold`), displaying first-hit to latest-hit trajectory and turn cached/total tokens, plus a toggleable inline chip scope (`Session` vs `Latest turn`).
+- **4-Part Context Breakdown, Post-Compaction Estimate & Alert Capsule:** Breaks down active context occupancy into `Baseline`, `Tool reads`, `Thinking`, and `Output`; immediately updates context occupancy after compaction from a dynamic session baseline; adds a `Current turn` summary inside the Speed card; and surfaces HTTP error/retry diagnostics and tool-wait alerts in a dedicated composer capsule.
 
-**v0.12.1:** Bundle prebuilt 5-platform Rust native addons (`pulse-accel.<platform>-<arch>.node`) and standalone CLI binaries (`ag-pulse-statusline.*`) directly inside the GitHub Release ZIP and IDE VSIX, wire `native.yml` into `release.yml`, preserve POSIX executable permissions when packaging on Windows, and enforce strict prebuilt-binary checks during release publishing.
+<details>
+<summary><strong>Inherited Upstream Milestones (v0.9.0 – v0.12.5)</strong></summary>
 
-**v0.12.0:** Introduce the Rust N-API acceleration engine (`native/pulse-accel`) and zero-RPC SQLite direct-read bypass (`pulse-accel.node` + standalone `ag-pulse-statusline`), cutting startup/backfill latency and memory footprint with transparent JS/RPC fallback; add binary ledger indexing (`ledger-compact-v1.bin`), shared SQLite usage caching (`shared-usage-cache-v1.db`), lazy `.antigravity-vertex` polling, commercial/Vertex cache-hit fixes, and cross-platform CI/macOS symlink hardening.
+- **v0.12.5:** Antigravity `2.34.0` support via host-injected `ANTIGRAVITY_LS_ADDRESS` / `ANTIGRAVITY_CSRF_TOKEN`, SQLite direct-read fallback, manual account switching, conversation ownership reassignment, and native `/swarm` subagent naming.
+- **v0.12.3 – v0.12.4:** Antigravity `2.33.0` Redux sidebar compatibility, refactored sidebar header concentric quota rings, `Aa` font scaling, embedded Usage stats modal, and Rust-accelerated project stats (`project-ledger-v1.bin`).
+- **v0.12.0 – v0.12.2:** Rust N-API native engine (`pulse-accel`), SQLite direct-read bypass, binary ledger cache (`ledger-compact-v1.bin`), By Project conversation drilldown, and standalone `ag-pulse-statusline` CLI binary.
+- **v0.9.0 – v0.11.0:** Full TypeScript + `esbuild` refactor (`src/`), Cloud Remote Agent support, Hybrid Orchestrator rings, opt-in structural model call timeline (`modelTimelineEnabled`), multi-account isolation (`By Model` / `By User` / `Simple` / `Detailed`), 24-hour trend spline charts, and hierarchical Subagent/Swarm trees. See [CHANGELOG.md](CHANGELOG.md).
 
-**v0.11.0:** Complete the zero-dependency TypeScript + `esbuild` architecture (`src/`), unify the single-source-of-truth packaging/release manifest, migrate lifecycle/CLI/VSIX tools to Node.js (`manage.mjs`, `ide/package.mjs`) while retaining Python compatibility, add incremental `UsageLedger` file indexing, continuous async `TranscriptReader` progression, streaming `64 KiB` remote snapshot projection, `WeakRef`-bounded trajectory caches, and parallelized Playwright UI regression suites.
-
-**v0.9.0 – v0.10.2:** Add Cloud Remote Agent support with tiered tail loading and incremental slicing, hybrid Orchestrator identity and multi-model SVG donut rings, opt-in structural call timeline trees (`modelTimelineEnabled`), multi-account isolation & viewing (`All Accounts (Aggregated)`, `By Model` / `By User`, `Simple` / `Detailed` variant grouping, manual remote-project entries), 24-hour trend line charts, custom date ranges, single-bar drilldown, and hierarchical subagent/Swarm status & context rings.
+</details>
 
 ## Preview
 
-<img src="docs/assets/responsive.png?v=0.8.0" width="100%" alt="Current three-icon layout in a narrow main chat and separate statistics beside a subagent input.">
+### Inline Cards: Latest-Turn Cache, Quota Forecast, Speed Turn Summary & Alert Capsule
 
-<table>
-<tr><th width="50%">Speed, cache & multi-model breakdown</th><th width="50%">Context and shared quotas</th></tr>
-<tr>
-<td width="50%" valign="top"><img src="docs/assets/speed.png?v=0.11.0" width="100%" alt="Session statistics card with model/tool time, TTFT, TPS and Open sidebar action"><br><img src="docs/assets/widget.png?v=0.11.0" width="100%" alt="Token usage card with cache hit rate, task/subagent totals and 36px multi-model SVG donut ring"></td>
-<td width="50%" valign="top"><img src="docs/assets/context.png?v=0.8.0" width="100%" alt="Current context, five-hour and weekly quota details, with the saved-language control"></td>
-</tr>
-</table>
+<img src="docs/assets/feature-cards.svg" width="100%" alt="Inline hover cards showing latest-turn cache hit and USD cost, 4-part context breakdown with linear quota depletion forecast, session and turn speed summary, and HTTP 429 retry and wait alerts.">
+
+### Per-Request Log Tab (`Request log`)
+
+<img src="docs/assets/usage-request-logs.svg" width="100%" alt="Token usage Request log tab showing date/model/cache filters, summary strip, TTFT and Total duration pills with overall TPS, color-coded cache hit badges, token breakdown, and per-request API USD cost.">
+
+### Quota Reset Cycle View (`Quota cycle`) & API USD Cost
+
+<img src="docs/assets/usage-quota-cycle.svg" width="100%" alt="Token usage details tab in Weekly Quota cycle mode with KPI USD cost cards, pool and window toggles, stacked slice chart, drilldown tooltip, and model breakdown table.">
 
 <table>
 <tr><th width="50%">Subagent & Swarm status tree</th><th width="50%">Opt-in structural model call timeline</th></tr>
 <tr>
-<td width="50%" valign="top"><img src="docs/assets/sidebar-subagents.png?v=0.11.0" width="100%" alt="Sidebar Subagents section showing 5 Swarm workers with live status dots, TPS, token totals and circular context rings"></td>
+<td width="50%" valign="top"><img src="docs/assets/sidebar-subagents.png?v=0.11.0" width="100%" alt="Sidebar Subagents section showing Swarm workers with live status dots, TPS, token totals and circular context rings"></td>
 <td width="50%" valign="top"><img src="docs/assets/sidebar-timeline.png?v=0.11.0" width="100%" alt="Sidebar Model timeline section with Plan, Worker and Tools·Agents swimlanes and collapsible Turn/Handoff nodes"></td>
 </tr>
-</table>
-
-<table>
-<tr><th width="50%">Daily and weekly activity</th><th width="50%">Multi-account & model usage</th></tr>
+<tr><th width="50%">Daily & weekly activity heatmap</th><th width="50%">24-hour trend & variant drilldown</th></tr>
 <tr>
 <td width="50%" valign="top"><img src="docs/assets/usage-overview.png?v=0.8.0" width="100%" alt="Token usage activity tab with daily and weekly contribution grids"></td>
-<td width="50%" valign="top"><img src="docs/assets/usage-details.png?v=0.11.0" width="100%" alt="Token usage details tab with All Accounts selector, By Model / By User, Simple / Detailed and Day / Week / Month / Custom controls"></td>
-</tr>
-<tr>
-<th colspan="2">24-hour trend distribution, Simple/Detailed variant grouping & manual remote usage</th>
-</tr>
-<tr>
-<td colspan="2"><img src="docs/assets/usage-hourly-breakdown.png?v=0.11.0" width="100%" alt="24-hour smooth spline trend chart, expandable model variant rows, and Remote Project Manual Usage table"></td>
+<td width="50%" valign="top"><img src="docs/assets/usage-hourly-breakdown.png?v=0.11.0" width="100%" alt="24-hour smooth spline trend chart, expandable model variant rows, and Remote Project Manual Usage table"></td>
 </tr>
 </table>
 
-<sub>Real and illustrative widget captures from the desktop renderer. Main and subagent composers track independent statistics while sharing account-wide quotas. The context percentage reflects the host's latest request-start estimate, never cumulative input tokens.</sub>
+<sub>Top showcase SVGs are pure vector renders of the current UI with synthetic privacy-safe data; the secondary panel/heatmap captures originate from the upstream desktop renderer (`ShZbz` / `AG Pulse contributors`).</sub>
 
-**Keep working. The numbers are already there.**
+## Key Capabilities at a Glance
 
-| See the speed | Know your quota | Track every agent & model |
+| See true request latency | Forecast shared quotas | Track every token, cycle & dollar |
 | --- | --- | --- |
-| Weighted session TPS, settled last-request TPS, model/tool time, TTFT, and one-click sidebar launch. | Separate Gemini and Claude/GPT quota groups, with five-hour and weekly reset countdowns. | Multi-model SVG donut rings, hierarchical Swarm/subagent context rings, and an opt-in structural call timeline. |
+| Session/last-request TPS, TTFT vs total duration, overall request TPS, current-turn breakdown, and retry/wait alert capsule. | Separate Gemini and Claude/GPT quota groups with linear depletion forecast stripes, pace badges, and observed cycle token volume. | Latest-turn cache hit trajectory, 4-part context breakdown, Weekly/5h quota cycle views, per-request log filters, and API USD pricing. |
 
-### Small details that matter
+### Architecture & Ergonomic Details
 
-- **Token usage & multi-model rings.** Compact total tokens and cache hit rate; hover for uncached input, cache reads, output, root task & subagent totals, and an automatic `36px` Top-3 multi-model SVG donut ring whenever 2+ models participate in the session or task (paired with a `78px` interactive breakdown in the side panel supporting `Total` / `Output` / `Calls` and `Session only` / `Include subagents` toggles).
-- **Hybrid Orchestrator awareness.** Recognizes `Orchestrator (Argon)` (`M668`), `Gemini Flash` (`M669`), Gemini 4 Argon/Hydrogen/Carbon, and Claude 5.5 aliases, rendering `Orchestrator (Argon) → Gemini Flash` in the sidebar and surfacing planner/worker quota-split notes when planner and active models differ.
-- **Context and quotas together.** A Codex-style usage percentage; hover for used/remaining fractions, tokens versus capacity, and both quota windows with reset times. Uses the host estimate for the latest request, never cumulative input tokens.
-- **Hierarchical Subagent & Swarm tree.** Displays multi-level delegated subagents (`invokeSubagentSpec` roles and types) with semantic status dots (`running`, `waiting`, `done`, `idle`, `error`, `stopped`), localized status labels, per-agent TPS, token counts, circular context occupancy rings, and expandable performance details (`ℹ`) that preserve fold state across polling cycles.
-- **Opt-in structural model call timeline (`modelTimelineEnabled`).** Disabled by default with zero `timeline-v1` disk writes. When enabled in the side panel, records strictly structural metadata (no prompts, responses, thinking text, file paths, or command arguments) into `Plan` / `Worker` / `Tools·Agents` horizontal swimlanes and a collapsible `Turn → Phase → Model Call / Tool Group / Subagent` tree bounded to `<= 400` nodes / `<= 192 KiB`, with one-click `Clear` and `Disable`.
-- **Cloud Remote Agent sessions.** Supports `v1/default/jetski_remote_agents_3p/...` remote project sessions with 50-step tail cold loading, sparse background history backfill, incremental `initialStepsPageBounds` slicing, and `64 KiB` streaming Connect+JSON frame projection.
-- **English or Chinese across restarts.** English by default, with one-click switching at the bottom of context details and an atomic user preference file (`AntigravityPulse/preferences.json`) shared between the inline widget and side panel.
-- **Hover delay and instant transition.** First hover waits 250ms to prevent accidental popups; clicks and keyboard focus open immediately. Moving between metrics stays instant while a card is open or for 350ms after leaving the controls.
-- **Teamwork & compact-window resilience.** Retains the strip across send/stop/cancel transitions, scopes to the active composer's `data-cascade-id`, and smoothly transitions between full numeric values and three interactive icons (`240ms` WAAPI motion) when space tightens.
-- **Theme adaptation & local privacy.** Controls, cards, charts, and quota menus adapt live to Antigravity's light/dark mode and custom seed colors. All telemetry stays on loopback endpoints and local disk.
+- **Token usage & multi-model rings.** Displays total tokens, session cache hit rate, latest-turn cache hit rate (`First → Last` trajectory), and a `36px` Top-3 multi-model SVG donut ring whenever 2+ models participate (paired with a `78px` interactive breakdown in the side panel).
+- **Hybrid Orchestrator awareness.** Recognizes `Orchestrator (Argon)` (`M668`), `Gemini Flash` (`M669`), Gemini 4 Neon/Argon/Hydrogen/Carbon, and Claude aliases, surfacing planner/worker quota-split notes when planner and active models differ.
+- **Hierarchical Subagent & Swarm tree.** Displays multi-level delegated subagents (`invokeSubagentSpec`) with semantic status dots, localized status labels, per-agent TPS, token counts, circular context occupancy rings, and expandable metrics.
+- **Opt-in structural model call timeline (`modelTimelineEnabled`).** Disabled by default with zero `timeline-v1` disk writes. When enabled in the side panel, records strictly structural metadata (no prompts, responses, or thinking text) into `Plan` / `Worker` / `Tools·Agents` swimlanes bounded to `<= 400` nodes / `<= 192 KiB`.
+- **Cloud Remote Agent & long-conversation resilience.** Supports `v1/default/jetski_remote_agents_3p/...` remote sessions with 50-step tail cold loading, `64 KiB` streaming Connect+JSON projection, and `8 MiB` `WeakRef`-bounded caches.
+- **Live theme adaptation & local-only privacy.** Adapts live to Antigravity's light/dark theme and seed colors. All telemetry, pricing overrides, and usage ledgers stay strictly on loopback endpoints and local disk.
 
 ## Antigravity IDE
 
-**v0.7.0+** includes a separate VSIX for Google's standalone Antigravity IDE. Download
-`antigrative-dashboard-ide-0.12.5.vsix` from the release and choose **Install from VSIX…**
-in the IDE's Extensions view. No desktop App installation is required.
+This repository includes a standalone VSIX adapter under `ide/` for Google's Antigravity IDE. Build the VSIX from source with `npm run package` (producing `dist/antigrative-dashboard-ide-<version>.vsix`), then choose **Install from VSIX…** in the IDE's Extensions view.
 
-Fully quit the IDE, then start it with
-`--remote-debugging-port=0 --remote-debugging-address=127.0.0.1`.
-Add these flags to your IDE shortcut for subsequent launches. Narrow panes show
-three icons; wider panes show values. Hover/click opens the same metric details and Token usage modal.
-
-Windows IDE **2.5.5** has been tested with real conversations. Linux/macOS IDE
-have automated coverage; signed-in GUI acceptance is still outstanding.
-VS Code, Visual Studio, JetBrains, Zed and Xcode integrations are not implemented.
-See [IDE installation, update, diagnostics and data cleanup](ide/README.md).
+Fully quit the IDE, then start it with `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1` so the inline composer bar and usage modal can attach cleanly. See [ide/README.md](ide/README.md) for diagnostics and cleanup.
 
 ## Antigravity CLI status line
 
-Available in **v0.6.0+**: an independent adapter for the official Antigravity CLI `statusLine` interface displays context occupancy, cache read tokens, state and grouped quotas, with English/Chinese and terminal-width adaptation. Remaining quota numbers and bars are **green ≥70%, yellow ≥30% and <70%, red <30%**. Preview: `node cli/statusline.mjs --preview`; install: `node manage.mjs install-cli` or `python manage.py install-cli` (Linux/macOS: `python3`). Requires Node.js 20+ and a CLI supporting the interface. Prioritizes current-request cache percentage for tested CLI 1.3.2/1.3.3 Sonnet 4.6, GPT-OSS 120B, and Gemini 3.8 Flash (High) counters with zero cache writes; unknown cases stay unavailable. CLI tok/s needs streaming-duration data absent from the documented payload. See [CLI usage and rollback](docs/CLI.md).
+An independent adapter for the official Antigravity CLI `statusLine` interface displays context occupancy, cache read tokens, state, and grouped quotas with terminal-width adaptation (**green ≥70%, yellow 30–70%, red <30%**). Preview with `node cli/statusline.mjs --preview` and install with `node manage.mjs install-cli` (`python manage.py install-cli` fallback). See [docs/CLI.md](docs/CLI.md).
 
 ![Real Antigravity CLI conversation with current-request cache percentage](docs/assets/cli-conversation.png?v=0.8.4-cli-1)
 
-<sub>Real Linux Antigravity CLI 1.3.3 session after two English replies: current-request cache share 95.7%, 13.1K cached-read tokens; account email masked. macOS signed-in interactive acceptance remains outstanding.</sub>
+<sub>Illustrative Linux Antigravity CLI 1.3.3 session capture from upstream documentation (`AG Pulse contributors`) showing 95.7% current-request cache share.</sub>
 
 ## Install
 
-The commands below install the **desktop App adapter**. IDE users should use the [separate VSIX instructions above](#antigravity-ide).
+The commands below install the **desktop App adapter** from this repository. Standalone IDE users should follow [Antigravity IDE](#antigravity-ide).
 
-Supported: **Windows, Linux and macOS; Antigravity desktop App 2.21.1 / 2.22.0 / 2.33.0; Node.js 20+ (or bundled Electron runtime via `install.ps1` / `install.sh`) or Python 3.10+**. The same release ZIP works on all three systems with zero runtime npm or pip dependencies. See [COMPATIBILITY.md](COMPATIBILITY.md) for the per-platform verification scope.
+Supported hosts: **Windows, Linux, and macOS; Antigravity desktop App 2.21.1 – 2.34.0+; Node.js 20+ (or bundled Electron runtime via `install.ps1` / `install.sh`) or Python 3.10+**.
 
-> The inline model-row position has no public plugin mounting API. A standard Antigravity sidecar attaches the widget through the existing local renderer debugging endpoint. Default installation never modifies `resources/app.asar`. This is unofficial; future changes to the host DOM, debugging channel, SDK or metrics API may require an adapter update. The native side panel remains a persistent companion and fallback.
+> The inline model-row widget attaches cleanly via Antigravity's local sidecar and renderer debugging endpoint without modifying `resources/app.asar`. The native side panel remains a persistent companion and fallback.
 
-Download the ZIP from the [latest release](https://github.com/ShZbz/antigravity-dashboard/releases/latest), extract it to a permanent folder, or clone the repository:
+Clone this fork into a permanent directory and run the installer:
 
 ```powershell
-git clone https://github.com/ShZbz/antigravity-dashboard.git
+git clone https://github.com/HelloWorldGitHub114/antigravity-dashboard.git
 cd antigravity-dashboard
 node manage.mjs install
 ```
 
-You can also run `./install.ps1` on Windows, `sh install.sh` on Linux / macOS (both automatically use Node.js 20+ or the host app's bundled Electron runtime before falling back to Python), or `python manage.py install` (`python3` on Linux/macOS). Never run the installer with sudo.
+You can also run `./install.ps1` on Windows, `sh install.sh` on Linux/macOS, or `python manage.py install` (`python3` on Linux/macOS). Never run the installer with `sudo`.
 
-Fully quit and reopen Antigravity. Open a conversation: the strip appears beside the model selector. **Keep the extracted source folder** for enable, disable, update, and uninstall commands.
+Fully quit and reopen Antigravity. Open a conversation: the telemetry strip appears beside the model selector. **Keep the cloned directory** for enable, disable, update, and uninstall commands. (When running directly from source without prebuilt `.node` addons, the pure TypeScript runtime runs automatically, or you can compile `native/pulse-accel` if a Rust toolchain is installed.)
 
 <details>
 <summary><strong>Ask an agent to install it</strong></summary>
 
 ```text
-Install and enable Antigrative Dashboard on this computer.
-Repository: https://github.com/ShZbz/antigravity-dashboard
+Install and enable Antigrative Dashboard from this repository on this computer.
+Repository: https://github.com/HelloWorldGitHub114/antigravity-dashboard
 1. Read README.md, COMPATIBILITY.md, docs/CLI.md and ide/README.md. Inspect the OS,
    available executables, host versions and existing dashboard configuration with
    read-only checks. Distinguish desktop App, Antigravity CLI (agy) and standalone
-   Antigravity IDE. The OS alone does not identify the target.
-2. Before downloading an installation package or changing settings, summarize the
-   detected hosts and ask me to confirm the target: App, CLI or standalone IDE.
-   If several are present, let me choose one or more; if none is identified, ask
-   for its executable path. Do not guess App when I say Linux or terminal.
-3. Fetch the latest stable release metadata and report its plugin version, the
-   host version/path and the selected adapter. The App and CLI share a ZIP, but
-   their installation commands differ. The standalone IDE uses a separate VSIX.
-   Download only assets for the confirmed target and verify SHA256. Keep the
-   extracted source in a permanent directory. Do not install the host itself or
-   upgrade, downgrade or replace it without separate confirmation.
+   Antigravity IDE.
+2. Before cloning or changing settings, summarize detected hosts and ask me to confirm
+   the target: App, CLI or standalone IDE.
+3. Clone https://github.com/HelloWorldGitHub114/antigravity-dashboard.git into a
+   permanent directory (do not install or modify the host application itself).
 4. Use Node.js 20+ (node manage.mjs ...) or Python 3.10+ (python/python3 manage.py ...):
-   - App: check node manage.mjs status, then node manage.mjs install (or python manage.py install).
-   - CLI: check agy --version and Node.js 20+, then node manage.mjs install-cli.
-     Do not run the desktop App install command. Preserve any existing statusLine
-     using the documented backup/override flow.
-   - Standalone IDE: install the release VSIX through Install from VSIX... or
-     node ide/manage.mjs install --exe <verified-IDE-executable> --vsix <release-VSIX>.
-     It does not require the desktop App; do not run the App installer.
-5. Preserve unrelated settings and saved data. If a restart or login is needed,
-   tell me first and do not forcibly interrupt running tasks. For IDE launches,
-   follow its documented loopback debugging flags. For CLI, start a new session.
-6. Verify the selected adapter in its real host, and report plugin/host versions,
-   target, path, checks actually performed, remaining steps and how to disable or
-   uninstall that adapter. Never treat installing a ZIP as proof of CLI success.
+   - App: check node manage.mjs status, then node manage.mjs install.
+   - CLI: check agy --version and Node.js 20+, then node manage.mjs install-cli
+     (preserving any existing statusLine via backup/override flow).
+   - Standalone IDE: run npm run package to build dist/*.vsix, then install through
+     Install from VSIX... or node ide/manage.mjs install --exe <IDE-exe> --vsix <VSIX>.
+5. Preserve unrelated settings and saved data. If a restart is needed, tell me first
+   without interrupting running tasks.
+6. Verify the selected adapter in its real host, and report plugin/host versions, path,
+   checks performed, and how to disable or uninstall it.
 ```
 
 </details>
@@ -177,91 +153,89 @@ Repository: https://github.com/ShZbz/antigravity-dashboard
 
 ### Open the App side panel
 
-Click **Open sidebar →** inside the Session statistics hover card, or open the right auxiliary pane using its top-right toggle and choose **+ → Extensions → Antigrative Dashboard**. The refactored sidebar renders header concentric quota rings (`5h` outer + `weekly` inner with live countdown popover), two-column Speed/Cache chips, an inline Context progress bar, click-to-collapse detail cards (`#card-stage` with anti-jump bottom pinning), multi-model breakdown rings, hierarchical subagents, the optional model call timeline, and independent `Aa` font scaling inside a `@container sidebar` responsive frame.
+Click **Open sidebar →** inside the Session statistics hover card, or open the right auxiliary pane and choose **+ → Extensions → Antigrative Dashboard**.
 
-Run these commands from the project directory (`node manage.mjs <action>` or `python manage.py <action>`; add `--instance (all|pro|vertex)` to target a specific local instance):
+Run these commands from the repository directory (`node manage.mjs <action>` or `python manage.py <action>`; add `--instance (all|pro|vertex)` to target a specific local instance):
 
 | Action | Command | What happens |
 | --- | --- | --- |
-| Install or update | `node manage.mjs install` | Copy runtime adapter; preserve other settings and saved statistics |
-| Disable | `node manage.mjs disable` | Disable the plugin and hide the strip on its next poll |
-| Enable | `node manage.mjs enable` | Start the plugin and show the strip again |
-| Inspect | `node manage.mjs status` | Check installation, enabled state, and runtime attachment health |
-| Uninstall | `node manage.mjs uninstall` | Remove this plugin; retain saved statistics and verified legacy backups |
+| Install or update | `node manage.mjs install` | Copy runtime adapter; preserve settings and saved statistics |
+| Disable | `node manage.mjs disable` | Disable the plugin and hide the inline strip |
+| Enable | `node manage.mjs enable` | Start the plugin and restore controls |
+| Inspect | `node manage.mjs status` | Check installation, enabled state, and attachment health |
+| Uninstall | `node manage.mjs uninstall` | Remove plugin runtime; retain saved statistics and backups |
 
-First installation, plugin code updates, and uninstall require a full app restart. Enable and disable do not require reinstalling. `./uninstall.ps1` / `sh uninstall.sh` runs the uninstall command. `node manage.mjs install --panel-only` disables inline attachment and installs only the sidecar panel. The internal plugin ID remains `antigravity-pulse` for compatibility with earlier installations; the public project name is **Antigrative Dashboard**.
+First installation, code updates, and uninstall require a full app restart; `enable`/`disable` apply without reinstalling. `./uninstall.ps1` / `sh uninstall.sh` runs uninstall, and `node manage.mjs install --panel-only` installs only the side panel.
 
 ## How the numbers work
 
 | Metric | Definition |
 | --- | --- |
-| Context window | Latest request-start `estimatedTokensUsed` / `maxContextTokens`; unknown capacity stays unavailable |
-| Cache hit | Cached-read tokens divided by uncached input + cache reads + cache writes; token-weighted across requests |
-| Token total | Normalized total input plus output tokens, including thinking output; task total includes delegated subagents |
-| Session TPS | Sum of eligible output tokens from valid requests divided by their total streaming duration |
-| Last-request TPS | Settled output tokens divided by streaming duration for the latest completed request; live turns show `Generating…` |
-| TTFT | Average time to first token; excluded from response streaming TPS |
-| Model time | TTFT plus streaming duration across requests |
-| Tool time | Union of tool execution intervals; overlapping time counted once |
-| Five-hour / weekly remaining | Account-provided `remainingFraction`; not a currency balance |
-| Reset countdown | Account-provided `resetTime` minus the current time |
+| Context window | Latest request-start `estimatedTokensUsed` / `maxContextTokens`, immediately updated post-compaction from dynamic session baseline |
+| Context breakdown | Splits active context into `Baseline`, `Tool reads`, `Thinking`, and `Output` |
+| Session cache hit | Cached reads ÷ (uncached input + cache reads + cache writes), token-weighted across eligible requests |
+| Latest-turn cache hit | Measured cache share for the most recent turn (`First → Last` progression; green `hot`, yellow `warm`, red `cold`) |
+| Request log cache tiers | Green `> 90%`, Yellow `50–90%`, Red `< 50%` (`cachedRead / totalInput`) |
+| Session / Last TPS | Quality-checked output tokens ÷ streaming duration across settled requests |
+| Request log latency & TPS | Left pill: `TTFT`, right pill: `Total` duration; sub-line: overall request TPS (`output / totalDuration`), with quality-checked `streamTps` in hover tooltip |
+| Quota forecast & cycles | Linear burn projection from active-window samples; Quota cycle aligns slice bars to live/recorded reset boundaries (`Weekly` / `5h`) |
+| Est. API USD cost | Computed from per-request uncached input, cache read, cache write, and output tokens using the editable price table |
 
-Request metrics update on a ~2.2s poll, quotas refresh every 60s, and countdowns tick every second. Antigravity normalizes `inputTokens` to uncached input even for Gemini; cache writes are not hits.
-
-### Timing quality
-
-Very high TPS can occur when output arrives in a batch or when a brief tool call flushes after a long TTFT. The plugin checks timing quality before adding a request to session TPS; it never caps speed or invents a longer duration:
-
-- **Excluded from TPS:** invalid/split token scopes (`token-scope`), conflicting duplicate request records, multiple differing attempt usages without matching timing, zero-token samples, and buffered tool-calling windows (`short-tool-window`: stream `< 5s`, `TTFT >= 1s`, and `TTFT / duration >= 12`).
-- **Same-model outlier check:** with at least two otherwise eligible samples lasting `>= 1s` from the same model, provider, and raw token basis, a short sample (`< 1s`) above `max(2.5 × median, median + 6 × MAD)` is quarantined.
-- **Streamed thinking & active turns:** sustained multi-block thinking streams (`duration >= 15s` or `duration >= max(2s, 2 × ttft)`) pair full `outputTokens` with `streamingDuration`. Active in-flight turns display `Generating…` while anchoring `Last request` to settled requests so brief tool windows do not cause false error flicker. See [timing policy and limitations](docs/TPS.md).
+Request metrics poll every ~2.2s, quotas refresh every 60s, and countdowns tick every second. Timing quality quarantines split token scopes, duplicate collisions, and short buffered tool windows (`< 5s` stream, `TTFT >= 1s`, `TTFT / duration >= 12`) from session TPS; see [docs/TPS.md](docs/TPS.md).
 
 ## Saved conversation statistics & long conversations
 
-Context occupancy uses the current request's host-reported window (see [context limits and sources](docs/CONTEXT_LIMITS.md)). Completed-request TPS, cache counts, model usage, and whitelisted context estimates are saved automatically in `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/history-v1/<account-hash>/<conversation-id>.json`.
-
-Long local and Cloud Remote Agent conversations use paginated step and generator-metadata offset reads (`includeMessages: false`), streaming `64 KiB` frame projection, and an `8 MiB` `WeakRef`-bounded statistics cache without retaining prompts or tool output. See [long-conversation collection](docs/LONG_CONVERSATIONS.md).
+Completed-request TPS, timing metadata, cache counts, model usage, and context baselines are saved automatically under `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/history-v1/<account-hash>/<conversation-id>.json`. Long local and Remote Agent transcripts use paginated step reads (`includeMessages: false`), `64 KiB` streaming JSON projection, and `8 MiB` `WeakRef`-bounded caches without storing prompt text or tool outputs. See [docs/CONTEXT_LIMITS.md](docs/CONTEXT_LIMITS.md) and [docs/LONG_CONVERSATIONS.md](docs/LONG_CONVERSATIONS.md).
 
 ## Local Token usage
 
-Open the cache/database icon, then **View token usage**.
-- **Activity tab:** Daily and weekly contribution heatmaps.
-- **Usage details tab:** Stacked bar charts by **Day**, **Week**, **Month**, or **Custom** date range with single-bar click drilldown; **By Model** / **By User** / **Project Stats** (`按模型统计` / `按用户统计` / `项目统计`) dimension switching; **Simple** / **Detailed** model grouping (normalizing variant suffixes with clickable `tr.model-group-row` expansion); **Project Stats** per-conversation drilldown (grouping workspace URIs and worktrees, expandable subagent rows, and an interactive SVG donut chart backed by native `readLedgerProjectSummariesJson` + `project-ledger-v1.bin` + `project-meta-v1.json`); an interactive **24-hour smooth spline trend chart** (`Period total` / `Today`); independent `Aa` font scaling (`80%`–`150%`); and **Remote Project Manual Usage** logging.
-- **Multi-account isolation:** Switch between individual accounts (`accounts-v1.json` / optional local `.data/usage-accounts.local.json`) or **All Accounts (Aggregated)** across **By Model**, **By User**, and **Project Stats**. Per-account conversation ownership (`ownership-v1.json`), record-level deduplication, and incremental `fileIndex` + binary `ledger-compact-v1.bin` / `project-ledger-v1.bin` caching keep multi-account switches fast and free of cross-account duplication.
+Open the cache icon hover card and click **View token usage** (or use **Usage stats** in the side panel):
 
-Desktop ledger: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`. IDE ledger: `User/globalStorage/shzbz.antigrative-dashboard-ide/usage-v1/`. Days and months use `Asia/Shanghai` (UTC+8) and weeks start Monday. See [accounting, cleanup and limitations](docs/USAGE.md).
+- **Activity tab:** Daily and weekly contribution heatmaps.
+- **Usage details tab:** Stacked bar charts by **Day**, **Week**, **Month**, **Quota cycle** (`Weekly` / `5h` aligned to live/recorded pool reset windows), or **Custom** date range with single-bar drilldown; **By Model** / **By User** / **Project Stats** dimension switching; **Simple** / **Detailed** variant grouping; 24-hour trend spline charts; API USD cost summaries (with customizable `$` rate table); `Aa` font scaling (`80%`–`150%`); and **Remote Project Manual Usage** logging.
+- **Request log tab:** Paginated per-request ledger inspector with date range, model, and cache-tier filters (`>90%` / `50–90%` / `<50%`), summary KPI strip, `TTFT` + `Total` latency pills with overall TPS, per-request token/cache breakdown, and API USD cost.
+- **Multi-account isolation:** Switch cleanly between individual accounts (`accounts-v1.json`) or **All Accounts (Aggregated)** via `ownership-v1.json` deduplication and binary ledger caches (`ledger-compact-v1.bin` / `project-ledger-v1.bin`).
+
+Desktop ledger: `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/data/usage-v1/`. See [docs/USAGE.md](docs/USAGE.md).
+
+## Acknowledgements & Inspirations
+
+Grateful thanks to the upstream maintainers and the three open-source projects whose designs and telemetry ideas inspired this enhanced fork:
+
+| Project | Role & Contributions Inspired |
+| --- | --- |
+| [**ShZbz/antigravity-dashboard**](https://github.com/ShZbz/antigravity-dashboard) | Direct fork upstream (`v0.12.5`): TypeScript + Rust `pulse-accel` architecture, SQLite direct-read bypass, multi-account isolation, project stats, sidebar refactor, and Antigravity 2.34+ support (continuation of MIT `antigrative-dashboard` by `AG Pulse contributors`). |
+| [**ATtacK030130/antigrative-dashboard**](https://github.com/ATtacK030130/antigrative-dashboard) | Inspired the linear quota depletion forecast (striped projection tail on quota tracks), pace badge, and active-window observed token metrics. |
+| [**Lumidarin/agy-capsule**](https://github.com/Lumidarin/agy-capsule) | Inspired the 4-part context composition breakdown, current-turn speed summary, request error/retry & long-wait alert capsule, and turn cache-hit status indicator. |
+| [**QuantumNous/new-api**](https://github.com/QuantumNous/new-api) | Inspired the per-request log table layout, dual-pill latency column (`TTFT` + `Total` + overall TPS), token cache breakdown sub-line, and color-coded cache hit badges. |
 
 ## Compatibility
 
-Desktop verified on **Windows 11 / Antigravity App 2.21.1 and 2.22.0**, and standalone **Antigravity IDE 2.5.5** on Windows via a separate VSIX. Linux and macOS have three-platform CI coverage; signed-in desktop/IDE GUI verification on Linux/macOS remains open.
-
-> **Verification & Asset Attribution:** The `v0.8.0` hero/responsive/context/overview/CLI illustrations and `v0.8.7` and earlier baseline verification records in [COMPATIBILITY.md](COMPATIBILITY.md) originate from the upstream project (`AG Pulse contributors`). Features introduced in `v0.8.8+` and the updated `v0.11.0` hover cards, subagent/Swarm trees, call timeline, and multi-account usage screenshots are independently verified by the current maintainer (`ShZbz`).
-
-[Full compatibility and recovery details →](COMPATIBILITY.md)
+Base `v0.12.5` is verified on **Windows Desktop App 2.21.1 – 2.34.0+** and standalone **Antigravity IDE 2.5.5**; fork enhancements (`Request log`, `Quota cycle`, `API USD cost`, `Latest-turn cache hit`, `4-part context breakdown`, and `Quota forecast`) are actively verified on Windows Antigravity Desktop App 2.34.0+ with automated Node test coverage. Linux and macOS retain cross-platform CI scripts from upstream. See [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## FAQ
 
 <details><summary><strong>The strip did not appear after installation.</strong></summary>
 
-Fully quit the main app process and reopen it. Run `node manage.mjs status` (or `python manage.py status`). Inspect `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/logs/sidecar.log` and `data/integration-state.json`.
+Fully quit the main Antigravity process and reopen it. Run `node manage.mjs status` (or `python manage.py status`). Check `~/.gemini/antigravity/sidecar_data/antigravity-pulse/panel/logs/sidecar.log` and `data/integration-state.json`.
 
 </details>
 
-<details><summary><strong>Why is TPS missing in a new conversation?</strong></summary>
+<details><summary><strong>Why is the request-log TPS sometimes lower than pure streaming TPS?</strong></summary>
 
-There are no request metrics yet. TPS is hidden instead of showing the previous chat's speed. It appears after a model response finishes.
-
-</details>
-
-<details><summary><strong>Why do Gemini and Claude/GPT have different quotas?</strong></summary>
-
-The service returns independent quota groups. The default follows the selected model; you can inspect another group from the context/quota card menu.
+In the Request log, row TPS uses overall speed (`outputTokens / totalDuration`, including TTFT), matching API gateway log conventions; hover the latency cell to see the quality-checked pure streaming TPS (`outputTokens / streamingDuration`).
 
 </details>
 
-<details><summary><strong>What happens after an Antigravity update?</strong></summary>
+<details><summary><strong>How are API USD costs calculated, and can I customize rates?</strong></summary>
 
-App updates cannot overwrite the runtime adapter in the user plugin directory. It rediscovers ports, credentials and the renderer automatically. See [robustness analysis](docs/ROBUSTNESS.md).
+Costs multiply each request's uncached input, cache read, cache write, and output tokens against public API pricing (`src/shared/model-pricing.ts`, including scheduled promo-to-standard transitions). Click the `$` button in the top-right corner of the Token usage modal to override any model's rates locally.
+
+</details>
+
+<details><summary><strong>What happens after an Antigravity host update?</strong></summary>
+
+Host updates do not overwrite the installed adapter in your user plugin directory, and the sidecar automatically rediscovers ports, `ANTIGRAVITY_LS_ADDRESS` / `ANTIGRAVITY_CSRF_TOKEN` environment credentials, and renderer targets. See [docs/ROBUSTNESS.md](docs/ROBUSTNESS.md).
 
 </details>
 
@@ -271,14 +245,12 @@ App updates cannot overwrite the runtime adapter in the user plugin directory. I
 npm run typecheck
 npm run build
 npm test
-npm run test:lifecycle
+node tools/build.mjs --check
 npm run package
 ```
 
-All TypeScript sources live under `src/` (`contracts`, `shared`, `platform`, `telemetry`, `ui`, `lifecycle`) and compile via `tools/build.mjs` (`esbuild`) into zero-dependency runtime bundles across `sidecars/panel/`, `compat/`, `ide/`, `cli/`, and `manage.mjs`. Release ZIP and VSIX archives with `.sha256` checksums are generated in `dist/`.
+All TypeScript sources live under `src/` (`contracts`, `shared`, `platform`, `telemetry`, `ui`, `lifecycle`) and compile via `tools/build.mjs` (`esbuild`) into zero-dependency runtime bundles across `sidecars/panel/`, `compat/`, `ide/`, `cli/`, and `manage.mjs`. Regenerate README vector previews with `node tools/generate-readme-svgs.mjs`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [CHANGELOG.md](CHANGELOG.md).
 
-[Development guide →](docs/DEVELOPMENT.md) · [Changelog →](CHANGELOG.md)
+## License
 
-## License & Manual App updates
-
-Source is available under [MIT](LICENSE). Open **context details → bottom-right ⋯ → Check for updates** to run the verified App-only updater (see [docs/UPDATES.md](docs/UPDATES.md)).
+Source is released under the [MIT License](LICENSE). Third-party acknowledgements belong to their respective maintainers listed above.

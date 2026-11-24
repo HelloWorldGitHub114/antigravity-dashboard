@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" width="1200" height="440" role="img">
+  <defs>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0%" stop-color="#2a2c2f"/>
+      <stop offset="100%" stop-color="#303235"/>
+    </linearGradient>
+    <radialGradient id="heroGlow" cx="0.18" cy="0.06" r="0.62">
+      <stop offset="0%" stop-color="#85a8ff" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#17191d" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="forecastStripe" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#85a8ff" fill-opacity="0.28"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#2a2c2f" stroke-width="2.5"/>
+    </pattern>
+    <pattern id="forecastStripeWarn" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#d7b079" fill-opacity="0.34"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#2a2c2f" stroke-width="2.5"/>
+    </pattern>
+  </defs>
+  <rect x="0.5" y="0.5" width="1199" height="439" rx="18" fill="#17191d" stroke="#2d323b"/>
+  <rect x="0.5" y="0.5" width="1199" height="439" rx="18" fill="url(#heroGlow)"/>
+  <text x="52" y="54" fill="#9fb9ee" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12" font-weight="600" letter-spacing="1.5">ANTIGRATIVE DASHBOARD · ENHANCED FORK</text>
+  <text x="52" y="108" fill="#f0f3f8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="33" font-weight="650" letter-spacing="-0.6">Every request, quota cycle, and cost — right beside your input.</text>
+  <text x="52" y="146" fill="#a6b1c2" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15.5">Weighted TPS, latest-turn cache hits, 4-part context breakdown, linear quota forecasts, and per-request logs.</text>
+  <rect x="52" y="180" width="1096" height="148" rx="16" fill="#20242a" stroke="#363b44" stroke-width="1.2"/>
+  <text x="78" y="224" fill="#8e97a5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14">Ask anything, @ to mention, / for actions</text>
+  <line x1="74" y1="266" x2="1126" y2="266" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+  <g transform="translate(76 289) scale(1)"><path d="M8 3v10M3 8h10" fill="none" stroke="#b9c1cd" stroke-width="1.5" stroke-linecap="round"/></g>
+  <text x="108" y="302" fill="#c7cfd9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="500">Gemini 4 Neon (XHigh) ⌃</text>
+  <line x1="268" y1="287" x2="268" y2="307" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1"/>
+  <circle cx="282" cy="297" r="3" fill="#8bb19b"/>
+  <rect x="294" y="283" width="101" height="28" rx="6" fill="#292b2e" stroke="#41454d" stroke-opacity="0.7"/>
+  <g transform="translate(303 290) scale(0.875)"><path d="M3 12a6 6 0 1 1 10 0M8 9l3-4" fill="none" stroke="#adb2ba" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="323" y="301.5" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12" font-weight="500" font-variant-numeric="tabular-nums">104.2 tok/s</text>
+  <g transform="translate(412 290) scale(0.875)"><ellipse cx="8" cy="4" rx="5" ry="2" fill="none" stroke="#adb2ba" stroke-width="1.35"/><path d="M3 4v8c0 2 10 2 10 0V4M3 8c0 2 10 2 10 0" fill="none" stroke="#adb2ba" stroke-width="1.35"/></g>
+  <text x="432" y="301.5" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12" font-weight="500" font-variant-numeric="tabular-nums">116.8M tok · Cache hit 86.4%</text>
+  <circle cx="627" cy="297" r="6.2" fill="none" stroke="#565c67" stroke-width="2.2"/>
+  <circle cx="627" cy="297" r="6.2" fill="none" stroke="#85a8ff" stroke-width="2.2" stroke-dasharray="22.59 38.96" stroke-linecap="round" transform="rotate(-90 627 297)"/>
+  <text x="641" y="301.5" fill="#e1e3e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12" font-weight="500" font-variant-numeric="tabular-nums">Ctx 58%</text>
+  <rect x="707" y="283" width="104" height="28" rx="6" fill="#d7b079" fill-opacity="0.14" stroke="#d7b079" stroke-opacity="0.3"/>
+  <g transform="translate(716 290) scale(0.875)"><path d="M8 2.4 14 13H2L8 2.4ZM8 6.4v3.1m0 1.8h.01" fill="none" stroke="#d7b079" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="736" y="301.5" fill="#d7b079" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12" font-weight="500" font-variant-numeric="tabular-nums">Waiting 18s</text>
+  <g transform="translate(1054 289) scale(1)"><rect x="5.5" y="2" width="5" height="8" rx="2.5" fill="none" stroke="#b9c1cd" stroke-width="1.35"/><path d="M3.5 7.5v1a4.5 4.5 0 0 0 9 0v-1M8 13v2" fill="none" stroke="#b9c1cd" stroke-width="1.35" stroke-linecap="round"/></g>
+  <circle cx="1104" cy="297" r="15" fill="#343c49"/>
+  <g transform="translate(1096 289) scale(1)"><path d="M8 13V3.5m-4 4 4-4 4 4" fill="none" stroke="#d5dcea" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <circle cx="56" cy="364" r="3.5" fill="#85a8ff"/>
+  <text x="67" y="368.5" fill="#c2cee0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="500">Per-Request Log (TTFT · Total · TPS)</text>
+  <circle cx="336" cy="364" r="3.5" fill="#8bb19b"/>
+  <text x="347" y="368.5" fill="#c2cee0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="500">Weekly &amp; 5h Quota Reset Cycles</text>
+  <circle cx="580" cy="364" r="3.5" fill="#d7b079"/>
+  <text x="591" y="368.5" fill="#c2cee0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="500">API-Equivalent USD Cost</text>
+  <circle cx="781" cy="364" r="3.5" fill="#9b8cff"/>
+  <text x="792" y="368.5" fill="#c2cee0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="500">Rust Native Engine &amp; Account Isolation</text>
+  <line x1="52" y1="392" x2="1148" y2="392" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
+  <text x="52" y="416" fill="#7f8c9f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11">Pure SVG UI illustration · Built for Antigravity Desktop / IDE / CLI (v2.21.1 – v2.34.0+)</text>
+  <text x="1148" y="416" fill="#7f8c9f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" text-anchor="end">Synthetic sample data</text>
+</svg>
